@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="TerraDuckTel">
+  <title>TerraDuckTel</title>
+  
+  <defs>
+    <linearGradient id="td-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f6f6c"></stop>
+      <stop offset="60%" stop-color="#2f8a85"></stop>
+      <stop offset="100%" stop-color="#5eb85a"></stop>
+    </linearGradient>
+  </defs>
+  
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0e1f1d"></rect>
+  
+  <path d="M10 30 L24 18 L26 28 L20 32 L28 32 L22 40 Z" fill="url(#td-grad)" opacity="0.95"></path>
+  
+  <path d="M22 36 Q34 26 46 30 L52 28 L50 34 L44 36 Q34 40 26 42 Z" fill="url(#td-grad)"></path>
+  
+  <path d="M46 30 L54 28 L56 32 L52 33 Z" fill="#5eb85a"></path>
+  <circle cx="50" cy="30" r="1.2" fill="#0e1f1d"></circle>
+  
+  <path d="M30 30 L46 16 L44 26 L38 30 Z" fill="#1f6f6c" opacity="0.85"></path>
+  
+  <path d="M22 40 L18 46 L26 42 Z" fill="#2f8a85"></path>
+</svg>

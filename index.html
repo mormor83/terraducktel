@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terraducktel — Terraform &amp; Helm orchestration, self-hosted</title>
+<meta name="description" content="Plan, gate, apply, and track drift across every AWS account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
+<link rel="icon" href="assets/terraducktel-mark.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0a1613;
+    --ink-soft:#0f1e1b;
+    --ink-card:#132723;
+    --line: rgba(234,243,240,0.09);
+    --teal:#2f8a85;
+    --teal-deep:#1a5854;
+    --teal-bright:#4db3ac;
+    --spring:#5eb85a;
+    --amber:#d9a441;
+    --mist:#eaf3f0;
+    --mist-soft:rgba(234,243,240,0.68);
+    --mist-faint:rgba(234,243,240,0.44);
+    --maxw:1180px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto}
+    *{animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important}
+  }
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--mist);
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  h1,h2,h3{font-family:'Space Grotesk',system-ui,sans-serif; margin:0; letter-spacing:-0.01em}
+  .mono{font-family:'JetBrains Mono',monospace}
+  a{color:inherit}
+  a:focus-visible, button:focus-visible{
+    outline:2px solid var(--spring); outline-offset:3px; border-radius:4px;
+  }
+  img{max-width:100%; display:block}
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 28px}
+
+  /* ---------- nav ---------- */
+  .nav{
+    position:sticky; top:0; z-index:50;
+    backdrop-filter:blur(14px) saturate(140%);
+    background:rgba(10,22,19,0.72);
+    border-bottom:1px solid var(--line);
+  }
+  .nav .wrap{display:flex; align-items:center; justify-content:space-between; height:68px}
+  .brand{display:flex; align-items:center; gap:10px; text-decoration:none}
+  .brand img{width:30px; height:30px}
+  .brand span{font-family:'Space Grotesk'; font-weight:700; font-size:1.05rem; letter-spacing:-0.01em; color:var(--mist)}
+  .navlinks{display:flex; align-items:center; gap:30px}
+  .navlinks a{
+    text-decoration:none; color:var(--mist-soft); font-size:0.92rem; font-weight:500;
+    transition:color .15s;
+  }
+  .navlinks a:hover{color:var(--mist)}
+  .gh-btn{
+    display:inline-flex; align-items:center; gap:8px;
+    background:linear-gradient(135deg, var(--teal) 0%, var(--teal-deep) 100%);
+    color:#f4fbfa !important; text-decoration:none;
+    padding:9px 16px; border-radius:8px; font-size:0.88rem; font-weight:600;
+    border:1px solid rgba(234,243,240,0.14);
+    box-shadow:0 1px 0 rgba(255,255,255,0.06) inset;
+    transition:transform .15s, box-shadow .15s;
+    white-space:nowrap;
+  }
+  .gh-btn:hover{transform:translateY(-1px); box-shadow:0 6px 18px rgba(47,138,133,0.35)}
+  .gh-btn svg{width:15px; height:15px; flex:none}
+  @media (max-width:760px){
+    .navlinks{display:none}
+    .brand span{font-size:0.95rem}
+    .gh-btn{padding:8px 12px; font-size:0.82rem}
+  }
+  @media (max-width:400px){
+    .gh-btn span{display:none}
+  }
+
+  /* ---------- hero / orbit scene ---------- */
+  .hero{
+    position:relative;
+    padding-top:88px;
+    padding-bottom:0;
+    overflow:hidden;
+    background:
+      radial-gradient(ellipse 90% 55% at 50% 0%, rgba(47,138,133,0.20), transparent 60%),
+      linear-gradient(180deg, var(--ink) 0%, #0a1613 55%, #081210 100%);
+  }
+  .stars{position:absolute; inset:0; z-index:0; pointer-events:none}
+  .star{
+    position:absolute; width:2px; height:2px; border-radius:50%;
+    background:#eaf3f0; opacity:.5;
+    animation:twinkle 4.5s ease-in-out infinite;
+  }
+  .star.big{width:3px;height:3px; box-shadow:0 0 6px 1px rgba(234,243,240,0.6)}
+  @keyframes twinkle{ 0%,100%{opacity:.15} 50%{opacity:.9} }
+
+  .hero-inner{position:relative; z-index:2; text-align:center; padding:64px 28px 40px}
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:9px;
+    font-size:0.74rem; letter-spacing:0.14em; text-transform:uppercase;
+    color:var(--teal-bright); font-weight:600; margin-bottom:22px;
+  }
+  .eyebrow::before, .eyebrow::after{content:""; width:22px; height:1px; background:currentColor; opacity:.5}
+  .hero h1{
+    font-size:clamp(2.4rem, 6vw, 4.6rem);
+    font-weight:700; line-height:1.04; color:var(--mist);
+    margin:0 auto 22px; max-width:920px;
+  }
+  .hero h1 em{
+    font-style:normal;
+    background:linear-gradient(100deg, var(--teal-bright), var(--spring) 60%, var(--amber));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .hero p.lede{
+    max-width:600px; margin:0 auto 34px; color:var(--mist-soft);
+    font-size:1.1rem; line-height:1.6;
+  }
+  .hero-ctas{display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; margin-bottom:10px}
+  .btn{
+    display:inline-flex; align-items:center; gap:9px;
+    padding:13px 24px; border-radius:10px; font-weight:600; font-size:0.96rem;
+    text-decoration:none; transition:transform .15s, box-shadow .15s, background .15s;
+  }
+  .btn-primary{
+    background:linear-gradient(135deg, var(--teal-bright), var(--teal-deep));
+    color:#06110f;
+    box-shadow:0 8px 24px rgba(47,138,133,0.30);
+  }
+  .btn-primary:hover{transform:translateY(-2px); box-shadow:0 12px 30px rgba(47,138,133,0.42)}
+  .btn-ghost{
+    background:rgba(234,243,240,0.05); color:var(--mist);
+    border:1px solid rgba(234,243,240,0.18);
+  }
+  .btn-ghost:hover{background:rgba(234,243,240,0.1); transform:translateY(-2px)}
+  .btn svg{width:16px;height:16px}
+
+  .trust-line{
+    margin-top:26px; font-size:0.82rem; color:var(--mist-faint);
+    display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;
+  }
+  .trust-line .dot{width:3px;height:3px;border-radius:50%;background:var(--mist-faint)}
+
+  /* orbit flight scene */
+  .orbit{
+    position:relative; height:min(46vw, 460px); min-height:280px;
+    margin-top:26px;
+  }
+  .duck-fly{
+    position:absolute; top:14%; left:-10%;
+    width:64px; height:64px;
+    animation:fly-across 13s linear infinite;
+    filter:drop-shadow(0 0 18px rgba(94,184,90,0.45));
+  }
+  .duck-fly img{width:100%;height:100%; animation:bob 2.6s ease-in-out infinite}
+  @keyframes fly-across{
+    0%{ left:-10%; top:20%; transform:rotate(-4deg) scale(0.9)}
+    45%{ top:8%; transform:rotate(3deg) scale(1.05)}
+    100%{ left:108%; top:24%; transform:rotate(-2deg) scale(0.95)}
+  }
+  @keyframes bob{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+  .trail{
+    position:absolute; inset:0; width:100%; height:100%;
+  }
+  .trail path{
+    fill:none; stroke:url(#trailGrad); stroke-width:2; stroke-linecap:round;
+    stroke-dasharray:6 10; opacity:.55;
+    animation:dash 2.4s linear infinite;
+  }
+  @keyframes dash{ to{ stroke-dashoffset:-160 } }
+
+  .terrain{
+    position:absolute; left:0; right:0; bottom:0; height:62%;
+    background:
+      linear-gradient(180deg, transparent 0%, rgba(10,22,19,0.0) 30%, rgba(8,18,16,0.9) 78%, #081210 100%);
+    perspective:340px; overflow:hidden;
+  }
+  .grid-floor{
+    position:absolute; left:-50%; right:-50%; bottom:-10%; height:220%;
+    background-image:
+      linear-gradient(rgba(77,179,172,0.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(77,179,172,0.35) 1px, transparent 1px);
+    background-size:64px 64px;
+    transform:rotateX(62deg);
+    -webkit-mask-image:radial-gradient(ellipse 70% 90% at 50% 10%, #000 30%, transparent 72%);
+    mask-image:radial-gradient(ellipse 70% 90% at 50% 10%, #000 30%, transparent 72%);
+    animation:drift 7s linear infinite;
+  }
+  @keyframes drift{ from{background-position:0 0} to{background-position:0 64px} }
+  .node{
+    position:absolute; width:7px; height:7px; border-radius:50%;
+    background:var(--spring); box-shadow:0 0 12px 3px rgba(94,184,90,0.7);
+    animation:pulse-node 3s ease-in-out infinite;
+  }
+  @keyframes pulse-node{ 0%,100%{opacity:.55; transform:scale(1)} 50%{opacity:1; transform:scale(1.3)} }
+
+  /* ---------- sections shared ---------- */
+  section{position:relative; padding:110px 0}
+  .section-alt{background:var(--ink-soft); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
+  .kicker{
+    font-family:'JetBrains Mono'; font-size:0.76rem; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--spring); margin-bottom:14px; font-weight:600;
+  }
+  .section-head{max-width:640px; margin-bottom:56px}
+  .section-head h2{font-size:clamp(1.7rem,3.4vw,2.5rem); color:var(--mist); margin-bottom:16px}
+  .section-head p{color:var(--mist-soft); font-size:1.05rem; line-height:1.65; margin:0}
+
+  /* ---------- why / compare ---------- */
+  .compare{display:grid; grid-template-columns:1fr 1fr; gap:22px}
+  @media (max-width:760px){ .compare{grid-template-columns:1fr} }
+  .panel{
+    border-radius:16px; padding:30px 28px; border:1px solid var(--line);
+  }
+  .panel-td{
+    background:linear-gradient(160deg, rgba(47,138,133,0.16), rgba(94,184,90,0.05));
+    border-color:rgba(77,179,172,0.35);
+  }
+  .panel-saas{ background:rgba(234,243,240,0.03) }
+  .panel h3{font-size:1.15rem; margin-bottom:20px; display:flex; align-items:center; gap:10px}
+  .panel-td h3::before{content:"●"; color:var(--spring); font-size:.7rem}
+  .panel-saas h3::before{content:"●"; color:var(--mist-faint); font-size:.7rem}
+  .panel ul{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:15px}
+  .panel li{
+    font-size:0.95rem; color:var(--mist-soft); line-height:1.5;
+    padding-left:22px; position:relative;
+  }
+  .panel-td li::before{content:"✓"; position:absolute; left:0; color:var(--spring); font-weight:700}
+  .panel-saas li::before{content:"–"; position:absolute; left:0; color:var(--mist-faint)}
+  .panel li b{color:var(--mist); font-weight:600}
+
+  /* ---------- pipeline / screenshots ---------- */
+  .stage{
+    display:grid; grid-template-columns:0.85fr 1.15fr; gap:56px; align-items:center;
+    padding:56px 0; border-bottom:1px solid var(--line);
+  }
+  .stage:last-child{border-bottom:none}
+  .stage:nth-child(even){grid-template-columns:1.15fr 0.85fr}
+  .stage:nth-child(even) .stage-shot{order:2}
+  .stage:nth-child(even) .stage-copy{order:1}
+  @media (max-width:860px){
+    .stage, .stage:nth-child(even){grid-template-columns:1fr; gap:26px}
+    .stage-shot, .stage:nth-child(even) .stage-shot{order:1 !important}
+    .stage-copy, .stage:nth-child(even) .stage-copy{order:2 !important}
+  }
+  .stage-num{
+    font-family:'JetBrains Mono'; font-size:0.8rem; color:var(--teal-bright);
+    margin-bottom:14px; display:block; letter-spacing:.06em;
+  }
+  .stage-copy h3{font-size:1.5rem; color:var(--mist); margin-bottom:12px}
+  .stage-copy p{color:var(--mist-soft); font-size:1rem; line-height:1.65; margin:0}
+  .shot-frame{
+    border-radius:14px; overflow:hidden; border:1px solid var(--line);
+    box-shadow:0 30px 70px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02) inset;
+    background:#050b0a;
+  }
+  .shot-chrome{
+    display:flex; gap:6px; padding:11px 14px; background:#0c1a17; border-bottom:1px solid var(--line);
+  }
+  .shot-chrome span{width:9px; height:9px; border-radius:50%; background:rgba(234,243,240,0.15)}
+  .shot-frame img{width:100%; display:block}
+
+  /* ---------- features ---------- */
+  .feat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:16px; overflow:hidden}
+  @media (max-width:860px){ .feat-grid{grid-template-columns:repeat(2,1fr)} }
+  @media (max-width:560px){ .feat-grid{grid-template-columns:1fr} }
+  .feat{background:var(--ink); padding:32px 28px}
+  .feat .glyph{
+    width:34px; height:34px; margin-bottom:18px;
+    color:var(--spring);
+  }
+  .feat h4{font-size:1.02rem; color:var(--mist); margin-bottom:10px; font-weight:600; font-family:'Inter'}
+  .feat p{font-size:0.9rem; color:var(--mist-soft); line-height:1.55; margin:0}
+
+  /* ---------- quickstart ---------- */
+  .quickstart{display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:center}
+  @media (max-width:860px){ .quickstart{grid-template-columns:1fr} }
+  .term{
+    background:#050b0a; border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    box-shadow:0 30px 70px -25px rgba(0,0,0,0.7);
+  }
+  .term-bar{display:flex; gap:6px; padding:12px 16px; background:#0c1a17; border-bottom:1px solid var(--line)}
+  .term-bar span{width:10px;height:10px;border-radius:50%; background:rgba(234,243,240,0.15)}
+  .term pre{margin:0; padding:24px; font-family:'JetBrains Mono'; font-size:0.85rem; line-height:1.85; overflow-x:auto}
+  .term .c1{color:var(--mist-faint)}
+  .term .c2{color:var(--spring)}
+  .term .c3{color:var(--teal-bright)}
+
+  /* ---------- CTA footer band ---------- */
+  .cta-band{
+    text-align:center; padding:120px 0;
+    background:radial-gradient(ellipse 80% 100% at 50% 100%, rgba(94,184,90,0.14), transparent 70%);
+  }
+  .cta-band h2{font-size:clamp(1.8rem,4vw,2.8rem); color:var(--mist); margin-bottom:18px}
+  .cta-band p{color:var(--mist-soft); max-width:520px; margin:0 auto 34px; font-size:1.05rem}
+
+  footer{border-top:1px solid var(--line); padding:44px 0}
+  .foot-row{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px}
+  .foot-brand{display:flex; align-items:center; gap:10px; color:var(--mist-faint); font-size:0.88rem}
+  .foot-brand img{width:20px;height:20px}
+  .foot-links{display:flex; gap:26px; flex-wrap:wrap}
+  .foot-links a{font-size:0.88rem; color:var(--mist-soft); text-decoration:none}
+  .foot-links a:hover{color:var(--mist)}
+
+  .reveal{opacity:0; transform:translateY(18px); transition:opacity .7s ease, transform .7s ease}
+  .reveal.in{opacity:1; transform:none}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <img src="assets/terraducktel-mark.svg" alt="">
+      <span>Terraducktel</span>
+    </a>
+    <div class="navlinks">
+      <a href="#why">Why</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#features">Features</a>
+      <a href="#quickstart">Quick start</a>
+    </div>
+    <a class="gh-btn" href="https://github.com/mormor83/terraducktel" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      <span>Star on GitHub</span>
+    </a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="stars" id="stars"></div>
+
+  <div class="hero-inner">
+    <div class="eyebrow">SELF-HOSTED · TERRAFORM + HELM · ZERO SEAT LICENSES</div>
+    <h1>Infrastructure changes,<br><em>cleared for launch.</em></h1>
+    <p class="lede">Terraducktel plans, scans, and gates every Terraform and Helm change before it
+      touches production — running entirely on your own <span class="mono" style="font-size:0.92em">docker compose</span>,
+      for the cost of nothing per seat.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/mormor83/terraducktel" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        View on GitHub
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/mormor83/terraducktel#readme" target="_blank" rel="noopener">
+        Read the docs →
+      </a>
+    </div>
+    <div class="trust-line">
+      <span>MIT licensed</span><span class="dot"></span>
+      <span>Runs on docker compose</span><span class="dot"></span>
+      <span>Your state, your S3, your rules</span>
+    </div>
+  </div>
+
+  <div class="orbit" aria-hidden="true">
+    <svg class="trail" viewBox="0 0 1000 300" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="trailGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#5eb85a" stop-opacity="0"/>
+          <stop offset="100%" stop-color="#5eb85a" stop-opacity="0.9"/>
+        </linearGradient>
+      </defs>
+      <path d="M -50 90 Q 200 40, 450 65 T 1050 55"></path>
+    </svg>
+    <div class="duck-fly"><img src="assets/duck-flying.svg" alt="Terraducktel"></div>
+    <div class="terrain">
+      <div class="grid-floor"></div>
+      <div class="node" style="left:22%; top:18%"></div>
+      <div class="node" style="left:47%; top:32%; animation-delay:.6s"></div>
+      <div class="node" style="left:68%; top:14%; animation-delay:1.2s"></div>
+      <div class="node" style="left:81%; top:38%; animation-delay:1.8s"></div>
+      <div class="node" style="left:34%; top:46%; animation-delay:2.4s"></div>
+    </div>
+  </div>
+</header>
+
+<section id="why">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Why self-hosted</div>
+      <h2>The same discipline as a SaaS orchestrator. None of the toll booth.</h2>
+      <p>Terraform Cloud, Spacelift, and friends are great — until the per-seat bill lands, or
+        your state and cloud credentials leave your network. Terraducktel is the boring version
+        of the same idea: a small FastAPI orchestrator, Postgres, and your own S3.</p>
+    </div>
+    <div class="compare reveal">
+      <div class="panel panel-td">
+        <h3>Terraducktel</h3>
+        <ul>
+          <li><b>Free, self-hosted</b> — one <span class="mono">docker compose up</span> away</li>
+          <li><b>Your own S3 + Postgres</b> hold state and credentials, always</li>
+          <li><b>Business Units</b> multi-tenancy built in, no paid tier</li>
+          <li><b>Helm workspaces</b> run through the same gated pipeline as Terraform</li>
+          <li>It's a FastAPI app — <b>fork it, read it, change it</b></li>
+        </ul>
+      </div>
+      <div class="panel panel-saas">
+        <h3>Typical SaaS orchestrator</h3>
+        <ul>
+          <li>Per-seat or per-workspace pricing that scales with your team</li>
+          <li>State and credentials live in their cloud, not yours</li>
+          <li>Multi-tenancy is often gated behind an enterprise tier</li>
+          <li>Helm/Kubernetes support is rare, or bolted on separately</li>
+          <li>Customization is whatever the vendor's roadmap allows</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pipeline" class="section-alt">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">The pipeline</div>
+      <h2>Watch a change all the way from plan to production.</h2>
+      <p>Every run walks the same gated path — clone, scan, plan, price, approve, apply — and
+        every step is visible while it happens, not after.</p>
+    </div>
+
+    <div class="stage reveal">
+      <div class="stage-shot shot-frame">
+        <div class="shot-chrome"><span></span><span></span><span></span></div>
+        <img src="assets/dashboard.png" alt="Terraducktel dashboard showing workspaces grouped by AWS account, with drift and approval status" loading="lazy">
+      </div>
+      <div class="stage-copy">
+        <span class="stage-num">01 — SEE EVERYTHING</span>
+        <h3>Every workspace, one dashboard.</h3>
+        <p>Grouped by AWS account and region, with live drift status and a running count of
+          what's waiting on you. Import a whole repo's worth of stacks in one pass, or add
+          workspaces by hand.</p>
+      </div>
+    </div>
+
+    <div class="stage reveal">
+      <div class="stage-shot shot-frame">
+        <div class="shot-chrome"><span></span><span></span><span></span></div>
+        <img src="assets/run-detail.png" alt="Run detail page showing a green step-by-step Terraform pipeline timeline" loading="lazy">
+      </div>
+      <div class="stage-copy">
+        <span class="stage-num">02 — WATCH IT HAPPEN</span>
+        <h3>Clone, Checkov, plan, price — step by step.</h3>
+        <p>Each run streams its output live: git clone, security scan, Terraform plan, OPA
+          policy check, cost estimate. If something's going to fail, you see exactly where.</p>
+      </div>
+    </div>
+
+    <div class="stage reveal">
+      <div class="stage-shot shot-frame">
+        <div class="shot-chrome"><span></span><span></span><span></span></div>
+        <img src="assets/approvals.png" alt="Approvals queue showing a production apply awaiting operator approval" loading="lazy">
+      </div>
+      <div class="stage-copy">
+        <span class="stage-num">03 — STAY IN CONTROL</span>
+        <h3>Nothing applies without a human saying so.</h3>
+        <p>Every apply parks at <span class="mono" style="font-size:.9em">awaiting_approval</span>
+          until an operator reviews the exact plan and clicks approve. Any operator — including
+          whoever triggered it. Every decision lands in the audit log.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">What's inside</div>
+      <h2>Everything a Terraform orchestrator should do, none of what it shouldn't.</h2>
+    </div>
+    <div class="feat-grid reveal">
+      <div class="feat">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
+        <h4>Per-account state isolation</h4>
+        <p>Each AWS account gets its own dedicated S3 bucket. The state path mirrors your git
+          layout, 1:1.</p>
+      </div>
+      <div class="feat">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <h4>Encrypted credentials at rest</h4>
+        <p>AWS keys, GitHub PATs, Slack URLs — Fernet-encrypted with an HKDF-derived key.
+          Plaintext never leaves the request handler.</p>
+      </div>
+      <div class="feat">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 12h6M3 12l3-3M3 12l3 3"/></svg>
+        <h4>Drift detection</h4>
+        <p>A background worker periodically plans every workspace and surfaces drift right on
+          the dashboard.</p>
+      </div>
+      <div class="feat">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h16v4H4zM4 10h10v4H4zM4 16h13v4H4z"/></svg>
+        <h4>Git-tree workspace import</h4>
+        <p>Point it at a repo that follows <span class="mono" style="font-size:.85em">account/region/leaf</span>
+          and bulk-import every stack, with environment auto-detected per leaf.</p>
+      </div>
+      <div class="feat">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg>
+        <h4>Helm, through the same gate</h4>
+        <p>Target a Kubernetes cluster instead of an AWS account. <span class="mono" style="font-size:.85em">helm diff</span>
+          replaces plan, same approval FSM, same audit trail.</p>
+      </div>
+      <div class="feat">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        <h4>Multi-tenant Business Units</h4>
+        <p>Each BU owns its own accounts, clusters, and workspaces. Superadmins see across all
+          of them for break-glass ops.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart" class="section-alt">
+  <div class="wrap">
+    <div class="quickstart">
+      <div class="reveal">
+        <div class="kicker">Quick start</div>
+        <h2 style="font-size:clamp(1.6rem,3vw,2.2rem); color:var(--mist); margin-bottom:18px">Running in the time it takes to read this.</h2>
+        <p style="color:var(--mist-soft); font-size:1rem; line-height:1.7; margin-bottom:0">
+          Clone it, set four values in <span class="mono" style="font-size:.9em">.env</span>, and bring up
+          Postgres, LocalStack, the API, and the UI. Sign in with the seeded admin account and
+          import your first workspace straight from Git.
+        </p>
+      </div>
+      <div class="term reveal">
+        <div class="term-bar"><span></span><span></span><span></span></div>
+        <pre><span class="c1"># clone &amp; configure</span>
+git clone https://github.com/mormor83/terraducktel.git
+<span class="c2">cd</span> terraducktel &amp;&amp; cp .env.example .env
+
+<span class="c1"># bring it up</span>
+docker compose up -d postgres localstack api ui
+docker compose exec -T api alembic upgrade head
+docker compose exec -T api python scripts/seed_dev_users.py
+
+<span class="c1"># → </span><span class="c3">http://localhost:3001</span>
+<span class="c1"># → admin@test.com / password123</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="cta-band">
+  <div class="wrap">
+    <h2>Your infrastructure. Your rules.<br>Your duck.</h2>
+    <p>MIT licensed, no telemetry, no seat count. Fork it, run it, break it, fix it.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/mormor83/terraducktel" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        Get Terraducktel
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-row">
+    <div class="foot-brand">
+      <img src="assets/terraducktel-mark.svg" alt="">
+      <span>Terraducktel — self-hosted Terraform &amp; Helm orchestration</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/mormor83/terraducktel" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/mormor83/terraducktel/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+      <a href="https://github.com/mormor83/terraducktel/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // starfield
+  (function(){
+    var field = document.getElementById('stars');
+    var n = window.innerWidth < 700 ? 60 : 120;
+    for (var i=0;i<n;i++){
+      var s = document.createElement('div');
+      s.className = 'star' + (Math.random() < 0.12 ? ' big' : '');
+      s.style.left = (Math.random()*100)+'%';
+      s.style.top = (Math.random()*100)+'%';
+      s.style.animationDelay = (Math.random()*4.5)+'s';
+      s.style.animationDuration = (3.2 + Math.random()*3)+'s';
+      field.appendChild(s);
+    }
+  })();
+
+  // scroll reveal (with a hard fallback so content never stays hidden)
+  (function(){
+    var els = document.querySelectorAll('.reveal');
+    function revealAll(){ els.forEach(function(e){ e.classList.add('in'); }); }
+    if (!('IntersectionObserver' in window)){ revealAll(); return; }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if (en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); }
+      });
+    }, {threshold:0.1, rootMargin:'0px 0px -10% 0px'});
+    els.forEach(function(e){ io.observe(e); });
+    window.setTimeout(revealAll, 1800); // belt-and-suspenders: never leave content invisible
+  })();
+
+  // live star count (best-effort, fails silently offline)
+  fetch('https://api.github.com/repos/mormor83/terraducktel')
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      if (d && typeof d.stargazers_count === 'number' && d.stargazers_count > 0){
+        var btns = document.querySelectorAll('.gh-btn span:last-child');
+        btns.forEach(function(b){ b.textContent = 'Star on GitHub · ' + d.stargazers_count; });
+      }
+    }).catch(function(){});
+</script>
+</body>
+</html>
