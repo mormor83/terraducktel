@@ -1,0 +1,18 @@
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Node / UI build artifacts
+node_modules/
+dist/
+
+# Claude Code per-project session state (settings.local.json, scheduled_tasks.lock)
+.claude/
+
+# Local test venv
+services/api/.venv/
+.coverage
+htmlcov/

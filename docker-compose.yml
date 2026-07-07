@@ -1,0 +1,306 @@
+name: terraducktel
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: terraducktel
+      POSTGRES_USER: terraducktel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U terraducktel -d terraducktel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  localstack:
+    image: localstack/localstack:3
+    restart: unless-stopped
+    ports:
+      # Loopback-only: LocalStack S3 stores tfstate (secrets) with no auth.
+      - "127.0.0.1:4566:4566"
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
+    volumes:
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:3000"
+    environment:
+      FORGEJO__database__DB_TYPE: postgres
+      FORGEJO__database__HOST: postgres:5432
+      FORGEJO__database__NAME: forgejo
+      FORGEJO__database__USER: terraducktel
+      FORGEJO__database__PASSWD: ${POSTGRES_PASSWORD}
+      FORGEJO__server__DOMAIN: localhost
+      FORGEJO__server__HTTP_PORT: 3000
+      FORGEJO__server__ROOT_URL: http://localhost:3002/
+    volumes:
+      - forgejo-data:/data
+      - ./forgejo/app.ini.template:/etc/forgejo/app.ini.template:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  act_runner:
+    image: gitea/act_runner:0.2.11
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/.runner || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    environment:
+      GITEA_INSTANCE_URL: http://forgejo:3000
+      GITEA_RUNNER_REGISTRATION_TOKEN: ${GITEA_RUNNER_REGISTRATION_TOKEN}
+      GITEA_RUNNER_NAME: local-runner
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - act-runner-data:/data
+    depends_on:
+      forgejo:
+        condition: service_healthy
+
+  api:
+    build:
+      context: services/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      # Loopback-only: reaching the API directly bypasses the nginx/traefik
+      # TLS + CSP + security-header layer. Public traffic goes via traefik 80/443.
+      - "127.0.0.1:8001:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      TERRADUCKTEL_STATE_TOKEN: ${TERRADUCKTEL_STATE_TOKEN}
+      # Guards /api/v1/internal/* (cross-tenant workspace list, plaintext AWS
+      # creds, GitHub token, auto-delete). Given to drift-detector and
+      # liveness-detector ONLY — deliberately absent from the executor's env
+      # below, since an executor runs a workspace's own Terraform/Helm code.
+      TERRADUCKTEL_INTERNAL_TOKEN: ${TERRADUCKTEL_INTERNAL_TOKEN}
+      S3_USE_LOCALSTACK: "true"
+      S3_STATE_BUCKET: terraducktel-state
+      EXECUTOR_ENABLED: "true"
+      # 4-eyes approval is now branch-scoped: enforced for runs on `dev`, off
+      # elsewhere. The legacy TERRADUCKTEL_FOUR_EYES env var was removed in 012.
+      # The API needs the host path to forward to executor containers when a
+      # workspace's repo_url is `local://<container-path>`.
+      TERRADUCKTEL_LOCAL_REPOS_HOST_DIR: ${TERRADUCKTEL_LOCAL_REPOS_HOST_DIR:-}
+      # Dev-only: lets the admin scan a local mount without setting up Git auth.
+      # Production deployments should leave this UNSET — discovery will then
+      # require a remote git URL with optional username/token (PAT).
+      TERRADUCKTEL_LOCAL_REPOS_DIR: ${TERRADUCKTEL_LOCAL_REPOS_DIR:-}
+      # Compose project network the executor container is attached to so it
+      # can reach `http://api:8000` for run-step PATCH + Terraform HTTP state.
+      EXECUTOR_NETWORK: terraducktel_default
+      # Executor container hardening. Default on; set EXECUTOR_NO_NEW_PRIVS=false
+      # in your .env ONLY if your host kernel/runtime rejects execve under
+      # no-new-privileges (cap_drop=ALL + non-root user stay on regardless).
+      EXECUTOR_NO_NEW_PRIVS: ${EXECUTOR_NO_NEW_PRIVS:-true}
+      # Optional GitHub PAT passed through to executor containers so they can
+      # clone private terraform modules during `terraform init`. Long-term
+      # this should move to the encrypted Config table (`github.token`); the
+      # env-var path is the dev convenience.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      # Mount the host's git checkout directory read-only into the container so
+      # the discover endpoint can scan it. Empty string in `.env` disables.
+      - ${TERRADUCKTEL_LOCAL_REPOS_HOST_DIR:-/dev/null}:/mnt/local-repos:ro
+      # Required so the API can spawn sibling executor containers on the host
+      # Docker daemon (sibling pattern, not docker-in-docker).
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Grant the API process membership in the host docker group so it can talk
+    # to /var/run/docker.sock. The GID is host-specific; see `.env`.
+    group_add:
+      - ${DOCKER_GID:-1002}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ui:
+    build:
+      context: services/ui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3001:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  traefik:
+    image: traefik:v3.0
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # Dashboard: loopback-only. The insecure API/dashboard has no auth, so it
+      # must never be published on a routable interface. For prod,
+      # drop --api.insecure entirely and gate the dashboard behind auth.
+      - "127.0.0.1:18080:8080"
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--ping"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/certs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  drift-detector:
+    build:
+      context: services/drift-detector
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q detector.py /proc/1/cmdline || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+      # Guards /api/v1/internal/* (workspace list, drift report submit).
+      # Replaces the short-lived JWT-based DRIFT_DETECTOR_TOKEN.
+      TERRADUCKTEL_INTERNAL_TOKEN: ${TERRADUCKTEL_INTERNAL_TOKEN}
+      # Separately needed for the Terraform HTTP state backend (state fetch
+      # during drift analysis) — a different, narrower-scoped token than the
+      # one above. See app/auth/internal_token.py.
+      TERRADUCKTEL_STATE_TOKEN: ${TERRADUCKTEL_STATE_TOKEN}
+      API_URL: http://api:8000
+      DRIFT_RUN_TERRAFORM: "false"
+      DRIFT_INTERVAL_SEC: "300"
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  liveness-detector:
+    build:
+      context: services/liveness-detector
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Guards /api/v1/internal/* only — this service never touches Terraform
+      # state, so it does not need TERRADUCKTEL_STATE_TOKEN at all.
+      TERRADUCKTEL_INTERNAL_TOKEN: ${TERRADUCKTEL_INTERNAL_TOKEN}
+      API_URL: http://api:8000
+      LIVENESS_INTERVAL_SEC: "300"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  executor:
+    build:
+      # Context is the repo root so the image can COPY the bundled policies/
+      # rego defaults. See .dockerignore for what's excluded from the context.
+      context: .
+      dockerfile: services/executor/Dockerfile
+    image: terraducktel-executor:latest
+    profiles: ["executor"]
+    restart: "no"
+    environment:
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+      TERRADUCKTEL_STATE_TOKEN: ${TERRADUCKTEL_STATE_TOKEN}
+    networks:
+      - terraducktel
+
+  # Helm/Kubernetes executor — same entrypoint (branches on WORKSPACE_KIND),
+  # image adds helm + kubectl + helm-diff + kubeconform. Launched per-run for
+  # helm-kind workspaces (the API picks this image via EXECUTOR_HELM_IMAGE).
+  # Build locally with: docker compose --profile executor build executor-helm
+  executor-helm:
+    build:
+      context: .
+      dockerfile: services/executor/Dockerfile.helm
+    image: terraducktel-executor-helm:latest
+    profiles: ["executor"]
+    restart: "no"
+    environment:
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+    networks:
+      - terraducktel
+
+  pg-backup:
+    build:
+      context: services/pg-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_USER: terraducktel
+      PG_DB: terraducktel
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_INTERVAL_SECONDS: "21600"
+      BACKUP_RETENTION_DAYS: "7"
+    volumes:
+      - pg-backups:/backups
+    # No explicit `networks:` block — postgres doesn't declare one either, so
+    # both land on `terraducktel_default` and DNS just works. The `terraducktel`
+    # named network is used only by services that need to talk to each other
+    # without going through the default bridge.
+
+volumes:
+  postgres-data:
+  localstack-data:
+  forgejo-data:
+  act-runner-data:
+  traefik-certs:
+  pg-backups:
+
+networks:
+  terraducktel:
+    driver: bridge

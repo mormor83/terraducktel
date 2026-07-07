@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and fill in. NEVER commit terraform.tfvars.
+# Prefer passing the secrets via TF_VAR_* environment variables in CI instead
+# of writing them to a file.
+
+aws_region  = "us-east-1"
+environment = "prod"
+
+# Hostname + ACM cert (cert must cover domain_name, in this region).
+domain_name         = "terraducktel.example.com"
+acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE-ME"
+
+# Optional: internal Route 53 zone to auto-create the domain_name -> ALB alias.
+# route53_zone_id = "Z0123456789ABCDEFGHIJ"
+
+# Optional: extra CIDRs allowed to reach the ALB (e.g. your VPN range).
+# trusted_ingress_cidrs = ["10.8.0.0/16"]
+
+# Image tag to deploy (push images to the created ECR repos first).
+image_tag = "v0.1.0"
+
+# ─── Secrets — generate real random values; do NOT reuse these ──────────────
+# Generate each with: python -c 'import secrets; print(secrets.token_urlsafe(32))'
+db_password               = "REPLACE-WITH-RANDOM-STRING"
+credential_encryption_key = "REPLACE-WITH-RANDOM-STRING"
+jwt_secret                = "REPLACE-WITH-RANDOM-STRING"
+state_token               = "REPLACE-WITH-RANDOM-STRING"
+internal_token            = "REPLACE-WITH-A-DIFFERENT-RANDOM-STRING"  # MUST differ from state_token

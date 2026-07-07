@@ -1,0 +1,17 @@
+# backend.tf.template — copy to backend.tf and fill in placeholders before use
+# The executor generates this file at run-time from workspace config.
+terraform {
+  backend "s3" {
+    bucket         = "{{STATE_BUCKET}}"
+    key            = "tfstate/{{ACCOUNT_ID}}/{{ENVIRONMENT}}/{{WORKSPACE}}/terraform.tfstate"
+    region         = "{{AWS_REGION}}"
+    # For LocalStack (local dev):
+    # endpoint                    = "http://localstack:4566"
+    # force_path_style            = true
+    # skip_credentials_validation = true
+    # skip_metadata_api_check     = true
+    # skip_region_validation      = true
+    # access_key                  = "test"
+    # secret_key                  = "test"
+  }
+}

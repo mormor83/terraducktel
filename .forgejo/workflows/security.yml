@@ -1,0 +1,31 @@
+name: Security Scan
+on:
+  push:
+  pull_request:
+
+jobs:
+  trivy-iac:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy IaC Scan
+        # Pinned to the v0.36.0 release commit (not @master) — same supply-chain
+        # rationale as the RT-0004 fix in ci.yml: an unpinned mutable ref would
+        # let a compromised upstream branch run arbitrary code in this workflow.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          config_file: .checkov.yaml
+          quiet: true
+          compact: true

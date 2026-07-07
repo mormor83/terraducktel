@@ -1,0 +1,7 @@
+soft-fail: false
+compact: true
+skip-check:
+  # Dockerfiles: healthchecks are declared explicitly per service in docker-compose
+  - CKV_DOCKER_2
+  # LocalStack dev endpoints in example Terraform are intentional
+  - CKV_AWS_52

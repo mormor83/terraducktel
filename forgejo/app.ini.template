@@ -1,0 +1,66 @@
+APP_NAME = Terraducktel Git
+RUN_USER = git
+RUN_MODE = prod
+WORK_PATH = /data/forgejo
+
+[repository]
+ROOT = /data/forgejo/repositories
+
+[server]
+PROTOCOL = http
+DOMAIN = ${FORGEJO_DOMAIN:-localhost}
+HTTP_PORT = 3000
+ROOT_URL = http://${FORGEJO_DOMAIN:-localhost}:3000/
+DISABLE_SSH = false
+SSH_PORT = 22
+LFS_START_SERVER = true
+LFS_JWT_SECRET = ${FORGEJO_LFS_JWT_SECRET}
+
+[database]
+DB_TYPE = postgres
+HOST = postgres:5432
+NAME = forgejo
+USER = terraducktel
+# Use the Postgres password, NOT the master credential-encryption key:
+# reusing CREDENTIAL_ENCRYPTION_KEY here would leak the key that decrypts every
+# stored AWS/Azure/kubeconfig secret into Forgejo's config file and onto the
+# (cleartext) DB link. Enable SSL_MODE (require/verify-full) once Postgres has TLS.
+PASSWD = ${POSTGRES_PASSWORD}
+SSL_MODE = disable
+LOG_SQL = false
+
+[indexer]
+ISSUE_INDEXER_TYPE = bleve
+REPO_INDEXER_ENABLED = true
+
+[session]
+PROVIDER = db
+
+[log]
+MODE = console
+LEVEL = info
+ROOT_PATH = /data/forgejo/log
+
+[security]
+INSTALL_LOCK = true
+SECRET_KEY = ${FORGEJO_SECRET_KEY}
+INTERNAL_TOKEN = ${FORGEJO_INTERNAL_TOKEN}
+PASSWORD_HASH_ALGO = bcrypt
+
+[service]
+REGISTER_EMAIL_CONFIRM = false
+ENABLE_NOTIFY_MAIL = false
+DISABLE_REGISTRATION = false
+ALLOW_ONLY_EXTERNAL_REGISTRATION = false
+ENABLE_CAPTCHA = false
+REQUIRE_SIGNIN_VIEW = false
+DEFAULT_KEEP_EMAIL_PRIVATE = true
+DEFAULT_ALLOW_CREATE_ORGANIZATION = true
+DEFAULT_ENABLE_TIMETRACKING = false
+NO_REPLY_ADDRESS = noreply@${FORGEJO_DOMAIN:-localhost}
+
+[mailer]
+ENABLED = false
+
+[webhook]
+ALLOWED_HOST_LIST = *

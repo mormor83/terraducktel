@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "terraducktel-api"
+version = "0.1.0"
+description = "Self-hosted Terraform orchestration API"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]",
+    "sqlalchemy>=2.0",
+    "alembic",
+    "asyncpg",
+    "psycopg2-binary>=2.9",
+    "python-jose[cryptography]",
+    "bcrypt>=4.0",
+    "cryptography",
+    "boto3",
+    "httpx",
+    "docker>=7.0",
+    # OIDC / SSO (generic IdP support). Lightweight.
+    "authlib>=1.3",
+    "itsdangerous>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "httpx",
+    "aiosqlite>=0.20",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: API integration / slow tests",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*"]

@@ -1,0 +1,10 @@
+# Never commit real values or state.
+terraform.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.tfstate.lock.info
+crash.log
+override.tf
+override.tf.json
+*_override.tf

@@ -1,0 +1,15 @@
+# Build-context excludes for the executor images, whose context is the repo
+# root (so they can COPY the bundled policies/ defaults). The api/ui/detector
+# images have their own per-service contexts and are unaffected by this file.
+.git
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+services/ui/dist
+services/ui/playwright-report
+services/ui/test-results
+docs
+forgejo
+terraform
+*.md

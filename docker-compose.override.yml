@@ -1,0 +1,14 @@
+# Dev overrides: hot reload for api and ui
+services:
+  api:
+    volumes:
+      - ./services/api/app:/app/app:ro
+    environment:
+      RELOAD: "true"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  ui:
+    volumes:
+      - ./services/ui/src:/app/src:ro
+    environment:
+      VITE_API_URL: http://localhost:8001

@@ -1,0 +1,96 @@
+# Helm/Kubernetes executor image. Shares the same Alpine base + entrypoint as
+# the terraform executor (services/executor/Dockerfile); the entrypoint
+# branches on WORKSPACE_KIND so one script drives both pipelines. The terraform
+# binary is still present (base image) and harmless for helm runs — keeping a
+# single entrypoint avoids divergence.
+#
+# Adds: helm, kubectl, the helm-diff plugin (powers `helm diff upgrade` = the
+# helm "plan"), and kubeconform (manifest schema linting).
+FROM hashicorp/terraform:1.10
+
+# Same expat/python upgrade rationale as the terraform Dockerfile — see comment
+# there. checkov is reused for any IaC-adjacent scanning; jq/yq/git/curl drive
+# the entrypoint helpers.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache python3 py3-pip curl wget bash git jq unzip openssl
+
+# yq (mike-farah) — parse terraducktel.yaml at runtime (helm: block).
+ARG YQ_VERSION=4.44.3
+RUN wget -q "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64" \
+    -O /usr/local/bin/yq \
+    && chmod +x /usr/local/bin/yq \
+    && yq --version
+
+# checkov (pinned) — kept so the lint step can fall back to it if desired and
+# to mirror the terraform image's toolset.
+ARG CHECKOV_VERSION=3.2.395
+RUN pip3 install --no-cache-dir checkov==${CHECKOV_VERSION} --break-system-packages
+
+# AWS CLI — EKS kubeconfigs authenticate via `aws eks get-token` (exec plugin)
+# at helm run time. v2 needs glibc and won't run on Alpine/musl, so we install
+# the pip package (v1), which also provides `eks get-token`.
+RUN pip3 install --no-cache-dir awscli --break-system-packages \
+    && aws --version
+
+# kubectl — tracks the target cluster's minor (EKS 1.35), resolved to the latest
+# patch of that line at build so it stays within the kubectl/apiserver
+# version-skew window. Bump KUBECTL_MINOR when clusters upgrade.
+ARG KUBECTL_MINOR=1.35
+RUN KVER=$(wget -qO- "https://dl.k8s.io/release/stable-${KUBECTL_MINOR}.txt") \
+    && wget -q "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl" \
+    -O /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl \
+    && kubectl version --client=true
+
+# helm — latest stable 3.x fetched at build (the official installer), so helm
+# stays compatible with current Kubernetes (EKS 1.35+); helm 3.15 was too old.
+# Static binary; works on Alpine.
+RUN wget -qO /tmp/get-helm-3 https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+    && bash /tmp/get-helm-3 \
+    && rm -f /tmp/get-helm-3 \
+    && helm version
+
+# kubeconform (pinned) — Kubernetes manifest schema validation in the lint step.
+ARG KUBECONFORM_VERSION=0.6.7
+RUN wget -q "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+    -O /tmp/kubeconform.tar.gz \
+    && tar -xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform \
+    && rm /tmp/kubeconform.tar.gz \
+    && chmod +x /usr/local/bin/kubeconform \
+    && kubeconform -v
+
+# conftest (OPA policy gate) — pinned to match the terraform + API images.
+# v1 skips the OPA step for helm runs, but shipping conftest keeps the images in
+# parity for the planned helm-manifest follow-up.
+ARG CONFTEST_VERSION=0.56.0
+RUN wget -q "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+    -O /tmp/conftest.tar.gz \
+    && tar -xzf /tmp/conftest.tar.gz -C /usr/local/bin conftest \
+    && rm /tmp/conftest.tar.gz \
+    && conftest --version
+
+# Bundled default policies (repo root context — see docker-compose.yml).
+COPY policies/ /opt/tdt/policies/bundled/
+
+# Create non-root user (matches the terraform image).
+RUN adduser -D -u 1001 executor
+
+WORKDIR /workspace
+RUN chown executor:executor /workspace
+
+# Install the helm-diff plugin into the executor user's HELM home so it is
+# available without root at runtime. Done as the executor user so the plugin
+# lands under that user's ~/.local/share/helm.
+USER executor
+
+ARG HELM_DIFF_VERSION=3.9.11
+RUN helm plugin install https://github.com/databus23/helm-diff --version "v${HELM_DIFF_VERSION}" \
+    && helm diff version
+
+USER root
+COPY services/executor/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+USER executor
+
+ENTRYPOINT ["/entrypoint.sh"]

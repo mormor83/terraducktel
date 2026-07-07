@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    font-family: var(--td-font-sans, "Inter", system-ui, sans-serif);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    background-color: var(--td-bg, #f6f7f4);
+    color: var(--td-text, #14201d);
+  }
+
+  /* Dark theme: flip the semantic neutral tokens. Tailwind's brand.{bg,
+     surface,...} map to these vars, so every `bg-brand-*` / `text-brand-*` /
+     `border-brand-*` utility becomes dark-appropriate and readable in dark mode
+     without per-component `dark:` overrides. Warm teal-tinted darks to stay
+     on-brand. */
+  [data-theme="dark"],
+  html.dark {
+    --td-bg:            #0a1513;
+    --td-surface:       #10211d;
+    --td-surface-2:     #16302b;
+    --td-border:        #21413b;
+    --td-border-strong: #305a52;
+    --td-muted:         #8fa8a1;
+    --td-text:          #eaf1ed;
+    --td-text-soft:     #b7c7c0;
+    --td-ink:           #070f0d;
+  }
+
+  [data-theme="dark"] body,
+  html.dark body {
+    background-color: var(--td-bg);
+    color: var(--td-text);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--td-font-display, "Space Grotesk", "Inter", system-ui, sans-serif);
+  }
+
+  code, pre, kbd, samp {
+    font-family: var(--td-font-mono, "JetBrains Mono", ui-monospace, monospace);
+  }
+
+  /* Custom scrollbar — warm to match the brand bg */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--td-surface-2, #f0f2ee);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--td-border-strong, #b9bfb4);
+    border-radius: 8px;
+    border: 2px solid var(--td-surface-2, #f0f2ee);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--td-muted, #6b7368);
+  }
+
+  /* Selection — brand teal */
+  ::selection {
+    background: rgba(31, 111, 108, 0.3);
+    color: var(--td-text, #14201d);
+  }
+}
+
+@layer utilities {
+  /* Staggered entrance used by the Inventory dashboard tiles + rows. */
+  @keyframes tdt-fade-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .tdt-fade-up {
+    animation: tdt-fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tdt-fade-up { animation: none; }
+  }
+}
