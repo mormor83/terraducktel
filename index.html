@@ -105,10 +105,33 @@
   }
   .gh-btn:hover{transform:translateY(-1px); box-shadow:0 6px 18px rgba(47,138,133,0.35)}
   .gh-btn svg{width:15px; height:15px; flex:none}
+  .nav-toggle{
+    display:none; align-items:center; justify-content:center;
+    width:42px; height:42px; margin-left:8px; padding:0;
+    background:rgba(234,243,240,0.05); border:1px solid var(--line);
+    border-radius:8px; color:var(--mist); cursor:pointer;
+  }
+  .nav-toggle svg{width:22px; height:22px}
+  .nav-toggle .ic-close{display:none}
+  .nav.open .nav-toggle .ic-open{display:none}
+  .nav.open .nav-toggle .ic-close{display:inline}
   @media (max-width:760px){
-    .navlinks{display:none}
     .brand span{font-size:0.95rem}
-    .gh-btn{padding:8px 12px; font-size:0.82rem}
+    .gh-btn{padding:10px 14px; font-size:0.82rem; margin-left:auto}
+    .nav-toggle{display:inline-flex}
+    .navlinks{
+      position:absolute; left:0; right:0; top:68px;
+      flex-direction:column; align-items:stretch; gap:0;
+      background:var(--ink);
+      border-bottom:1px solid var(--line);
+      box-shadow:0 20px 40px -18px rgba(0,0,0,0.7);
+      padding:6px 0;
+      transform:translateY(-10px); opacity:0; pointer-events:none;
+      transition:opacity .18s ease, transform .18s ease;
+    }
+    .navlinks a{padding:14px 28px; font-size:1rem}
+    .navlinks a:active{background:rgba(234,243,240,0.06)}
+    .nav.open .navlinks{transform:none; opacity:1; pointer-events:auto}
   }
   @media (max-width:400px){
     .gh-btn span{display:none}
@@ -174,7 +197,7 @@
   .btn svg{width:16px;height:16px}
 
   .trust-line{
-    margin-top:26px; font-size:0.82rem; color:var(--mist-faint);
+    margin-top:26px; font-size:0.82rem; color:var(--mist-soft);
     display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;
   }
   .trust-line .dot{width:3px;height:3px;border-radius:50%;background:var(--mist-faint)}
@@ -239,7 +262,7 @@
     font-family:'JetBrains Mono'; font-size:0.76rem; letter-spacing:0.12em; text-transform:uppercase;
     color:var(--spring); margin-bottom:14px; font-weight:600;
   }
-  .section-head{max-width:640px; margin-bottom:56px}
+  .section-head{max-width:720px; margin:0 auto 56px; text-align:center}
   .section-head h2{font-size:clamp(1.7rem,3.4vw,2.5rem); color:var(--mist); margin-bottom:16px}
   .section-head p{color:var(--mist-soft); font-size:1.05rem; line-height:1.65; margin:0}
 
@@ -393,7 +416,7 @@
 
   footer{border-top:1px solid var(--line); padding:44px 0}
   .foot-row{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px}
-  .foot-brand{display:flex; align-items:center; gap:10px; color:var(--mist-faint); font-size:0.88rem}
+  .foot-brand{display:flex; align-items:center; gap:10px; color:var(--mist-soft); font-size:0.88rem}
   .foot-brand img{width:20px;height:20px}
   .foot-links{display:flex; gap:26px; flex-wrap:wrap}
   .foot-links a{font-size:0.88rem; color:var(--mist-soft); text-decoration:none}
@@ -460,7 +483,7 @@
       <img src="assets/terraducktel-mark.svg" alt="">
       <span>Terraducktel</span>
     </a>
-    <div class="navlinks">
+    <div class="navlinks" id="navlinks">
       <a href="#why">Why</a>
       <a href="#pipeline">Pipeline</a>
       <a href="#features">Features</a>
@@ -470,6 +493,10 @@
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
       <span>Star on GitHub</span>
     </a>
+    <button class="nav-toggle" type="button" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="navlinks">
+      <svg class="ic-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      <svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
   </div>
 </nav>
 
@@ -716,6 +743,7 @@ docker compose exec -T api python scripts/seed_dev_users.py
     </div>
     <div class="foot-links">
       <a href="https://github.com/mormor83/terraducktel" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/mormor83/terraducktel/issues" target="_blank" rel="noopener">Issues</a>
       <a href="https://github.com/mormor83/terraducktel/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
       <a href="https://github.com/mormor83/terraducktel/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
     </div>
@@ -723,6 +751,30 @@ docker compose exec -T api python scripts/seed_dev_users.py
 </footer>
 
 <script>
+  // mobile nav menu toggle
+  (function(){
+    var nav = document.querySelector('.nav');
+    var toggle = document.querySelector('.nav-toggle');
+    if (!nav || !toggle) return;
+    function setOpen(open){
+      nav.classList.toggle('open', open);
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    toggle.addEventListener('click', function(e){
+      e.stopPropagation();
+      setOpen(!nav.classList.contains('open'));
+    });
+    nav.querySelectorAll('.navlinks a').forEach(function(a){
+      a.addEventListener('click', function(){ setOpen(false); });
+    });
+    document.addEventListener('click', function(e){
+      if (nav.classList.contains('open') && !nav.contains(e.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') setOpen(false);
+    });
+  })();
+
   // starfield
   (function(){
     var field = document.getElementById('stars');
@@ -960,11 +1012,11 @@ docker compose exec -T api python scripts/seed_dev_users.py
     });
   })();
 
-  // live star count (best-effort, fails silently offline)
+  // live star count — only surfaced once it's meaningful social proof
   fetch('https://api.github.com/repos/mormor83/terraducktel')
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(d){
-      if (d && typeof d.stargazers_count === 'number' && d.stargazers_count > 0){
+      if (d && typeof d.stargazers_count === 'number' && d.stargazers_count >= 25){
         var btns = document.querySelectorAll('.gh-btn span:last-child');
         btns.forEach(function(b){ b.textContent = 'Star on GitHub · ' + d.stargazers_count; });
       }
