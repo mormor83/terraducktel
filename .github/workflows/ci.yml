@@ -1,0 +1,76 @@
+name: CI
+
+# PR checks + main/dev validation for the GitHub mirror (parallels
+# .forgejo/workflows/ci.yml). NOTE: the pytest suite's conftest OWNS the test
+# secrets (JWT_SECRET_KEY / CREDENTIAL_ENCRYPTION_KEY / *_TOKEN) and refuses to
+# run if they're set to non-test-prefixed values — so we deliberately do NOT
+# set them here; the tests use an in-memory SQLite schema built from the models.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  api-tests:
+    name: API tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: services/api
+        run: pip install -e ".[dev]"
+      - name: Run tests
+        working-directory: services/api
+        run: python -m pytest tests/ -q --tb=short
+
+  ui:
+    name: UI (type-check, build, unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/ui/package-lock.json
+      - name: Install dependencies
+        working-directory: services/ui
+        run: npm ci
+      - name: Type-check + build
+        working-directory: services/ui
+        run: npm run build
+      - name: Unit tests
+        working-directory: services/ui
+        run: npm run test
+
+  security-scan:
+    name: Trivy IaC scan (informational)
+    runs-on: ubuntu-latest
+    # Non-blocking: surfaces HIGH/CRITICAL IaC findings without failing the PR.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy (pinned + checksum-verified)
+        run: |
+          set -euo pipefail
+          TRIVY_VERSION=0.70.0
+          TRIVY_TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          WORKDIR="$(mktemp -d)"
+          cd "$WORKDIR"
+          curl -sfLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_TARBALL}"
+          curl -sfLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
+          grep " ${TRIVY_TARBALL}\$" "trivy_${TRIVY_VERSION}_checksums.txt" | sha256sum -c -
+          tar -xzf "${TRIVY_TARBALL}" -C /usr/local/bin trivy
+          chmod +x /usr/local/bin/trivy
+          cd - >/dev/null
+          rm -rf "$WORKDIR"
+          trivy --version
+      - name: Trivy config scan
+        run: trivy config . --severity HIGH,CRITICAL

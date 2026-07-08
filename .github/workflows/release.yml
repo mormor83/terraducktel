@@ -1,0 +1,55 @@
+name: Release
+
+# Cut a GitHub Release from a semver tag. Two ways to trigger:
+#   1. Push a tag:   git tag v0.2.0 && git push origin v0.2.0
+#   2. Actions → "Release" → Run workflow, enter a tag (created from the
+#      selected branch/ref if it doesn't already exist).
+#
+# Uses the built-in `gh` CLI + the job's GITHUB_TOKEN only — no third-party
+# actions in the release path (keeps the supply chain tight). Release notes are
+# auto-generated from merged PRs / commits since the previous tag.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v0.2.0 (created from the selected ref if missing)"
+        required: true
+
+permissions:
+  contents: write  # create the tag (manual runs) + the release
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve + ensure tag
+        id: t
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+            if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+              git tag "$TAG"
+              git push origin "$TAG"
+            fi
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Create release (auto-generated notes)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.t.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — nothing to do."
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
