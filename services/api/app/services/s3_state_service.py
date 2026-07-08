@@ -4,6 +4,15 @@ from typing import Optional
 
 
 class S3StateService:
+    """AWS S3 (or LocalStack) backend for Terraform state.
+
+    Implements the ``StateStore`` protocol (see ``state_store.py``) via the
+    explicit-key ``get_state_at`` / ``put_state_at`` / ``delete_state_at``
+    methods. The S3-specific ``ServerSideEncryption`` and LocalStack endpoint
+    stay confined here; they are deliberately absent from the ``StateStore``
+    contract so other backends aren't forced to model them.
+    """
+
     def __init__(
         self,
         bucket: str,

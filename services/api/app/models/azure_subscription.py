@@ -40,6 +40,13 @@ class AzureSubscription(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_location: Mapped[str] = mapped_column(String(50), nullable=False, default="eastus")
+    # Optional Azure Blob state backend. When a workspace sets
+    # state_backend=azureblob, its Terraform state is stored in this container,
+    # authenticated with the SP above via AAD (grant it "Storage Blob Data
+    # Contributor"). Both nullable = a provider-only subscription whose state
+    # still lives in S3.
+    state_storage_account: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    state_container: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # Encrypted SP secret. NEVER logged, NEVER returned in API responses.
     client_secret_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())

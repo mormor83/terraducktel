@@ -308,6 +308,7 @@ function AuthedApp() {
                 <Route path="/users" element={<RequireAuth><Users /></RequireAuth>} />
                 <Route path="/business-units" element={<RequireAuth><BusinessUnits /></RequireAuth>} />
                 <Route path="/clusters" element={<Navigate to="/settings#cloud" replace />} />
+                <Route path="/gcp" element={<Navigate to="/settings#cloud" replace />} />
                 <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
               </Routes>
             </div>

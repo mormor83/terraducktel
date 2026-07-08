@@ -33,6 +33,11 @@ _GITHUB_OWNER_REPO_RE = re.compile(
 # so we derive + auto-link it on import instead of asking the user to pick one.
 _AZURE_SUB_RE = re.compile(r"^subscription-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$")
 
+# GCP leaves live under `gcp/project-<project_id>/<region>/<stack>` — the
+# project id is encoded in the path (like the AWS account / Azure subscription),
+# so we derive + auto-link it on import instead of asking the user to pick one.
+_GCP_PROJECT_RE = re.compile(r"^project-([a-z][a-z0-9-]{4,28}[a-z0-9])$")
+
 
 async def _commit_or_conflict(
     db: AsyncSession,
@@ -75,6 +80,16 @@ def _azure_sub_guid_from_path(path: str) -> str | None:
         if m:
             return m.group(1)
     return None
+
+
+def _gcp_project_id_from_path(path: str) -> str | None:
+    """Extract the GCP project id from a `gcp/project-<id>/…` path."""
+    parts = [p for p in (path or "").split("/") if p]
+    if len(parts) >= 2 and parts[0].lower() == "gcp":
+        m = _GCP_PROJECT_RE.match(parts[1])
+        if m:
+            return m.group(1)
+    return None
 from app.schemas.workspace import (
     BulkImportRequest,
     BulkImportResult,
@@ -90,6 +105,43 @@ from app.services import repo_discovery
 from app.services import api_key_service
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
+
+
+async def _validate_state_backend_linkage(
+    db: AsyncSession,
+    state_backend: str,
+    azure_sub_pk: str | None,
+    gcp_project_pk: str | None,
+) -> None:
+    """Ensure the chosen state_backend has its required cloud linkage + storage
+    target, so the executor's HTTP-state calls resolve at run time. Raises
+    HTTPException(422) otherwise. "s3" needs nothing extra."""
+    if state_backend == "azureblob":
+        from app.models.azure_subscription import AzureSubscription
+
+        sub = await db.get(AzureSubscription, azure_sub_pk) if azure_sub_pk else None
+        if sub is None or not sub.state_storage_account or not sub.state_container:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "state_backend=azureblob requires a linked azure_subscription_id "
+                    "whose state_storage_account and state_container are set "
+                    "(configure them in Settings → Cloud Providers → Azure)."
+                ),
+            )
+    elif state_backend == "gcs":
+        from app.models.gcp_project import GcpProject
+
+        proj = await db.get(GcpProject, gcp_project_pk) if gcp_project_pk else None
+        if proj is None or not proj.state_bucket:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "state_backend=gcs requires a linked gcp_project_id whose "
+                    "state_bucket is set (configure it in Settings → Cloud "
+                    "Providers → GCP)."
+                ),
+            )
 
 
 @router.get("", response_model=list[WorkspaceResponse])
@@ -195,6 +247,29 @@ async def create_workspace(
             )
         azure_sub_pk = sub.id
 
+    # Optional GCP project link: must belong to the same BU.
+    gcp_project_pk: str | None = None
+    if body.gcp_project_id:
+        from app.models.gcp_project import GcpProject
+
+        proj = await db.get(GcpProject, body.gcp_project_id)
+        if proj is None or proj.business_unit_id != bu.bu_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"GCP project {body.gcp_project_id} is not configured "
+                    f"in this business unit"
+                ),
+            )
+        gcp_project_pk = proj.id
+
+    # The chosen state backend must have its required cloud linkage + storage
+    # target, or the executor's HTTP-state calls would 503 at run time.
+    state_backend = body.state_backend or "s3"
+    await _validate_state_backend_linkage(
+        db, state_backend, azure_sub_pk, gcp_project_pk
+    )
+
     ws = Workspace(
         id=str(uuid.uuid4()),
         business_unit_id=bu.bu_id,
@@ -209,6 +284,8 @@ async def create_workspace(
         kind=body.kind,
         cluster_id=body.cluster_id,
         azure_subscription_id=azure_sub_pk,
+        gcp_project_id=gcp_project_pk,
+        state_backend=state_backend,
     )
     db.add(ws)
     await _commit_or_conflict(
@@ -292,6 +369,24 @@ async def update_workspace(
     elif az_override == "":
         update_data["azure_subscription_id"] = None
 
+    # gcp_project_id: same semantics as azure_subscription_id — empty string
+    # clears, a value must reference a project in the same BU.
+    gcp_override = update_data.get("gcp_project_id")
+    if gcp_override:
+        from app.models.gcp_project import GcpProject
+
+        proj = await db.get(GcpProject, gcp_override)
+        if proj is None or proj.business_unit_id != ws.business_unit_id:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"gcp_project_id '{gcp_override}' is not a registered "
+                    f"GCP project in this Business Unit."
+                ),
+            )
+    elif gcp_override == "":
+        update_data["gcp_project_id"] = None
+
     # aws_account_id: create validates this against the BU, but update used to
     # blind-setattr it — letting an operator point their workspace at an account
     # registered only in ANOTHER BU. Validate it the same way create
@@ -314,6 +409,23 @@ async def update_workspace(
                     f"account in this Business Unit."
                 ),
             )
+
+    # If the state backend is (being) set to a cloud store, validate the
+    # EFFECTIVE linkage after applying the above overrides — the backend and
+    # the linkage can change in the same request.
+    effective_backend = update_data.get("state_backend") or ws.state_backend
+    if effective_backend in ("azureblob", "gcs"):
+        eff_azure = (
+            update_data["azure_subscription_id"]
+            if "azure_subscription_id" in update_data
+            else ws.azure_subscription_id
+        )
+        eff_gcp = (
+            update_data["gcp_project_id"]
+            if "gcp_project_id" in update_data
+            else ws.gcp_project_id
+        )
+        await _validate_state_backend_linkage(db, effective_backend, eff_azure, eff_gcp)
 
     for field, value in update_data.items():
         setattr(ws, field, value)
@@ -460,6 +572,17 @@ async def bulk_import(
             )
         ).scalars().all()
     }
+    # Same for GCP projects: gcp leaves auto-link by the project id in their path.
+    from app.models.gcp_project import GcpProject
+
+    gcp_by_project_id = {
+        p.project_id: p.id
+        for p in (
+            await db.execute(
+                select(GcpProject).where(GcpProject.business_unit_id == bu.bu_id)
+            )
+        ).scalars().all()
+    }
 
     created: list[Workspace] = []
     skipped: list[dict] = []
@@ -511,6 +634,12 @@ async def bulk_import(
         _guid = _azure_sub_guid_from_path(entry.path)
         if _guid and _guid in az_by_guid:
             ws.azure_subscription_id = az_by_guid[_guid]
+        # Same for GCP leaves (gcp/project-<id>/…). Unregistered projects stay
+        # unlinked; the operator can register + relink later. State backend
+        # stays "s3" on import — an operator opts a workspace into GCS explicitly.
+        _gcp_pid = _gcp_project_id_from_path(entry.path)
+        if _gcp_pid and _gcp_pid in gcp_by_project_id:
+            ws.gcp_project_id = gcp_by_project_id[_gcp_pid]
         db.add(ws)
         created.append(ws)
     if created:

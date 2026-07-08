@@ -23,10 +23,17 @@ def _check_state_scope(auth: StateAuth, workspace_id: str) -> None:
         )
 from app.db import get_db
 from app.models.workspace import Workspace
+from app.models.azure_subscription import AzureSubscription
+from app.models.gcp_project import GcpProject
 from app.services.state_service import StateLockService
+from app.services.state_store import StateStore
 from app.services.s3_state_service import S3StateService
+from app.services.azure_blob_state_service import AzureBlobStateService
+from app.services.gcs_state_service import GcsStateService
 from app.services.secret_scanner import scan_terraform_state_json
 from app.services import aws_account_service as accs
+from app.services import azure_subscription_service as azsvc
+from app.services import gcp_project_service as gcpsvc
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +47,25 @@ _FALLBACK_BUCKET = os.environ.get("S3_STATE_BUCKET", "terraducktel-state")
 _S3_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 
 
-async def _service_for(ws: Workspace, db: AsyncSession) -> tuple[S3StateService, str]:
-    """Return (S3 client bound to the workspace's AwsAccount, key for the leaf path).
-
-    The state key mirrors the workspace's `tf_working_dir` exactly so the file
-    layout in S3 matches the layout in git: e.g.
+def _state_key_for(ws: Workspace) -> str:
+    """State object key = the workspace's leaf path, so the layout in the
+    object store mirrors the layout in git: e.g.
         account-111111111111/eu-central-1/region-shared-resources/terraform.tfstate
-    Each AWS account has its own bucket — never shared.
+    Identical across every backend (S3 key / Azure blob name / GCS object).
+    """
+    leaf_path = (ws.tf_working_dir or ".").strip("/")
+    if leaf_path in ("", "."):
+        leaf_path = ws.name
+    return f"{leaf_path}/terraform.tfstate"
+
+
+async def _s3_store_for(ws: Workspace, db: AsyncSession) -> StateStore:
+    """S3 backend — resolves the bucket via the workspace's AwsAccount.
+
+    Unchanged behaviour: uses `ws.aws_account_id` (NOT state_aws_account_id —
+    that override lives only in the executor cred path). Each AWS account has
+    its own bucket; falls back to the env-configured shared bucket (LocalStack
+    in dev) when no AwsAccount is registered.
     """
     account = await accs.get_account_by_account_id(db, ws.aws_account_id)
     if account is not None:
@@ -54,24 +73,69 @@ async def _service_for(ws: Workspace, db: AsyncSession) -> tuple[S3StateService,
         # only applies to the legacy env-default fallback below.
         access_key = accs.decrypt_secret(account.access_key_id_encrypted)
         secret_key = accs.decrypt_secret(account.secret_access_key_encrypted)
-        svc = S3StateService(
+        return S3StateService(
             bucket=account.state_bucket,
             use_localstack=False,
             region=account.state_bucket_region,
             access_key_id=access_key,
             secret_access_key=secret_key,
         )
+    return S3StateService(
+        bucket=_FALLBACK_BUCKET, use_localstack=_USE_LOCALSTACK, region=_S3_REGION
+    )
+
+
+async def _azure_store_for(ws: Workspace, db: AsyncSession) -> StateStore:
+    """Azure Blob backend — reuses the linked subscription's SP creds (AAD)."""
+    if not ws.azure_subscription_id:
+        raise RuntimeError("state_backend=azureblob but workspace has no azure_subscription_id")
+    sub = await db.get(AzureSubscription, ws.azure_subscription_id)
+    if sub is None or not sub.state_storage_account or not sub.state_container:
+        raise RuntimeError("linked Azure subscription has no state storage account/container")
+    secret = azsvc.decrypt_secret(sub.client_secret_encrypted)
+    return AzureBlobStateService(
+        storage_account=sub.state_storage_account,
+        container=sub.state_container,
+        tenant_id=sub.tenant_id,
+        client_id=sub.client_id,
+        client_secret=secret,
+    )
+
+
+async def _gcs_store_for(ws: Workspace, db: AsyncSession) -> StateStore:
+    """GCS backend — reuses the linked project's service-account JSON key."""
+    if not ws.gcp_project_id:
+        raise RuntimeError("state_backend=gcs but workspace has no gcp_project_id")
+    proj = await db.get(GcpProject, ws.gcp_project_id)
+    if proj is None or not proj.state_bucket:
+        raise RuntimeError("linked GCP project has no state bucket")
+    sa_json = gcpsvc.decrypt_secret(proj.service_account_json_encrypted)
+    return GcsStateService(
+        bucket=proj.state_bucket,
+        service_account_json=sa_json,
+        project_id=proj.project_id,
+        prefix=proj.state_prefix or "",
+    )
+
+
+async def _service_for(ws: Workspace, db: AsyncSession) -> tuple[StateStore, str]:
+    """Return (state store for the workspace's backend, key for the leaf path).
+
+    The backend is chosen by `ws.state_backend` (default "s3"). The HTTP
+    interface and the executor's `backend "http"` wiring are identical across
+    backends — Terraform never learns which object store sits behind the API.
+    A store that cannot be built (missing linkage/fields) raises, which the GET
+    handler maps to 503 ("backend unavailable") — the correct signal, and safer
+    than silently writing state to the wrong place.
+    """
+    backend = (getattr(ws, "state_backend", None) or "s3").lower()
+    if backend == "azureblob":
+        store = await _azure_store_for(ws, db)
+    elif backend == "gcs":
+        store = await _gcs_store_for(ws, db)
     else:
-        # Backward-compat: workspace without a registered AwsAccount falls back
-        # to the env-configured shared bucket (LocalStack in dev).
-        svc = S3StateService(
-            bucket=_FALLBACK_BUCKET, use_localstack=_USE_LOCALSTACK, region=_S3_REGION
-        )
-    leaf_path = (ws.tf_working_dir or ".").strip("/")
-    if leaf_path in ("", "."):
-        leaf_path = ws.name
-    key = f"{leaf_path}/terraform.tfstate"
-    return svc, key
+        store = await _s3_store_for(ws, db)
+    return store, _state_key_for(ws)
 
 
 @router.get("/{workspace_id}")
@@ -102,7 +166,7 @@ async def get_state(
         svc, key = await _service_for(ws, db)
         data = svc.get_state_at(key)
     except Exception:
-        logger.exception("S3 state fetch failed for workspace %s", workspace_id)
+        logger.exception("State fetch failed for workspace %s", workspace_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="State backend unavailable",
@@ -166,8 +230,8 @@ async def put_state(
         svc, key = await _service_for(ws, db)
         svc.put_state_at(key, body)
     except Exception:
-        logger.exception("Failed to persist state to S3 for workspace %s", workspace_id)
-        raise HTTPException(status_code=500, detail="Failed to persist state to S3")
+        logger.exception("Failed to persist state for workspace %s", workspace_id)
+        raise HTTPException(status_code=500, detail="Failed to persist state")
 
     return Response(status_code=200)
 

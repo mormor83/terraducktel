@@ -8,9 +8,15 @@ import { useCurrentUser, hasMinRole } from "../../hooks/useAuth";
 import { Badge, Button, ConfirmDialog, DriftBadge } from "../ui";
 import { RunModal } from "../RunModal";
 import { FileIcon, HelmChip } from "./icons";
-import { azureInfo } from "./paths";
+import { azureInfo, gcpInfo } from "./paths";
 import { BranchStatusChip, InlineLinkEditor, TreeRow } from "./primitives";
-import type { AwsAccountLite, AzureSubscriptionLite, Run, Workspace } from "./types";
+import type {
+  AwsAccountLite,
+  AzureSubscriptionLite,
+  GcpProjectLite,
+  Run,
+  Workspace,
+} from "./types";
 
 export function WorkspaceLeafRow({
   workspace,
@@ -20,6 +26,7 @@ export function WorkspaceLeafRow({
   onChanged,
   awsAccounts,
   azureSubscriptions,
+  gcpProjects,
 }: {
   workspace: Workspace;
   displayName: string;
@@ -28,6 +35,7 @@ export function WorkspaceLeafRow({
   onChanged: () => void;
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
 }) {
   const user = useCurrentUser();
   const [busy, setBusy] = useState<null | string>(null);
@@ -55,6 +63,10 @@ export function WorkspaceLeafRow({
   const linkedAzureSub = azureSubscriptions.find(
     (s) => s.id === workspace.azure_subscription_id,
   );
+  // GCP mirror of the Azure link: auto-derived from the gcp/project-<id>/ path
+  // or the explicit gcp_project_id link. Read-only in the row.
+  const isGcp = !!workspace.gcp_project_id || !!gcpInfo(workspace);
+  const linkedGcpProject = gcpProjects.find((p) => p.id === workspace.gcp_project_id);
 
   // ─── State-lock status (lazy-fetched on expand) ────────────────────────
   type LockStatus = { held: boolean; run_id?: string | null; acquired_at?: string | null };
@@ -113,7 +125,7 @@ export function WorkspaceLeafRow({
   // (server normalizes to NULL). Returns whether the save succeeded so the
   // InlineLinkEditor knows whether to collapse.
   async function saveLink(
-    field: "state_aws_account_id" | "azure_subscription_id",
+    field: "state_aws_account_id" | "azure_subscription_id" | "state_backend",
     value: string,
     busyKey: string,
   ): Promise<boolean> {
@@ -304,6 +316,37 @@ export function WorkspaceLeafRow({
                   </span>
                 </div>
               )}
+              {isGcp && (
+                // Read-only: the project is auto-derived from the workspace path
+                // (gcp/project-<id>/…) at import, mirroring the AWS/Azure links.
+                <div title="Auto-derived from the workspace path (gcp/project-<id>/…); injects the project's service-account credentials for the google provider.">
+                  <span className="text-slate-400">gcp project</span>{" "}
+                  <span className="font-mono text-[11px]">
+                    {linkedGcpProject
+                      ? `${linkedGcpProject.name} (${linkedGcpProject.project_id})`
+                      : workspace.gcp_project_id
+                        ? workspace.gcp_project_id
+                        : "(auto-derived from path)"}
+                  </span>
+                </div>
+              )}
+              <div title="Where this workspace's Terraform state is stored. azureblob/gcs require a linked subscription/project whose storage target is configured — otherwise the save is rejected.">
+                <span className="text-slate-400">state backend</span>{" "}
+                {hasMinRole(user, "admin") ? (
+                  <select
+                    value={workspace.state_backend ?? "s3"}
+                    disabled={busy === "rebind-backend"}
+                    onChange={(e) => saveLink("state_backend", e.target.value, "rebind-backend")}
+                    className="ml-1 rounded border border-brand-border bg-white px-1.5 py-0.5 font-mono text-[11px] text-brand-text dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  >
+                    <option value="s3">s3</option>
+                    <option value="azureblob">azureblob</option>
+                    <option value="gcs">gcs</option>
+                  </select>
+                ) : (
+                  <span className="font-mono text-[11px]">{workspace.state_backend ?? "s3"}</span>
+                )}
+              </div>
               {workspace.repo_url && (
                 <div className="sm:col-span-2">
                   <span className="text-slate-400">repo</span>{" "}

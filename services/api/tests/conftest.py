@@ -53,6 +53,7 @@ async def _setup_db():
     import app.models.inventory_ignore_rule  # noqa: F401
     import app.models.aws_account  # noqa: F401
     import app.models.azure_subscription  # noqa: F401
+    import app.models.gcp_project  # noqa: F401
     import app.models.run_step  # noqa: F401
     import app.models.run_job  # noqa: F401
     import app.models.variable  # noqa: F401
@@ -249,6 +250,7 @@ async def db_session():
     import app.models.inventory_ignore_rule  # noqa: F401
     import app.models.aws_account  # noqa: F401
     import app.models.azure_subscription  # noqa: F401
+    import app.models.gcp_project  # noqa: F401
     import app.models.run_step  # noqa: F401
     import app.models.run_job  # noqa: F401
     import app.models.variable  # noqa: F401

@@ -15,45 +15,46 @@ import {
   Spinner,
 } from "../components/ui";
 
-type AzureSubscription = {
+type GcpProject = {
   id: string;
   business_unit_id: string;
-  subscription_id: string;
-  tenant_id: string;
-  client_id: string;
+  project_id: string;
+  client_email: string;
   name: string;
   description?: string | null;
-  default_location: string;
-  state_storage_account?: string | null;
-  state_container?: string | null;
-  client_secret_masked: string;
+  default_region: string;
+  state_bucket?: string | null;
+  state_prefix?: string | null;
+  service_account_masked: string;
 };
 
 type FormState = {
-  subscription_id: string;
-  tenant_id: string;
-  client_id: string;
-  client_secret: string;
+  project_id: string;
   name: string;
   description: string;
-  default_location: string;
-  state_storage_account: string;
-  state_container: string;
+  default_region: string;
+  state_bucket: string;
+  state_prefix: string;
+  service_account_json: string;
 };
 
 const EMPTY: FormState = {
-  subscription_id: "",
-  tenant_id: "",
-  client_id: "",
-  client_secret: "",
+  project_id: "",
   name: "",
   description: "",
-  default_location: "eastus",
-  state_storage_account: "",
-  state_container: "",
+  default_region: "us-central1",
+  state_bucket: "",
+  state_prefix: "",
+  service_account_json: "",
 };
 
-function SubForm({
+const TEXTAREA_CLS =
+  "block w-full rounded-md border border-brand-border bg-white px-3 py-2 font-mono text-xs " +
+  "text-brand-text placeholder-brand-muted transition-colors focus:border-brand-400 focus:outline-none " +
+  "focus:ring-2 focus:ring-brand-400/30 dark:border-slate-700/70 dark:bg-slate-950/60 " +
+  "dark:text-slate-100 dark:placeholder-slate-500";
+
+function ProjForm({
   initial,
   editing,
   onSubmit,
@@ -79,7 +80,7 @@ function SubForm({
   return (
     <Card className="mb-6">
       <CardHeader>
-        <CardTitle>{editing ? "Edit Azure subscription" : "Add Azure subscription"}</CardTitle>
+        <CardTitle>{editing ? "Edit GCP project" : "Add GCP project"}</CardTitle>
       </CardHeader>
       <CardBody>
         <form onSubmit={submit} className="grid gap-3 md:grid-cols-2">
@@ -88,47 +89,33 @@ function SubForm({
             <Input value={f.name} onChange={(e) => update("name", e.target.value)} required />
           </div>
           <div>
-            <Label>Subscription ID</Label>
+            <Label>Project ID</Label>
             <Input
-              placeholder="00000000-0000-0000-0000-000000000000"
-              value={f.subscription_id}
-              onChange={(e) => update("subscription_id", e.target.value)}
+              placeholder="acme-prod-1234"
+              value={f.project_id}
+              onChange={(e) => update("project_id", e.target.value)}
               required
               disabled={editing}
             />
           </div>
           <div>
-            <Label>Tenant ID</Label>
-            <Input
-              placeholder="00000000-0000-0000-0000-000000000000"
-              value={f.tenant_id}
-              onChange={(e) => update("tenant_id", e.target.value)}
-              required
-              disabled={editing}
-            />
-          </div>
-          <div>
-            <Label>Client (application) ID</Label>
-            <Input
-              placeholder="00000000-0000-0000-0000-000000000000"
-              value={f.client_id}
-              onChange={(e) => update("client_id", e.target.value)}
-              required
-              disabled={editing}
-            />
-          </div>
-          <div>
-            <Label>Default location</Label>
-            <Input value={f.default_location} onChange={(e) => update("default_location", e.target.value)} />
+            <Label>Default region</Label>
+            <Input value={f.default_region} onChange={(e) => update("default_region", e.target.value)} />
           </div>
           <div className="md:col-span-2">
-            <Label>Client secret {editing && <span className="text-xs text-slate-500">(leave blank to keep current)</span>}</Label>
-            <Input
-              type="password"
-              value={f.client_secret}
-              onChange={(e) => update("client_secret", e.target.value)}
+            <Label>
+              Service-account key JSON{" "}
+              {editing && <span className="text-xs text-slate-500">(leave blank to keep current)</span>}
+            </Label>
+            <textarea
+              className={TEXTAREA_CLS}
+              rows={6}
+              placeholder='{ "type": "service_account", "project_id": "…", "private_key": "…", "client_email": "…" }'
+              value={f.service_account_json}
+              onChange={(e) => update("service_account_json", e.target.value)}
               required={!editing}
-              autoComplete="new-password"
+              autoComplete="off"
+              spellCheck={false}
             />
           </div>
           <div className="md:col-span-2">
@@ -137,28 +124,24 @@ function SubForm({
           </div>
           <div className="md:col-span-2 mt-1 border-t border-slate-200 pt-3 dark:border-slate-700">
             <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              Azure Blob state backend (optional)
+              GCS state backend (optional)
             </p>
             <p className="text-[11px] text-slate-500">
-              Set both to let workspaces store Terraform state in Blob using this
-              SP (grant it “Storage Blob Data Contributor”). Leave blank to keep state in S3.
+              Set a bucket to let workspaces store Terraform state in GCS using this
+              project's service account. Leave blank to keep state in S3.
             </p>
           </div>
           <div>
-            <Label>Storage account</Label>
+            <Label>State bucket</Label>
             <Input
-              placeholder="acmetfstate"
-              value={f.state_storage_account}
-              onChange={(e) => update("state_storage_account", e.target.value)}
+              placeholder="acme-prod-tfstate"
+              value={f.state_bucket}
+              onChange={(e) => update("state_bucket", e.target.value)}
             />
           </div>
           <div>
-            <Label>Container</Label>
-            <Input
-              placeholder="tfstate"
-              value={f.state_container}
-              onChange={(e) => update("state_container", e.target.value)}
-            />
+            <Label>State prefix (optional)</Label>
+            <Input value={f.state_prefix} onChange={(e) => update("state_prefix", e.target.value)} />
           </div>
           {error && (
             <p className="md:col-span-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
@@ -166,7 +149,7 @@ function SubForm({
             </p>
           )}
           <div className="md:col-span-2 mt-2 flex items-center gap-2">
-            <Button type="submit" disabled={busy}>{busy ? <Spinner /> : editing ? "Save" : "Add subscription"}</Button>
+            <Button type="submit" disabled={busy}>{busy ? <Spinner /> : editing ? "Save" : "Add project"}</Button>
             <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
           </div>
         </form>
@@ -175,16 +158,15 @@ function SubForm({
   );
 }
 
-export default function AzureSubscriptions() {
-  const [rows, setRows] = useState<AzureSubscription[]>([]);
+export default function GcpProjects() {
+  const [rows, setRows] = useState<GcpProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState<null | { mode: "create" | "edit"; row?: AzureSubscription }>(null);
+  const [showForm, setShowForm] = useState<null | { mode: "create" | "edit"; row?: GcpProject }>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, { ok: boolean; detail?: string }>>({});
-  // Subscription pending deletion, awaiting in-app confirmation (no native popups).
-  const [pendingDelete, setPendingDelete] = useState<AzureSubscription | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<GcpProject | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
 
@@ -192,10 +174,10 @@ export default function AzureSubscriptions() {
     setLoading(true);
     setErr(null);
     try {
-      const r = await api.get("/v1/azure-subscriptions");
+      const r = await api.get("/v1/gcp-projects");
       setRows(r.data);
     } catch (e: any) {
-      setErr(e?.response?.data?.detail ?? "Failed to load Azure subscriptions");
+      setErr(e?.response?.data?.detail ?? "Failed to load GCP projects");
     } finally {
       setLoading(false);
     }
@@ -207,21 +189,16 @@ export default function AzureSubscriptions() {
     setBusy(true);
     setFormError(null);
     try {
+      const body: any = { ...f };
+      // Empty optional fields → null (avoid storing "").
+      body.state_bucket = body.state_bucket || null;
+      body.state_prefix = body.state_prefix || null;
       if (showForm?.mode === "create") {
-        // Empty Blob-state fields must be omitted — the create schema pattern
-        // rejects "" (they're optional, so absent = null).
-        const body: any = { ...f };
-        if (!body.state_storage_account) delete body.state_storage_account;
-        if (!body.state_container) delete body.state_container;
-        await api.post("/v1/azure-subscriptions", body);
+        await api.post("/v1/gcp-projects", body);
       } else if (showForm?.mode === "edit" && showForm.row) {
-        // Skip empty client_secret on edit so we keep the existing one.
-        const body: any = { ...f };
-        if (!body.client_secret) delete body.client_secret;
-        // Empty string clears the Blob-state config (send null).
-        body.state_storage_account = body.state_storage_account || null;
-        body.state_container = body.state_container || null;
-        await api.put(`/v1/azure-subscriptions/${showForm.row.id}`, body);
+        // Blank SA key on edit → keep the existing one.
+        if (!body.service_account_json) delete body.service_account_json;
+        await api.put(`/v1/gcp-projects/${showForm.row.id}`, body);
       }
       setShowForm(null);
       await refresh();
@@ -237,7 +214,7 @@ export default function AzureSubscriptions() {
     setActionBusy(true);
     setActionErr(null);
     try {
-      await api.delete(`/v1/azure-subscriptions/${pendingDelete.id}`);
+      await api.delete(`/v1/gcp-projects/${pendingDelete.id}`);
       setPendingDelete(null);
       await refresh();
     } catch (e: any) {
@@ -247,36 +224,41 @@ export default function AzureSubscriptions() {
     }
   }
 
-  async function onTest(row: AzureSubscription) {
+  async function onTest(row: GcpProject) {
     setTestResult((p) => ({ ...p, [row.id]: { ok: false, detail: "Testing…" } }));
     try {
-      const r = await api.post(`/v1/azure-subscriptions/${row.id}/test`);
+      const r = await api.post(`/v1/gcp-projects/${row.id}/test`);
       setTestResult((p) => ({ ...p, [row.id]: r.data }));
     } catch (e: any) {
       setTestResult((p) => ({ ...p, [row.id]: { ok: false, detail: e?.response?.data?.detail ?? "Test failed" } }));
     }
   }
 
-  function startEdit(row: AzureSubscription) {
+  async function onCreateBucket(row: GcpProject) {
+    setTestResult((p) => ({ ...p, [row.id]: { ok: false, detail: "Creating bucket…" } }));
+    try {
+      const r = await api.post(`/v1/gcp-projects/${row.id}/bucket`);
+      setTestResult((p) => ({ ...p, [row.id]: r.data }));
+    } catch (e: any) {
+      setTestResult((p) => ({ ...p, [row.id]: { ok: false, detail: e?.response?.data?.detail ?? "Bucket create failed" } }));
+    }
+  }
+
+  function startEdit(row: GcpProject) {
     setFormError(null);
-    setShowForm({
-      mode: "edit",
-      row,
-    });
+    setShowForm({ mode: "edit", row });
   }
 
   const initialForm: FormState =
     showForm?.mode === "edit" && showForm.row
       ? {
-          subscription_id: showForm.row.subscription_id,
-          tenant_id: showForm.row.tenant_id,
-          client_id: showForm.row.client_id,
-          client_secret: "",
+          project_id: showForm.row.project_id,
           name: showForm.row.name,
           description: showForm.row.description ?? "",
-          default_location: showForm.row.default_location,
-          state_storage_account: showForm.row.state_storage_account ?? "",
-          state_container: showForm.row.state_container ?? "",
+          default_region: showForm.row.default_region,
+          state_bucket: showForm.row.state_bucket ?? "",
+          state_prefix: showForm.row.state_prefix ?? "",
+          service_account_json: "",
         }
       : EMPTY;
 
@@ -284,20 +266,19 @@ export default function AzureSubscriptions() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Azure subscriptions</h3>
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">GCP projects</h3>
           <p className="text-xs text-slate-500">
-            Service-principal credentials used by the <code>azurerm</code> provider.
-            Optionally set a Blob storage account + container below to store Terraform
-            state in Azure Blob instead of S3 (per-workspace, via the state-backend selector).
+            Service-account keys used by the <code>google</code> provider. Optionally set a
+            GCS bucket to store Terraform state in GCS (per-workspace, via the state-backend selector).
           </p>
         </div>
         {!showForm && (
-          <Button onClick={() => { setFormError(null); setShowForm({ mode: "create" }); }}>+ Add subscription</Button>
+          <Button onClick={() => { setFormError(null); setShowForm({ mode: "create" }); }}>+ Add project</Button>
         )}
       </div>
 
       {showForm && (
-        <SubForm
+        <ProjForm
           key={showForm.row?.id ?? "create"}
           initial={initialForm}
           editing={showForm.mode === "edit"}
@@ -319,7 +300,7 @@ export default function AzureSubscriptions() {
       ) : err ? (
         <Card><CardBody className="text-sm text-red-600 dark:text-red-300">{err}</CardBody></Card>
       ) : rows.length === 0 ? (
-        <EmptyState title="No Azure subscriptions yet" description="Add one to onboard an Azure subscription for terraform runs." />
+        <EmptyState title="No GCP projects yet" description="Add one to onboard a GCP project for terraform runs." />
       ) : (
         <div className="space-y-3">
           {rows.map((row) => {
@@ -331,17 +312,17 @@ export default function AzureSubscriptions() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{row.name}</span>
-                        <Badge tone="info">azure</Badge>
+                        <Badge tone="info">gcp</Badge>
                       </div>
                       <p className="mt-1 font-mono text-[11px] text-slate-500">
-                        sub {row.subscription_id} · tenant {row.tenant_id}
+                        project {row.project_id} · region {row.default_region}
                       </p>
                       <p className="mt-0.5 font-mono text-[11px] text-slate-500">
-                        client {row.client_id} · secret {row.client_secret_masked}
+                        sa {row.service_account_masked}
                       </p>
-                      {row.state_storage_account && row.state_container && (
+                      {row.state_bucket && (
                         <p className="mt-0.5 font-mono text-[11px] text-slate-500">
-                          blob state {row.state_storage_account}/{row.state_container}
+                          gcs state {row.state_bucket}{row.state_prefix ? `/${row.state_prefix}` : ""}
                         </p>
                       )}
                       {row.description && <p className="mt-1 text-xs text-slate-500">{row.description}</p>}
@@ -353,8 +334,11 @@ export default function AzureSubscriptions() {
                     </div>
                     <div className="flex shrink-0 gap-2">
                       <Button size="sm" variant="ghost" onClick={() => onTest(row)}>Test creds</Button>
+                      {row.state_bucket && (
+                        <Button size="sm" variant="ghost" onClick={() => onCreateBucket(row)}>Create bucket</Button>
+                      )}
                       <Button size="sm" variant="ghost" onClick={() => startEdit(row)}>Edit</Button>
-                      <Button size="sm" variant="warning" onClick={() => { setActionErr(null); setPendingDelete(row); }}>Delete</Button>
+                      <Button size="sm" variant="danger" onClick={() => { setActionErr(null); setPendingDelete(row); }}>Delete</Button>
                     </div>
                   </div>
                 </CardBody>
@@ -367,10 +351,10 @@ export default function AzureSubscriptions() {
       <ConfirmDialog
         open={pendingDelete !== null}
         tone="danger"
-        title="Delete Azure subscription"
+        title="Delete GCP project"
         message={
           <>
-            Delete Azure subscription <strong>"{pendingDelete?.name}"</strong>? Workspaces linked to
+            Delete GCP project <strong>"{pendingDelete?.name}"</strong>? Workspaces linked to
             it will be unlinked.
           </>
         }

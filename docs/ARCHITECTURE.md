@@ -109,14 +109,15 @@ forward-only (`services/api/alembic/versions/NNN_*.py`).
 | Model | Table | What |
 |---|---|---|
 | `AwsAccount` | `aws_accounts` | One row per AWS account onboarded to TDT: 12-digit `account_id`, a dedicated `state_bucket`, and Fernet-encrypted access key/secret. Unique per `(business_unit_id, account_id)`. |
-| `AzureSubscription` | `azure_subscriptions` | Mirrors `AwsAccount` for Azure: `subscription_id`, `tenant_id`, `client_id` + encrypted service-principal secret. Terraform state for Azure workspaces still lives in the S3 backend (via a linked AWS account) — there's no parallel Azure Storage state backend yet. |
+| `AzureSubscription` | `azure_subscriptions` | Mirrors `AwsAccount` for Azure: `subscription_id`, `tenant_id`, `client_id` + encrypted service-principal secret. Optional `state_storage_account`/`state_container` enable an **Azure Blob** state backend (state written via the same SP over AAD) — otherwise Azure workspaces keep their state in S3. |
+| `GcpProject` | `gcp_projects` | Mirrors `AwsAccount` for GCP: `project_id`, `client_email` + Fernet-encrypted service-account key JSON. Optional `state_bucket`/`state_prefix` enable a **GCS** state backend. Unique per `(business_unit_id, project_id)`. |
 | `K8sCluster` | `k8s_clusters` | One row per Kubernetes cluster for Helm workspaces: `name`, optional `server_url`, `default_namespace`, encrypted `kubeconfig`, optional `aws_account_id` (for EKS clusters whose kubeconfig auths via `aws eks get-token`). |
 
 ### Workspaces & runs
 
 | Model | Table | What |
 |---|---|---|
-| `Workspace` | `workspaces` | One Terraform leaf module or one Helm chart. Canonical identity is `(business_unit_id, aws_account_id, region, environment, tf_working_dir)`. Carries `repo_url`/`repo_ref` (Git source), `kind` (`terraform` default or `helm`), `cluster_id` (helm target), `azure_subscription_id` (optional Azure target), `drift_status`, `path_status` (`ok`/`orphaned`/`unknown` — tracks whether the leaf still exists at `repo_ref`), `webhook_enabled`. |
+| `Workspace` | `workspaces` | One Terraform leaf module or one Helm chart. Canonical identity is `(business_unit_id, aws_account_id, region, environment, tf_working_dir)`. Carries `repo_url`/`repo_ref` (Git source), `kind` (`terraform` default or `helm`), `cluster_id` (helm target), `azure_subscription_id` / `gcp_project_id` (optional Azure/GCP targets), `state_backend` (`s3` default \| `azureblob` \| `gcs`), `drift_status`, `path_status` (`ok`/`orphaned`/`unknown` — tracks whether the leaf still exists at `repo_ref`), `webhook_enabled`. |
 | `Run` | `runs` | One plan/apply/destroy execution. FSM `status` (see [§4](#4-the-run-fsm)), captured `branch`, `plan_output`/`plan_json`, base64 `tfplan_b64` (the exact binary re-applied post-approval), encrypted `variables_encrypted` (per-run TF_VAR overrides), `policy_status`, `auto_approve_if_no_changes`/`auto_approve_skip_apply`. |
 | `RunStep` | `run_steps` | Per-step timeline row (Git Clone → Checkov → Plan → OPA → Cost → Awaiting Approval → Apply → …), kind-aware (Terraform vs. Helm step lists live in `run_step.py`). |
 | `RunArtifact` | `run_artifacts` | Blob output attached to a run (plan output, logs, checkov report). |
@@ -319,22 +320,24 @@ must be re-encrypted first. There is no fallback/default key in code —
 import time if the env var is unset, by design, so a misconfigured
 deployment fails loudly instead of silently using a predictable key.
 
-**Derivation:** each domain (AWS credentials, Azure credentials, Kubernetes
-kubeconfigs, generic `config` secrets, workspace/global variables) derives
-its **own** Fernet key from the same root key via HKDF-SHA256 with a
-**distinct, hardcoded salt** per domain (e.g.
+**Derivation:** each domain (AWS credentials, Azure credentials, GCP
+credentials, Kubernetes kubeconfigs, generic `config` secrets,
+workspace/global variables) derives its **own** Fernet key from the same root
+key via HKDF-SHA256 with a **distinct, hardcoded salt** per domain (e.g.
 `b"terraducktel-aws-credentials-v1"`, `b"terraducktel-config-v1"`,
-`b"terraducktel-azure-credentials-v1"`, `b"terraducktel-variables-v1"`).
-This means a ciphertext leaked from one domain can't be replayed or
-confused with another, and each domain can rotate its salt independently in
-a future migration without touching the root key. The pattern is identical
-everywhere it appears — `aws_account_service.py`, `azure_subscription_service.py`,
-`cluster_service.py`, `config_service.py`, `variable_service.py` — new
-encrypted domains should copy it rather than invent a new scheme.
+`b"terraducktel-azure-credentials-v1"`, `b"terraducktel-gcp-credentials-v1"`,
+`b"terraducktel-variables-v1"`). This means a ciphertext leaked from one
+domain can't be replayed or confused with another, and each domain can rotate
+its salt independently in a future migration without touching the root key.
+The pattern is identical everywhere it appears — `aws_account_service.py`,
+`azure_subscription_service.py`, `gcp_project_service.py`, `cluster_service.py`,
+`config_service.py`, `variable_service.py` — new encrypted domains should copy
+it rather than invent a new scheme.
 
 **What's encrypted:**
 - AWS access key / secret access key (`aws_accounts`).
 - Azure service-principal secret (`azure_subscriptions`).
+- GCP service-account key JSON (`gcp_projects`).
 - Kubernetes kubeconfig (`k8s_clusters`).
 - Any `config` row with `is_secret=True` (GitHub PAT, Slack bot token,
   Infracost API key, webhook secrets, `JWT_SECRET` itself once persisted).
@@ -354,20 +357,26 @@ future endpoint can't accidentally leak it.
 
 Terraform state is served by a custom **Terraform HTTP state backend**
 implemented in the API itself (`app/routers/state.py` +
-`app/services/state_service.py` + `app/services/s3_state_service.py`), not
-by pointing `terraform init` directly at S3. The executor's backend config
-points at `{API_URL}/api/v1/state/{workspace_id}`, authenticated with the
-shared `TERRADUCKTEL_STATE_TOKEN` secret.
+`app/services/state_service.py` + the pluggable object stores below), not by
+pointing `terraform init` directly at S3. The executor's backend config points
+at `{API_URL}/api/v1/state/{workspace_id}`, authenticated with the shared
+`TERRADUCKTEL_STATE_TOKEN` secret — it never learns which object store sits
+behind the API.
 
-- **Persistence**: the actual bytes live in S3 — LocalStack in dev, real AWS
-  S3 in production. **Per-account bucket isolation**: each onboarded
-  `AwsAccount` row owns its own dedicated `state_bucket`, so one account's
-  Terraform state is never physically co-located with another's, even
-  within the same BU. Non-AWS workspaces (Helm, or Azure workspaces without
-  their own state backend) still resolve to an AWS account's bucket via
-  `workspace.state_aws_account_id` — a workspace can be "grouped" outside
-  the AWS-account tree in the UI while its tfstate still lives in an S3
-  bucket owned by some account.
+- **Pluggable backends**: `workspace.state_backend` (`s3` default \|
+  `azureblob` \| `gcs`) selects the object store. `_service_for` builds a
+  `StateStore` (`app/services/state_store.py`, a Protocol with
+  `get_state_at`/`put_state_at`/`delete_state_at`) — `S3StateService`,
+  `AzureBlobStateService` (reuses the linked Azure SP over AAD), or
+  `GcsStateService` (reuses the linked GCP SA key). The HTTP interface, the
+  404-vs-503 error mapping, and locking are identical across all three.
+- **S3 persistence**: bytes live in S3 — LocalStack in dev, real AWS S3 in
+  production. **Per-account bucket isolation**: each onboarded `AwsAccount`
+  owns its own dedicated `state_bucket`, so one account's state is never
+  physically co-located with another's. Non-`s3` workspaces resolve to the
+  linked Azure subscription's container / GCP project's bucket instead. (The
+  `state_aws_account_id` override still applies to the executor's own AWS
+  cred lookup, unchanged.)
 - **Key scheme**: `{tf_working_dir}/terraform.tfstate` — the S3 key mirrors
   the workspace's git path exactly (`app/routers/state.py::_service_for`).
   Isolation between workspaces comes from the per-account dedicated bucket,

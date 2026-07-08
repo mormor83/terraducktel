@@ -16,6 +16,13 @@ class AzureSubscriptionCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     description: Optional[str] = None
     default_location: str = Field(default="eastus", min_length=1, max_length=50)
+    # Optional Azure Blob state backend (for workspaces flagged
+    # state_backend=azureblob). Storage account: 3-24 lowercase alnum.
+    # Container: 3-63, lowercase alnum + hyphens, no leading/trailing hyphen.
+    state_storage_account: Optional[str] = Field(default=None, pattern=r"^[a-z0-9]{3,24}$")
+    state_container: Optional[str] = Field(
+        default=None, pattern=r"^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    )
 
     @field_validator("subscription_id", "tenant_id", "client_id")
     @classmethod
@@ -27,6 +34,8 @@ class AzureSubscriptionUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     description: Optional[str] = None
     default_location: Optional[str] = None
+    state_storage_account: Optional[str] = None
+    state_container: Optional[str] = None
     # If client_secret is provided we re-encrypt it on the server.
     client_secret: Optional[str] = None
 
@@ -45,6 +54,8 @@ class AzureSubscriptionResponse(BaseModel):
     name: str
     description: Optional[str] = None
     default_location: str
+    state_storage_account: Optional[str] = None
+    state_container: Optional[str] = None
     client_secret_masked: str
 
     model_config = {"from_attributes": False}
@@ -53,3 +64,10 @@ class AzureSubscriptionResponse(BaseModel):
 class AzureSubscriptionTestResult(BaseModel):
     ok: bool
     detail: Optional[str] = None
+
+
+class AzureContainerResult(BaseModel):
+    ok: bool
+    detail: Optional[str] = None
+    container: Optional[str] = None
+    already_existed: bool = False

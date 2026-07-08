@@ -18,6 +18,12 @@ dependencies = [
     "bcrypt>=4.0",
     "cryptography",
     "boto3",
+    # Pluggable Terraform state backends (S3 is boto3 above). All pure-Python
+    # / manylinux wheels → no extra system packages in the Dockerfile.
+    "azure-identity>=1.16",
+    "azure-storage-blob>=12.20",
+    "google-cloud-storage>=2.16",
+    "google-auth>=2.30",
     "httpx",
     "docker>=7.0",
     # OIDC / SSO (generic IdP support). Lightweight.

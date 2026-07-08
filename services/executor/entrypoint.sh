@@ -53,6 +53,15 @@ export GIT_TERMINAL_PROMPT="0"
 : "${ARM_CLIENT_SECRET:=}"
 : "${TDT_CLOUD_PROVIDERS:=}"
 
+# GCP creds are also SOFT defaults — only populated when the workspace is
+# linked to a gcp_projects row. We write GCP_SA_KEY_JSON to a 0600 file and
+# export GOOGLE_APPLICATION_CREDENTIALS below; the terraform google provider
+# reads GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_PROJECT / GOOGLE_REGION
+# directly (no `gcloud auth`).
+: "${GCP_SA_KEY_JSON:=}"
+: "${GOOGLE_PROJECT:=}"
+: "${GOOGLE_REGION:=}"
+
 # ---------------------------------------------------------------------------
 # report_status: PATCH the run-level status (running/planned/applied/failed).
 # ---------------------------------------------------------------------------
@@ -429,6 +438,20 @@ fi
 if [[ -n "${ARM_CLIENT_ID}" ]]; then
   # Tail-only echo so secrets stay out of logs.
   echo "=== Azure SP auth wired: tenant ${ARM_TENANT_ID:0:8}… subscription ${ARM_SUBSCRIPTION_ID:0:8}… ==="
+fi
+
+# If the workspace is linked to a GCP project, write the service-account key
+# JSON to a 0600 file and point the google provider at it (mirrors the AWS/
+# kubeconfig file-write pattern). Never `gcloud auth` — the provider reads
+# GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_PROJECT / GOOGLE_REGION directly.
+if [[ -n "${GCP_SA_KEY_JSON}" ]]; then
+  mkdir -p ~/.gcp
+  printf '%s' "${GCP_SA_KEY_JSON}" > ~/.gcp/sa-key.json
+  chmod 600 ~/.gcp/sa-key.json
+  export GOOGLE_APPLICATION_CREDENTIALS="${HOME}/.gcp/sa-key.json"
+  export GOOGLE_CLOUD_PROJECT="${GOOGLE_PROJECT}"
+  # Tail-only echo — never print the key JSON.
+  echo "=== GCP SA auth wired: project ${GOOGLE_PROJECT:-<none>} (key at ${GOOGLE_APPLICATION_CREDENTIALS}) ==="
 fi
 
 report_status "running"

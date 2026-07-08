@@ -4,6 +4,7 @@ import {
   buildFolderTree,
   collectNodeWorkspaces,
   countNodeWorkspaces,
+  gcpInfo,
   workspacePathSegments,
 } from "./paths";
 import type { Workspace } from "./types";
@@ -51,6 +52,30 @@ describe("azureInfo", () => {
   });
 });
 
+describe("gcpInfo", () => {
+  it("parses project id + region from a gcp/project path", () => {
+    const w = ws({
+      name: "network",
+      region: "global",
+      tf_working_dir: "gcp/project-acme-prod-1234/us-central1/network",
+    });
+    expect(gcpInfo(w)).toEqual({ projectId: "acme-prod-1234", region: "us-central1" });
+  });
+
+  it("returns null for a non-gcp path", () => {
+    expect(gcpInfo(ws({ name: "vpc", tf_working_dir: "account-123/us-east-1/vpc" }))).toBeNull();
+  });
+
+  it("returns null when 'gcp' is present but the second segment isn't a project", () => {
+    expect(gcpInfo(ws({ name: "x", tf_working_dir: "gcp/us-central1/x" }))).toBeNull();
+  });
+
+  it("falls back to ws.region when the path omits a region segment", () => {
+    const w = ws({ name: "net", region: "europe-west1", tf_working_dir: "gcp/project-p1" });
+    expect(gcpInfo(w)).toEqual({ projectId: "p1", region: "europe-west1" });
+  });
+});
+
 describe("workspacePathSegments", () => {
   it("strips account-<id>/<region> for an AWS path", () => {
     const w = ws({
@@ -77,6 +102,24 @@ describe("workspacePathSegments", () => {
       tf_working_dir: "azure/subscription-x/eastus/openai/gpt4",
     });
     expect(workspacePathSegments(w)).toEqual({ folders: ["openai"], leaf: "gpt4" });
+  });
+
+  it("strips gcp/project-<id>/<region> so the leaf sits at the region", () => {
+    const w = ws({
+      name: "network",
+      region: "global",
+      tf_working_dir: "gcp/project-acme-prod-1234/us-central1/network",
+    });
+    expect(workspacePathSegments(w)).toEqual({ folders: [], leaf: "network" });
+  });
+
+  it("keeps intermediate folders under a gcp region", () => {
+    const w = ws({
+      name: "gke",
+      region: "global",
+      tf_working_dir: "gcp/project-p1/us-central1/platform/gke",
+    });
+    expect(workspacePathSegments(w)).toEqual({ folders: ["platform"], leaf: "gke" });
   });
 
   it("falls back to the workspace name for an empty or '.' path", () => {

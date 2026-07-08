@@ -19,6 +19,21 @@ def _validate_kind(value: str) -> str:
     return value
 
 
+# Allowed Terraform state backends. "s3" (default) resolves via aws_account_id;
+# "azureblob" uses the linked azure_subscription's Blob container; "gcs" uses
+# the linked gcp_project's GCS bucket. The API validates the required linkage
+# on create/update (routers/workspaces.py).
+_STATE_BACKENDS = {"s3", "azureblob", "gcs"}
+
+
+def _validate_state_backend(value: str) -> str:
+    if value not in _STATE_BACKENDS:
+        raise ValueError(
+            f"state_backend must be one of {sorted(_STATE_BACKENDS)}, got {value!r}"
+        )
+    return value
+
+
 def _validate_repo_url(value: Optional[str]) -> Optional[str]:
     """Reject git transport-helper URLs.
 
@@ -76,11 +91,21 @@ class WorkspaceCreate(BaseModel):
     # exports ARM_* env vars from the linked subscription's encrypted SP
     # credentials. State backend continues to be S3 for now.
     azure_subscription_id: Optional[str] = None
+    # Optional GCP project FK. When set, the workspace targets the google
+    # provider; the executor exports the linked project's SA-key credentials.
+    gcp_project_id: Optional[str] = None
+    # Where Terraform state is stored: "s3" (default), "azureblob", or "gcs".
+    state_backend: str = "s3"
 
     @field_validator("kind")
     @classmethod
     def _kind_in_allowed(cls, value: str) -> str:
         return _validate_kind(value)
+
+    @field_validator("state_backend")
+    @classmethod
+    def _state_backend_in_allowed(cls, value: str) -> str:
+        return _validate_state_backend(value)
 
     @field_validator("repo_url")
     @classmethod
@@ -108,6 +133,16 @@ class WorkspaceUpdate(BaseModel):
     # Pass null (or omit) to leave unchanged; pass empty string to clear;
     # pass a value to relink to a different subscription.
     azure_subscription_id: Optional[str] = None
+    # Same semantics as azure_subscription_id, for the GCP linkage.
+    gcp_project_id: Optional[str] = None
+    # Change where state is stored: "s3", "azureblob", or "gcs". The router
+    # validates the required cloud linkage before applying the change.
+    state_backend: Optional[str] = None
+
+    @field_validator("state_backend")
+    @classmethod
+    def _state_backend_in_allowed(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_state_backend(value) if value is not None else value
 
     @field_validator("repo_url")
     @classmethod
@@ -139,6 +174,10 @@ class WorkspaceResponse(BaseModel):
     state_aws_account_id: Optional[str] = None
     # The PK of the linked azure_subscriptions row, or null for AWS-only.
     azure_subscription_id: Optional[str] = None
+    # The PK of the linked gcp_projects row, or null if not a GCP workspace.
+    gcp_project_id: Optional[str] = None
+    # Where Terraform state is stored: "s3" (default), "azureblob", or "gcs".
+    state_backend: str = "s3"
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
