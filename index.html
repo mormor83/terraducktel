@@ -5,6 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Terraducktel — Terraform &amp; Helm orchestration, self-hosted</title>
 <meta name="description" content="Plan, gate, apply, and track drift across every AWS account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
+<link rel="canonical" href="https://mormor83.github.io/terraducktel/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://mormor83.github.io/terraducktel/">
+<meta property="og:site_name" content="Terraducktel">
+<meta property="og:title" content="Terraducktel — Terraform &amp; Helm orchestration, self-hosted">
+<meta property="og:description" content="Plan, gate, apply, and track drift across every AWS account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
+<meta property="og:image" content="https://mormor83.github.io/terraducktel/assets/og-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Terraducktel — self-hosted Terraform and Helm orchestration with a gated plan, approve, apply pipeline">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Terraducktel — Terraform &amp; Helm orchestration, self-hosted">
+<meta name="twitter:description" content="Plan, gate, apply, and track drift across every AWS account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
+<meta name="twitter:image" content="https://mormor83.github.io/terraducktel/assets/og-card.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Terraducktel",
+  "description": "Self-hosted Terraform and Helm orchestration platform: plan, policy-scan, cost-estimate, human-approve, and apply infrastructure changes across AWS accounts and Kubernetes clusters, with drift detection and multi-tenant Business Units.",
+  "url": "https://mormor83.github.io/terraducktel/",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Linux (Docker Compose)",
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+  "license": "https://github.com/mormor83/terraducktel/blob/main/LICENSE",
+  "sameAs": ["https://github.com/mormor83/terraducktel"]
+}
+</script>
 <link rel="icon" href="assets/terraducktel-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -288,12 +316,72 @@
     background:#050b0a; border:1px solid var(--line); border-radius:14px; overflow:hidden;
     box-shadow:0 30px 70px -25px rgba(0,0,0,0.7);
   }
-  .term-bar{display:flex; gap:6px; padding:12px 16px; background:#0c1a17; border-bottom:1px solid var(--line)}
+  .term-bar{display:flex; align-items:center; gap:6px; padding:12px 16px; background:#0c1a17; border-bottom:1px solid var(--line)}
   .term-bar span{width:10px;height:10px;border-radius:50%; background:rgba(234,243,240,0.15)}
+  .copy-btn{
+    margin-left:auto;
+    font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:600; letter-spacing:.04em;
+    color:var(--mist-soft); background:rgba(234,243,240,0.06);
+    border:1px solid var(--line); border-radius:6px;
+    padding:4px 12px; cursor:pointer;
+    transition:color .15s, background .15s, border-color .15s;
+  }
+  .copy-btn:hover{color:var(--mist); background:rgba(234,243,240,0.12)}
+  .copy-btn.done{color:var(--spring); border-color:rgba(94,184,90,0.4)}
   .term pre{margin:0; padding:24px; font-family:'JetBrains Mono'; font-size:0.85rem; line-height:1.85; overflow-x:auto}
   .term .c1{color:var(--mist-faint)}
   .term .c2{color:var(--spring)}
   .term .c3{color:var(--teal-bright)}
+
+  /* ---------- animated run console ---------- */
+  .run-console{
+    max-width:680px; margin:0 auto 72px;
+    background:#050b0a; border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    box-shadow:0 30px 70px -25px rgba(0,0,0,0.7);
+  }
+  .rc-title{
+    margin-left:auto; font-style:normal;
+    font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:.03em;
+    color:var(--mist-faint);
+  }
+  .rc-body{padding:16px 22px 18px}
+  .rc-step{
+    display:flex; align-items:center; gap:13px;
+    font-family:'JetBrains Mono',monospace; font-size:0.85rem;
+    padding:8px 0; color:var(--mist-faint);
+    transition:color .3s;
+  }
+  .rc-step b{font-weight:600; width:88px; flex:none}
+  .rc-ico{
+    width:17px; height:17px; flex:none; border-radius:50%; position:relative;
+    border:2px solid rgba(234,243,240,0.14);
+    transition:border-color .3s, background .3s;
+  }
+  .rc-step.running{color:var(--mist-soft)}
+  .rc-step.running .rc-ico{
+    border-color:rgba(77,179,172,0.25); border-top-color:var(--teal-bright);
+    animation:rc-spin .7s linear infinite;
+  }
+  .rc-step.gate{color:var(--amber)}
+  .rc-step.gate .rc-ico{border-color:var(--amber); animation:rc-pulse 1.1s ease-in-out infinite}
+  .rc-step.gate .rc-detail{opacity:1; color:var(--amber)}
+  .rc-step.done{color:var(--mist-soft)}
+  .rc-step.done .rc-ico{border-color:rgba(94,184,90,0.7); background:rgba(94,184,90,0.14); animation:none}
+  .rc-step.done .rc-ico::after{
+    content:"✓"; position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--spring); font-size:10px; font-weight:700;
+  }
+  .rc-detail{margin-left:auto; font-size:0.76rem; color:var(--mist-faint); opacity:0; transition:opacity .35s}
+  .rc-step.done .rc-detail{opacity:1}
+  @keyframes rc-spin{ to{transform:rotate(360deg)} }
+  @keyframes rc-pulse{ 0%,100%{box-shadow:0 0 0 0 rgba(217,164,65,0.35)} 50%{box-shadow:0 0 0 6px rgba(217,164,65,0)} }
+  @media (max-width:560px){
+    .rc-title{display:none}
+    .rc-step b{width:76px}
+    .rc-step{font-size:0.78rem}
+    .rc-detail{font-size:0.68rem}
+  }
 
   /* ---------- CTA footer band ---------- */
   .cta-band{
@@ -327,14 +415,41 @@
     cursor:zoom-out;
   }
   .lightbox.open{opacity:1; pointer-events:auto}
+  .lb-fig{
+    margin:0; min-width:0; max-width:100%;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
   .lightbox img{
-    max-width:100%; max-height:100%;
+    max-width:100%; max-height:calc(100vh - 14vmin);
     border-radius:10px; border:1px solid var(--line);
     box-shadow:0 40px 90px -20px rgba(0,0,0,0.8);
     transition:transform .25s ease, transform-origin .12s ease-out;
     cursor:zoom-in;
+    touch-action:none;
   }
   .lightbox img.zoomed{cursor:zoom-out}
+  .lb-caption{
+    font-family:'JetBrains Mono',monospace; font-size:0.78rem; letter-spacing:.04em;
+    color:var(--mist-soft);
+    display:flex; gap:14px; align-items:center;
+    transition:opacity .2s;
+    cursor:default;
+  }
+  .lb-count{color:var(--mist-faint)}
+  .lb-nav{
+    position:absolute; top:50%; transform:translateY(-50%); z-index:2;
+    width:46px; height:46px; border-radius:50%; padding:0;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(234,243,240,0.07); border:1px solid var(--line);
+    color:var(--mist); cursor:pointer;
+    transition:background .15s, opacity .2s;
+  }
+  .lb-nav:hover{background:rgba(234,243,240,0.18)}
+  .lb-nav svg{width:22px; height:22px}
+  .lb-prev{left:max(12px, 2.5vmin)}
+  .lb-next{right:max(12px, 2.5vmin)}
+  @media (max-width:560px){ .lb-nav{width:38px; height:38px} .lb-nav svg{width:18px;height:18px} }
+  .lightbox.is-zoomed .lb-nav, .lightbox.is-zoomed .lb-caption{opacity:0; pointer-events:none}
 </style>
 </head>
 <body>
@@ -448,6 +563,18 @@
         every step is visible while it happens, not after.</p>
     </div>
 
+    <div class="run-console reveal" aria-hidden="true">
+      <div class="term-bar"><span></span><span></span><span></span><em class="rc-title">run #142 · demo-account-1 / us-east-1 / admin-portal</em></div>
+      <div class="rc-body">
+        <div class="rc-step" data-detail="repo @ main · 1.9s"><i class="rc-ico"></i><b>clone</b><span class="rc-detail"></span></div>
+        <div class="rc-step" data-detail="212 checks · 0 failed"><i class="rc-ico"></i><b>checkov</b><span class="rc-detail"></span></div>
+        <div class="rc-step" data-detail="+3 ~1 −0 · 4.8s"><i class="rc-ico"></i><b>plan</b><span class="rc-detail"></span></div>
+        <div class="rc-step" data-detail="+$12.40/mo est."><i class="rc-ico"></i><b>cost</b><span class="rc-detail"></span></div>
+        <div class="rc-step rc-gate-step" data-detail="approved · apply resumed" data-wait="awaiting operator approval…"><i class="rc-ico"></i><b>approval</b><span class="rc-detail"></span></div>
+        <div class="rc-step" data-detail="3 added, 1 changed · 12.4s"><i class="rc-ico"></i><b>apply</b><span class="rc-detail"></span></div>
+      </div>
+    </div>
+
     <div class="stage reveal">
       <div class="stage-shot shot-frame">
         <div class="shot-chrome"><span></span><span></span><span></span></div>
@@ -551,7 +678,7 @@
         </p>
       </div>
       <div class="term reveal">
-        <div class="term-bar"><span></span><span></span><span></span></div>
+        <div class="term-bar"><span></span><span></span><span></span><button class="copy-btn" type="button" aria-label="Copy setup commands to clipboard">Copy</button></div>
         <pre><span class="c1"># clone &amp; configure</span>
 git clone https://github.com/mormor83/terraducktel.git
 <span class="c2">cd</span> terraducktel &amp;&amp; cp .env.example .env
@@ -625,43 +752,78 @@ docker compose exec -T api python scripts/seed_dev_users.py
     window.setTimeout(revealAll, 1800); // belt-and-suspenders: never leave content invisible
   })();
 
-  // screenshot lightbox: zoom-in cursor on hover, click to enlarge, click again to magnify
+  // screenshot lightbox: zoom-in cursor on hover, click to enlarge, click again to
+  // magnify; ←/→ + chevrons + swipe navigate; touch drag pans while magnified
   (function(){
+    var thumbs = Array.prototype.slice.call(document.querySelectorAll('.shot-frame img'));
+    if (!thumbs.length) return;
+    var gallery = thumbs.map(function(img){
+      var stage = img.closest('.stage');
+      var h3 = stage && stage.querySelector('.stage-copy h3');
+      return { src: img.src, alt: img.alt || '', title: (h3 ? h3.textContent : img.alt) || 'Screenshot' };
+    });
+
+    var chev = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>';
     var lb = document.createElement('div');
     lb.className = 'lightbox';
     lb.setAttribute('role','dialog');
     lb.setAttribute('aria-modal','true');
     lb.setAttribute('aria-label','Enlarged screenshot');
-    var lbImg = document.createElement('img');
-    lb.appendChild(lbImg);
+    lb.innerHTML =
+      '<button class="lb-nav lb-prev" type="button" aria-label="Previous screenshot">' + chev + '</button>' +
+      '<figure class="lb-fig"><img><figcaption class="lb-caption"><span class="lb-title"></span><span class="lb-count"></span></figcaption></figure>' +
+      '<button class="lb-nav lb-next" type="button" aria-label="Next screenshot">' + chev.replace('M15 6l-6 6 6 6','M9 6l6 6-6 6') + '</button>';
     document.body.appendChild(lb);
 
-    var lastTrigger = null;
+    var lbImg = lb.querySelector('img');
+    var lbTitle = lb.querySelector('.lb-title');
+    var lbCount = lb.querySelector('.lb-count');
+    var cur = 0, lastTrigger = null;
+
+    function unzoom(){
+      lb.classList.remove('is-zoomed');
+      lbImg.classList.remove('zoomed');
+      lbImg.style.transform = '';
+    }
+
+    function show(i){
+      cur = (i + gallery.length) % gallery.length;
+      unzoom();
+      lbImg.src = gallery[cur].src;
+      lbImg.alt = gallery[cur].alt;
+      lbTitle.textContent = gallery[cur].title;
+      lbCount.textContent = (cur + 1) + ' / ' + gallery.length;
+    }
 
     function close(){
       lb.classList.remove('open');
-      lbImg.classList.remove('zoomed');
-      lbImg.style.transform = '';
+      unzoom();
       document.body.style.overflow = '';
       if (lastTrigger){ lastTrigger.focus(); lastTrigger = null; }
     }
 
-    function originFrom(e){
+    function originFrom(pt){
       var r = lb.getBoundingClientRect();
-      var ox = Math.min(100, Math.max(0, (e.clientX - r.left) / r.width * 100));
-      var oy = Math.min(100, Math.max(0, (e.clientY - r.top) / r.height * 100));
+      var ox = Math.min(100, Math.max(0, (pt.clientX - r.left) / r.width * 100));
+      var oy = Math.min(100, Math.max(0, (pt.clientY - r.top) / r.height * 100));
       lbImg.style.transformOrigin = ox + '% ' + oy + '%';
     }
 
+    lb.querySelector('.lb-prev').addEventListener('click', function(e){ e.stopPropagation(); show(cur - 1); });
+    lb.querySelector('.lb-next').addEventListener('click', function(e){ e.stopPropagation(); show(cur + 1); });
+
     lb.addEventListener('click', function(e){
-      if (e.target !== lbImg){ close(); return; }
-      if (lbImg.classList.contains('zoomed')){
-        lbImg.classList.remove('zoomed');
-        lbImg.style.transform = '';
-      } else {
-        originFrom(e);
-        lbImg.style.transform = 'scale(2.2)';
-        lbImg.classList.add('zoomed');
+      if (e.target === lbImg){
+        if (lbImg.classList.contains('zoomed')){
+          unzoom();
+        } else {
+          originFrom(e);
+          lbImg.style.transform = 'scale(2.2)';
+          lbImg.classList.add('zoomed');
+          lb.classList.add('is-zoomed');
+        }
+      } else if (!e.target.closest('.lb-caption')){
+        close();
       }
     });
 
@@ -670,25 +832,131 @@ docker compose exec -T api python scripts/seed_dev_users.py
       if (lbImg.classList.contains('zoomed')) originFrom(e);
     });
 
-    document.addEventListener('keydown', function(e){
-      if (e.key === 'Escape' && lb.classList.contains('open')) close();
+    // touch: drag pans while magnified; horizontal swipe navigates otherwise
+    var touchStart = null;
+    lb.addEventListener('touchstart', function(e){
+      touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }, {passive:true});
+    lb.addEventListener('touchmove', function(e){
+      if (lbImg.classList.contains('zoomed')){
+        e.preventDefault();
+        originFrom(e.touches[0]);
+      }
+    }, {passive:false});
+    lb.addEventListener('touchend', function(e){
+      if (!touchStart || lbImg.classList.contains('zoomed')) return;
+      var dx = e.changedTouches[0].clientX - touchStart.x;
+      var dy = e.changedTouches[0].clientY - touchStart.y;
+      touchStart = null;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5){
+        show(dx < 0 ? cur + 1 : cur - 1);
+      }
     });
 
-    document.querySelectorAll('.shot-frame img').forEach(function(img){
+    document.addEventListener('keydown', function(e){
+      if (!lb.classList.contains('open')) return;
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowLeft') show(cur - 1);
+      else if (e.key === 'ArrowRight') show(cur + 1);
+    });
+
+    thumbs.forEach(function(img, i){
       img.setAttribute('tabindex','0');
       img.setAttribute('role','button');
       img.setAttribute('aria-label','Enlarge screenshot: ' + (img.alt || 'screenshot'));
       function open(){
         lastTrigger = img;
-        lbImg.src = img.src;
-        lbImg.alt = img.alt || '';
+        show(i);
         lb.classList.add('open');
         document.body.style.overflow = 'hidden';
+        gallery.forEach(function(g){ var pre = new Image(); pre.src = g.src; });
       }
       img.addEventListener('click', open);
       img.addEventListener('keydown', function(e){
         if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); open(); }
       });
+    });
+  })();
+
+  // animated run console — a stylized run walking the gated pipeline on loop
+  (function(){
+    var steps = Array.prototype.slice.call(document.querySelectorAll('.rc-step'));
+    if (!steps.length) return;
+
+    function setDone(step){
+      step.classList.remove('running','gate');
+      step.classList.add('done');
+      step.querySelector('.rc-detail').textContent = step.getAttribute('data-detail');
+    }
+
+    // reduced motion: show the finished run, no loop
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      steps.forEach(setDone);
+      return;
+    }
+
+    var timers = [];
+    function at(ms, fn){ timers.push(setTimeout(fn, ms)); }
+
+    function play(){
+      timers.forEach(clearTimeout); timers = [];
+      steps.forEach(function(s){
+        s.classList.remove('running','gate','done');
+        s.querySelector('.rc-detail').textContent = '';
+      });
+      var t = 400;
+      steps.forEach(function(step){
+        var isGate = step.classList.contains('rc-gate-step');
+        (function(step, start, gate){
+          at(start, function(){
+            if (gate){
+              step.classList.add('gate');
+              step.querySelector('.rc-detail').textContent = step.getAttribute('data-wait');
+            } else {
+              step.classList.add('running');
+            }
+          });
+        })(step, t, isGate);
+        t += isGate ? 3000 : 1400;
+        (function(step, end){
+          at(end, function(){ setDone(step); });
+        })(step, t);
+      });
+      at(t + 2800, play); // hold the all-green state, then loop
+    }
+    play();
+  })();
+
+  // quickstart copy button — copies the commands, skips comment lines
+  (function(){
+    var btn = document.querySelector('.copy-btn');
+    var pre = document.querySelector('.term pre');
+    if (!btn || !pre) return;
+    var cmds = pre.textContent.split('\n').filter(function(l){
+      var t = l.trim();
+      return t && t.charAt(0) !== '#';
+    }).join('\n');
+    var timer = null;
+    function done(){
+      btn.classList.add('done'); btn.textContent = 'Copied ✓';
+      clearTimeout(timer);
+      timer = setTimeout(function(){ btn.classList.remove('done'); btn.textContent = 'Copy'; }, 1600);
+    }
+    function fallback(){
+      var ta = document.createElement('textarea');
+      ta.value = cmds;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { if (document.execCommand('copy')) done(); } catch(err){}
+      document.body.removeChild(ta);
+    }
+    btn.addEventListener('click', function(){
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(cmds).then(done, fallback);
+      } else {
+        fallback();
+      }
     });
   })();
 
