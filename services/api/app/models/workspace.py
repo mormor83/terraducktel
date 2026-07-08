@@ -44,6 +44,22 @@ class Workspace(Base):
     azure_subscription_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("azure_subscriptions.id", ondelete="SET NULL"), nullable=True
     )
+    # Optional GCP project FK. When set, the workspace targets the google
+    # provider; the executor writes the linked project's SA-key JSON to a 0600
+    # file and exports GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_PROJECT. Null =
+    # not a GCP workspace.
+    gcp_project_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("gcp_projects.id", ondelete="SET NULL"), nullable=True
+    )
+    # Which object store holds this workspace's Terraform state:
+    #   "s3"        → AWS S3 (default; resolved via aws_account_id, unchanged)
+    #   "azureblob" → the linked azure_subscription's Blob container
+    #   "gcs"       → the linked gcp_project's GCS bucket
+    # Default "s3" (with a server_default) so every existing row — and any code
+    # path that doesn't set it — behaves exactly as before.
+    state_backend: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="s3", server_default="s3"
+    )
     environment: Mapped[str] = mapped_column(String(50), nullable=False)
     region: Mapped[str] = mapped_column(String(50), nullable=False, default="us-east-1")
     repo_url: Mapped[str | None] = mapped_column(Text, nullable=True)

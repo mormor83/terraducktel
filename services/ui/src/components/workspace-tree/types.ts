@@ -28,6 +28,13 @@ export type Workspace = {
   // azurerm provider authenticates without the Azure CLI. Drives top-level
   // grouping (an Azure subscription gets its own group, like an AWS account).
   azure_subscription_id?: string | null;
+  // GCP project this workspace deploys into. When set, the executor writes the
+  // project's SA-key JSON and exports GOOGLE_* env vars so the google provider
+  // authenticates. Drives top-level grouping (a GCP project gets its own group,
+  // like an AWS account / Azure subscription).
+  gcp_project_id?: string | null;
+  // Where Terraform state is stored: "s3" (default), "azureblob", or "gcs".
+  state_backend?: string;
   // Workspace kind. "terraform" (default) drives the existing plan/apply
   // pipeline; "helm" reinterprets the same plan|apply|destroy commands as
   // helm diff/upgrade/uninstall against `cluster_id`. Optional on the wire so
@@ -58,6 +65,15 @@ export type AzureSubscriptionLite = {
   // The Azure subscription GUID (what the `azure/subscription-<guid>/` repo
   // path encodes — used to match path-detected workspaces to a registration).
   subscription_id: string;
+  name: string;
+};
+
+export type GcpProjectLite = {
+  // TDT primary key (what `workspace.gcp_project_id` stores).
+  id: string;
+  // The GCP project id (what the `gcp/project-<id>/` repo path encodes — used
+  // to match path-detected workspaces to a registration).
+  project_id: string;
   name: string;
 };
 

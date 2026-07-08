@@ -92,3 +92,23 @@ async def get_subscription_credentials(
         sub.client_id,
         decrypt_secret(sub.client_secret_encrypted),
     )
+
+
+async def get_state_storage(
+    session: AsyncSession, sub_pk: str
+) -> tuple[str, str, str, str, str] | None:
+    """Return (storage_account, container, tenant_id, client_id, client_secret).
+
+    Used by the Azure Blob state backend + the /container admin endpoint.
+    Returns None if the subscription is missing or has no storage configured.
+    """
+    sub = await get_subscription(session, sub_pk)
+    if sub is None or not sub.state_storage_account or not sub.state_container:
+        return None
+    return (
+        sub.state_storage_account,
+        sub.state_container,
+        sub.tenant_id,
+        sub.client_id,
+        decrypt_secret(sub.client_secret_encrypted),
+    )

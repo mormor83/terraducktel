@@ -4,31 +4,34 @@
 // public entry point and orchestrates grouping.
 import { useMemo, useState } from "react";
 import { Card, Input } from "./ui";
-import { AccountGroup, AzureSubscriptionGroup } from "./workspace-tree/groups";
-import { azureInfo, workspacePathSegments } from "./workspace-tree/paths";
+import { AccountGroup, AzureSubscriptionGroup, GcpProjectGroup } from "./workspace-tree/groups";
+import { azureInfo, gcpInfo, workspacePathSegments } from "./workspace-tree/paths";
 import type {
   AwsAccountLite,
   AzureSubscriptionLite,
   ExpandSignal,
+  GcpProjectLite,
   Run,
   Workspace,
 } from "./workspace-tree/types";
 
 // Public surface preserved for existing importers (Dashboard, Settings).
-export type { AwsAccountLite, AzureSubscriptionLite, Run, Workspace };
-export { azureInfo, workspacePathSegments };
+export type { AwsAccountLite, AzureSubscriptionLite, GcpProjectLite, Run, Workspace };
+export { azureInfo, gcpInfo, workspacePathSegments };
 
 export default function WorkspaceTree({
   workspaces,
   runs,
   awsAccounts,
   azureSubscriptions,
+  gcpProjects,
   onChanged,
 }: {
   workspaces: Workspace[];
   runs: Run[];
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
   onChanged: () => void;
 }) {
   const [filter, setFilter] = useState("");
@@ -55,10 +58,24 @@ export default function WorkspaceTree({
     return m;
   }, [azureSubscriptions]);
 
+  // Same two views for GCP projects: by TDT pk (the explicit link) and by GCP
+  // project id (what the `gcp/project-<id>/` repo path encodes).
+  const gcpByPk = useMemo(() => {
+    const m = new Map<string, GcpProjectLite>();
+    for (const p of gcpProjects) m.set(p.id, p);
+    return m;
+  }, [gcpProjects]);
+  const gcpByProjectId = useMemo(() => {
+    const m = new Map<string, GcpProjectLite>();
+    for (const p of gcpProjects) m.set(p.project_id, p);
+    return m;
+  }, [gcpProjects]);
+
   // Classify a workspace into its top-level cloud group + the region it should
-  // nest under. Azure detection: explicit link first, then the path convention.
+  // nest under. Detection: explicit link first (Azure, then GCP), then the
+  // path convention (Azure, then GCP); AWS is the default.
   function classify(w: Workspace): {
-    cloud: "aws" | "azure";
+    cloud: "aws" | "azure" | "gcp";
     key: string;
     region: string;
   } {
@@ -72,10 +89,24 @@ export default function WorkspaceTree({
         region: info?.region ?? w.region,
       };
     }
+    if (w.gcp_project_id) {
+      const proj = gcpByPk.get(w.gcp_project_id);
+      const info = gcpInfo(w);
+      return {
+        cloud: "gcp",
+        key: proj ? proj.id : w.gcp_project_id,
+        region: info?.region ?? w.region,
+      };
+    }
     const info = azureInfo(w);
     if (info) {
       const sub = azureByGuid.get(info.guid);
       return { cloud: "azure", key: sub ? sub.id : `guid:${info.guid}`, region: info.region };
+    }
+    const ginfo = gcpInfo(w);
+    if (ginfo) {
+      const proj = gcpByProjectId.get(ginfo.projectId);
+      return { cloud: "gcp", key: proj ? proj.id : `pid:${ginfo.projectId}`, region: ginfo.region };
     }
     return { cloud: "aws", key: w.aws_account_id, region: w.region };
   }
@@ -111,6 +142,9 @@ export default function WorkspaceTree({
       const sub = w.azure_subscription_id
         ? azureByPk.get(w.azure_subscription_id)
         : azureByGuid.get(azureInfo(w)?.guid ?? "");
+      const proj = w.gcp_project_id
+        ? gcpByPk.get(w.gcp_project_id)
+        : gcpByProjectId.get(gcpInfo(w)?.projectId ?? "");
       return [
         w.name,
         w.aws_account_id,
@@ -120,32 +154,36 @@ export default function WorkspaceTree({
         accountNameById.get(w.aws_account_id) ?? "",
         sub?.name ?? "",
         sub?.subscription_id ?? azureInfo(w)?.guid ?? "",
+        proj?.name ?? "",
+        proj?.project_id ?? gcpInfo(w)?.projectId ?? "",
       ]
         .join(" ")
         .toLowerCase()
         .includes(q);
     });
-  }, [workspaces, filter, accountNameById, azureByPk, azureByGuid]);
+  }, [workspaces, filter, accountNameById, azureByPk, azureByGuid, gcpByPk, gcpByProjectId]);
 
-  // Group into AWS accounts and Azure subscriptions, each → region → workspaces[].
-  const { awsGrouped, azureGrouped } = useMemo(() => {
+  // Group into AWS accounts, Azure subscriptions, and GCP projects; each →
+  // region → workspaces[].
+  const { awsGrouped, azureGrouped, gcpGrouped } = useMemo(() => {
     const aws: Record<string, Record<string, Workspace[]>> = {};
     const azure: Record<string, Record<string, Workspace[]>> = {};
+    const gcp: Record<string, Record<string, Workspace[]>> = {};
     for (const w of filtered) {
       const c = classify(w);
-      const bucket = c.cloud === "azure" ? azure : aws;
+      const bucket = c.cloud === "azure" ? azure : c.cloud === "gcp" ? gcp : aws;
       const g = (bucket[c.key] ??= {});
       (g[c.region] ??= []).push(w);
     }
-    for (const bucket of [aws, azure]) {
+    for (const bucket of [aws, azure, gcp]) {
       for (const g of Object.values(bucket)) {
         for (const region of Object.keys(g)) g[region].sort((a, b) => a.name.localeCompare(b.name));
       }
     }
-    return { awsGrouped: aws, azureGrouped: azure };
-    // classify closes over the azure lookup maps, which are themselves memoized.
+    return { awsGrouped: aws, azureGrouped: azure, gcpGrouped: gcp };
+    // classify closes over the cloud lookup maps, which are themselves memoized.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, azureByPk, azureByGuid]);
+  }, [filtered, azureByPk, azureByGuid, gcpByPk, gcpByProjectId]);
 
   const accountIds = Object.keys(awsGrouped).sort();
   // Azure groups sorted by display name (registered) then bare GUID key.
@@ -154,7 +192,13 @@ export default function WorkspaceTree({
     const nb = azureByPk.get(b)?.name ?? b;
     return na.localeCompare(nb);
   });
-  const groupCount = accountIds.length + azureKeys.length;
+  // GCP groups sorted by display name (registered) then bare project-id key.
+  const gcpKeys = Object.keys(gcpGrouped).sort((a, b) => {
+    const na = gcpByPk.get(a)?.name ?? a;
+    const nb = gcpByPk.get(b)?.name ?? b;
+    return na.localeCompare(nb);
+  });
+  const groupCount = accountIds.length + azureKeys.length + gcpKeys.length;
 
   return (
     <div className="space-y-4">
@@ -217,6 +261,7 @@ export default function WorkspaceTree({
               expandSignal={expandSignal}
               awsAccounts={awsAccounts}
               azureSubscriptions={azureSubscriptions}
+              gcpProjects={gcpProjects}
             />
           ))}
           {azureKeys.map((key) => (
@@ -231,6 +276,22 @@ export default function WorkspaceTree({
               expandSignal={expandSignal}
               awsAccounts={awsAccounts}
               azureSubscriptions={azureSubscriptions}
+              gcpProjects={gcpProjects}
+            />
+          ))}
+          {gcpKeys.map((key) => (
+            <GcpProjectGroup
+              key={`gcp:${key}`}
+              proj={gcpByPk.get(key)}
+              projectId={key.startsWith("pid:") ? key.slice("pid:".length) : undefined}
+              byRegion={gcpGrouped[key]}
+              latestByWs={latestByWs}
+              defaultOpen={false}
+              onChanged={onChanged}
+              expandSignal={expandSignal}
+              awsAccounts={awsAccounts}
+              azureSubscriptions={azureSubscriptions}
+              gcpProjects={gcpProjects}
             />
           ))}
         </div>

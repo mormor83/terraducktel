@@ -14,12 +14,14 @@ from app.db import get_db
 from app.models.azure_subscription import AzureSubscription
 from app.models.user import User
 from app.schemas.azure_subscription import (
+    AzureContainerResult,
     AzureSubscriptionCreate,
     AzureSubscriptionResponse,
     AzureSubscriptionTestResult,
     AzureSubscriptionUpdate,
 )
 from app.services import azure_subscription_service as svc
+from app.services.azure_blob_state_service import AzureBlobStateService
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,8 @@ def _to_response(sub: AzureSubscription) -> AzureSubscriptionResponse:
         name=sub.name,
         description=sub.description,
         default_location=sub.default_location,
+        state_storage_account=sub.state_storage_account,
+        state_container=sub.state_container,
         client_secret_masked=svc.mask_secret_tail(plain) if plain else "(unreadable)",
     )
 
@@ -97,6 +101,8 @@ async def create_azure_subscription(
         name=body.name,
         description=body.description,
         default_location=body.default_location,
+        state_storage_account=body.state_storage_account,
+        state_container=body.state_container,
         client_secret_encrypted=svc.encrypt_secret(body.client_secret),
     )
     db.add(sub)
@@ -181,7 +187,66 @@ async def test_azure_subscription(
                 ok=False,
                 detail=f"Token endpoint returned {resp.status_code}: {resp.text[:200]}",
             )
+        # If a Blob state container is configured, verify the SP can actually
+        # reach it (i.e. it holds Storage Blob Data Contributor) before an
+        # operator flips a workspace to state_backend=azureblob.
+        if sub.state_storage_account and sub.state_container:
+            try:
+                AzureBlobStateService.verify_container(
+                    sub.state_storage_account,
+                    sub.state_container,
+                    sub.tenant_id,
+                    sub.client_id,
+                    secret,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "Azure state container probe failed for subscription %s",
+                    sub.subscription_id,
+                    exc_info=True,
+                )
+                return AzureSubscriptionTestResult(
+                    ok=False,
+                    detail=f"SP token OK but state container unreachable: {str(e)[:150]}",
+                )
+            return AzureSubscriptionTestResult(
+                ok=True, detail="SP credentials + Blob state container validated"
+            )
         return AzureSubscriptionTestResult(ok=True, detail="SP credentials validated against ARM token endpoint")
     except Exception as e:  # noqa: BLE001
         logger.warning("Azure credential test failed for subscription %s", sub.subscription_id, exc_info=True)
         return AzureSubscriptionTestResult(ok=False, detail=str(e)[:200])
+
+
+@router.post("/{sub_pk}/container", response_model=AzureContainerResult)
+async def create_state_container(
+    sub_pk: str,
+    _: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create (or verify) the Blob container used for this subscription's TF state."""
+    sub = await _scoped_subscription(db, sub_pk, bu)
+    if not sub.state_storage_account or not sub.state_container:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Set state_storage_account and state_container before creating the container",
+        )
+    try:
+        secret = svc.decrypt_secret(sub.client_secret_encrypted)
+        already = AzureBlobStateService.ensure_container(
+            sub.state_storage_account,
+            sub.state_container,
+            sub.tenant_id,
+            sub.client_id,
+            secret,
+        )
+        return AzureContainerResult(
+            ok=True,
+            container=sub.state_container,
+            already_existed=already,
+            detail="Container already existed" if already else "Container created",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Azure container create failed for subscription %s", sub.subscription_id, exc_info=True)
+        return AzureContainerResult(ok=False, container=sub.state_container, detail=str(e)[:200])

@@ -19,6 +19,20 @@ export function azureInfo(ws: Workspace): { guid: string; region: string } | nul
 }
 
 /**
+ * Detect the GCP layout encoded in a workspace's repo path. The convention
+ * mirrors Azure's as `gcp/project-<project_id>/<region>/…`. Returns the
+ * project id + region when the path matches, else null. Path fallback for
+ * grouping — the explicit `workspace.gcp_project_id` link wins when present.
+ */
+export function gcpInfo(ws: Workspace): { projectId: string; region: string } | null {
+  const parts = (ws.tf_working_dir ?? "").trim().split("/").filter(Boolean);
+  if (parts[0] !== "gcp") return null;
+  const m = (parts[1] ?? "").match(/^project-(.+)$/);
+  if (!m) return null;
+  return { projectId: m[1], region: parts[2] ?? ws.region };
+}
+
+/**
  * Split a workspace's `tf_working_dir` into intermediate folder segments + a
  * leaf name. We strip the leading `account-<id>/<region>/` to leave just the
  * path *within* the (account, region) slot. The leaf is what the row should
@@ -38,6 +52,12 @@ export function workspacePathSegments(ws: Workspace): { folders: string[]; leaf:
   // the leaf sits directly under its region — same shape as an AWS account.
   let regionToStrip = ws.region;
   if (parts[0] === "azure" && /^subscription-/.test(parts[1] ?? "")) {
+    parts.shift();
+    parts.shift();
+    regionToStrip = parts[0] ?? ws.region;
+  } else if (parts[0] === "gcp" && /^project-/.test(parts[1] ?? "")) {
+    // Strip the `gcp/project-<id>` pair (the project is the top-level group)
+    // and treat the next segment as the region to strip — same shape as Azure.
     parts.shift();
     parts.shift();
     regionToStrip = parts[0] ?? ws.region;

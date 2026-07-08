@@ -246,17 +246,48 @@ Workspaces that target `azurerm` link one of these; the executor exports
 | POST | `/azure-subscriptions` | Add a subscription (SP secret stored encrypted). | admin | BU-scoped |
 | PUT | `/azure-subscriptions/{sub_pk}` | Update name/description/location or rotate the client secret. | admin | — |
 | DELETE | `/azure-subscriptions/{sub_pk}` | Delete a subscription row. | admin | — |
-| POST | `/azure-subscriptions/{sub_pk}/test` | Validate the SP creds by requesting an ARM OAuth2 token. | admin | — |
+| POST | `/azure-subscriptions/{sub_pk}/test` | Validate the SP creds via an ARM OAuth2 token; also probes the Blob state container when configured. | admin | — |
+| POST | `/azure-subscriptions/{sub_pk}/container` | Create (or verify) the Blob state container using the SP. | admin | — |
 
 **POST /azure-subscriptions** body: `{subscription_id, tenant_id, client_id
-(all UUIDs), client_secret, name, description?, default_location?}`.
-Requires a concrete `X-Business-Unit`. `subscription_id` is unique per BU —
-duplicate → **409**.
+(all UUIDs), client_secret, name, description?, default_location?,
+state_storage_account?, state_container?}`. Requires a concrete
+`X-Business-Unit`. `subscription_id` is unique per BU — duplicate → **409**.
 
 `{sub_pk}` in the path is the TDT row id (not the Azure subscription GUID).
 Workspaces under a Git-synced repo at `azure/subscription-<guid>/<region>/<stack>`
 auto-link to the matching subscription by GUID on import — no manual picker
 needed if the subscription is already registered.
+
+Set `state_storage_account` + `state_container` to enable **Azure Blob** as a
+Terraform state backend for workspaces flagged `state_backend=azureblob` (state
+is written via the same SP over AAD — grant it *Storage Blob Data Contributor*).
+
+---
+
+## GCP Projects — `/api/v1/gcp-projects`
+
+Encrypted-at-rest GCP service-account keys, mirroring AWS Accounts / Azure
+Subscriptions. Workspaces that target the `google` provider link one of these;
+the executor writes the SA-key JSON to a 0600 file and exports
+`GOOGLE_APPLICATION_CREDENTIALS` / `GOOGLE_PROJECT` / `GOOGLE_REGION` at run time.
+
+| Method | Path | Description | Min role | BU |
+|---|---|---|---|---|
+| GET | `/gcp-projects` | List configured projects (SA key never returned; email shown). | viewer | BU-scoped |
+| POST | `/gcp-projects` | Add a project (SA-key JSON stored encrypted). | admin | BU-scoped |
+| PUT | `/gcp-projects/{project_pk}` | Update name/description/region/state bucket or rotate the SA key. | admin | — |
+| DELETE | `/gcp-projects/{project_pk}` | Delete a project row. | admin | — |
+| POST | `/gcp-projects/{project_pk}/test` | Validate the SA key by minting an access token (google-auth). | admin | — |
+| POST | `/gcp-projects/{project_pk}/bucket` | Create (or verify) the GCS state bucket using the SA key. | admin | — |
+
+**POST /gcp-projects** body: `{project_id, name, description?, default_region?,
+state_bucket?, state_prefix?, service_account_json}`. The JSON is validated
+structurally (must be a `service_account` key) and its embedded `project_id`
+must match — mismatch → **422**. `project_id` is unique per BU — duplicate → **409**.
+Set `state_bucket` to enable **GCS** as a Terraform state backend for workspaces
+flagged `state_backend=gcs`. Workspaces at `gcp/project-<id>/<region>/<stack>`
+auto-link to the matching project on import.
 
 ---
 
@@ -296,12 +327,19 @@ source path. `kind` is `terraform` (default) or `helm` — Helm workspaces
 target a `cluster_id` instead of an `aws_account_id` and skip the S3/HTTP
 state backend entirely (Helm release state lives in-cluster).
 
+`state_backend` (`s3` default | `azureblob` | `gcs`) selects where Terraform
+state is stored. `azureblob` requires a linked `azure_subscription_id` whose
+`state_storage_account`/`state_container` are set; `gcs` requires a linked
+`gcp_project_id` whose `state_bucket` is set — create/update **422** otherwise.
+`gcp_project_id` links the workspace to a GCP project (google provider), the
+mirror of `azure_subscription_id`.
+
 | Method | Path | Description | Min role | BU |
 |---|---|---|---|---|
 | GET | `/workspaces` | List workspaces. | viewer | BU-scoped |
 | GET | `/workspaces/{id}` | Get a single workspace. | viewer | BU-scoped |
 | POST | `/workspaces` | Create a workspace (manual). | admin | BU-scoped |
-| PUT | `/workspaces/{id}` | Update workspace (branch override, drift settings, `state_aws_account_id`, `azure_subscription_id`, …). | admin-tier key or interactive operator+ | BU-scoped |
+| PUT | `/workspaces/{id}` | Update workspace (branch override, drift settings, `state_aws_account_id`, `azure_subscription_id`, `gcp_project_id`, `state_backend`, …). | admin-tier key or interactive operator+ | BU-scoped |
 | POST | `/workspaces/discover` | Enumerate importable paths in a Git repo or local mount. | admin | BU-scoped |
 | POST | `/workspaces/import` | Bulk-import workspaces from a discovery result. | admin | BU-scoped |
 | GET | `/workspaces/{id}/branches` | List GitHub branches for the workspace's repo (falls back to free text if no token / non-GitHub remote). | viewer | BU-scoped |

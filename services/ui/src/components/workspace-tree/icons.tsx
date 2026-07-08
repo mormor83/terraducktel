@@ -71,3 +71,26 @@ export function AzureIcon() {
     </svg>
   );
 }
+
+// GCP project group icon — a cloud+check in emerald, distinct from the orange
+// AWS CloudIcon and blue AzureIcon at a glance. Stroke-based (matches the
+// `td-i-gcp` sprite geometry) rather than filled.
+export function GcpIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className="text-emerald-500 dark:text-emerald-400"
+    >
+      <path d="M7 17a4 4 0 0 1 1-7.9 6 6 0 0 1 11 2A3.5 3.5 0 0 1 18 18z" />
+      <path d="M10 13l2 2 3-4" />
+    </svg>
+  );
+}

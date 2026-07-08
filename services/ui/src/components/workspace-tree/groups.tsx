@@ -4,7 +4,7 @@
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Badge, Card } from "../ui";
-import { AzureIcon, CloudIcon, FolderIcon } from "./icons";
+import { AzureIcon, CloudIcon, FolderIcon, GcpIcon } from "./icons";
 import {
   buildFolderTree,
   collectNodeWorkspaces,
@@ -17,6 +17,7 @@ import type {
   AwsAccountLite,
   AzureSubscriptionLite,
   ExpandSignal,
+  GcpProjectLite,
   Run,
   Workspace,
 } from "./types";
@@ -29,6 +30,7 @@ function FolderTreeBody({
   expandSignal,
   awsAccounts,
   azureSubscriptions,
+  gcpProjects,
 }: {
   node: FolderNode;
   depth: number;
@@ -37,6 +39,7 @@ function FolderTreeBody({
   expandSignal: ExpandSignal;
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
 }) {
   const folderNames = [...node.folders.keys()].sort();
   const wsSorted = [...node.workspaces].sort((a, b) => a.leaf.localeCompare(b.leaf));
@@ -52,6 +55,7 @@ function FolderTreeBody({
           expandSignal={expandSignal}
           awsAccounts={awsAccounts}
           azureSubscriptions={azureSubscriptions}
+          gcpProjects={gcpProjects}
         />
       ))}
       {wsSorted.map(({ ws, leaf }) => (
@@ -64,6 +68,7 @@ function FolderTreeBody({
           onChanged={onChanged}
           awsAccounts={awsAccounts}
           azureSubscriptions={azureSubscriptions}
+          gcpProjects={gcpProjects}
         />
       ))}
     </div>
@@ -78,6 +83,7 @@ function FolderGroup({
   expandSignal,
   awsAccounts,
   azureSubscriptions,
+  gcpProjects,
 }: {
   folder: FolderNode;
   depth: number;
@@ -86,6 +92,7 @@ function FolderGroup({
   expandSignal: ExpandSignal;
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
 }) {
   // Folders start collapsed so the dashboard isn't a wall of nested rows on
   // load — operators expand the levels they care about. The chevron state is
@@ -122,6 +129,7 @@ function FolderGroup({
           expandSignal={expandSignal}
           awsAccounts={awsAccounts}
           azureSubscriptions={azureSubscriptions}
+          gcpProjects={gcpProjects}
         />
       )}
     </div>
@@ -139,6 +147,7 @@ function RegionGroup({
   expandSignal,
   awsAccounts,
   azureSubscriptions,
+  gcpProjects,
 }: {
   region: string;
   workspaces: Workspace[];
@@ -148,6 +157,7 @@ function RegionGroup({
   expandSignal: ExpandSignal;
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
 }) {
   const [open, setOpen] = useState(defaultOpen);
   useEffect(() => {
@@ -181,6 +191,7 @@ function RegionGroup({
           expandSignal={expandSignal}
           awsAccounts={awsAccounts}
           azureSubscriptions={azureSubscriptions}
+          gcpProjects={gcpProjects}
         />
       )}
     </div>
@@ -207,6 +218,7 @@ function CloudGroupCard({
   expandSignal,
   awsAccounts,
   azureSubscriptions,
+  gcpProjects,
 }: {
   icon: ReactNode;
   label: ReactNode;
@@ -219,6 +231,7 @@ function CloudGroupCard({
   expandSignal: ExpandSignal;
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
 }) {
   const [open, setOpen] = useState(defaultOpen);
   useEffect(() => {
@@ -267,6 +280,7 @@ function CloudGroupCard({
                 expandSignal={expandSignal}
                 awsAccounts={awsAccounts}
                 azureSubscriptions={azureSubscriptions}
+                gcpProjects={gcpProjects}
               />
             ))}
         </div>
@@ -291,6 +305,7 @@ export function AccountGroup({
   expandSignal: ExpandSignal;
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
 }) {
   return (
     <CloudGroupCard
@@ -337,6 +352,7 @@ export function AzureSubscriptionGroup({
   expandSignal: ExpandSignal;
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
 }) {
   const subId = sub?.subscription_id ?? guid ?? "";
   return (
@@ -360,6 +376,54 @@ export function AzureSubscriptionGroup({
         )
       }
       scopeLabel={sub ? `${sub.name} (${subId})` : `subscription ${subId}`}
+      {...rest}
+    />
+  );
+}
+
+// ─── Project group (GCP) ───────────────────────────────────────────────────────
+
+export function GcpProjectGroup({
+  proj,
+  projectId,
+  ...rest
+}: {
+  // The registered project, when this group is linked/matched to one.
+  proj?: GcpProjectLite;
+  // The project id parsed from the repo path when no registration matches
+  // (workspaces synced but not yet linked / not registered).
+  projectId?: string;
+  byRegion: Record<string, Workspace[]>;
+  latestByWs: Map<string, Run>;
+  defaultOpen: boolean;
+  onChanged: () => void;
+  expandSignal: ExpandSignal;
+  awsAccounts: AwsAccountLite[];
+  azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
+}) {
+  const pid = proj?.project_id ?? projectId ?? "";
+  return (
+    <CloudGroupCard
+      icon={<GcpIcon />}
+      label={
+        proj ? (
+          <>
+            {proj.name}{" "}
+            <span className="ml-1 font-mono text-xs font-normal text-slate-500">{pid}</span>
+          </>
+        ) : (
+          <span className="font-mono">project-{pid}</span>
+        )
+      }
+      badge={
+        proj ? (
+          <Badge tone="success">configured</Badge>
+        ) : (
+          <Badge tone="warning">project not registered</Badge>
+        )
+      }
+      scopeLabel={proj ? `${proj.name} (${pid})` : `project ${pid}`}
       {...rest}
     />
   );

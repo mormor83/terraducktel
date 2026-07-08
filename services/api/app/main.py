@@ -23,6 +23,7 @@ from app.routers import (  # noqa: E402
     clusters,
     drift,
     environments,
+    gcp_projects,
     integrations,
     internal,
     inventory,
@@ -195,6 +196,7 @@ async def metrics_middleware(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(aws_accounts.router)
 app.include_router(azure_subscriptions.router)
+app.include_router(gcp_projects.router)
 app.include_router(integrations.router)
 app.include_router(internal.router)
 app.include_router(workspaces.router)

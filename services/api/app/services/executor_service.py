@@ -298,10 +298,51 @@ class ExecutorService:
                     "ARM_TENANT_ID": tenant_id,
                     "ARM_CLIENT_ID": client_id,
                     "ARM_CLIENT_SECRET": client_secret,
-                    # Tells the executor entrypoint which provider mix to expect.
-                    # Unset for AWS-only workspaces — entrypoint defaults to AWS.
-                    "TDT_CLOUD_PROVIDERS": "aws,azure" if aws_key else "azure",
                 })
+
+        # GCP: if the workspace is linked to a GCP project, pass the SA-key JSON
+        # (the entrypoint writes it to a 0600 file and exports
+        # GOOGLE_APPLICATION_CREDENTIALS) plus GOOGLE_PROJECT / GOOGLE_REGION so
+        # the terraform google provider authenticates.
+        gcp_project_pk = getattr(workspace, "gcp_project_id", None)
+        if gcp_project_pk and db_session is not None:
+            try:
+                from app.services import gcp_project_service as gcpsvc
+
+                gcp_creds = await gcpsvc.get_project_credentials(db_session, gcp_project_pk)
+                gcp_row = await gcpsvc.get_project(db_session, gcp_project_pk)
+            except Exception:
+                logger.warning(
+                    "Failed to load GCP SA creds for project %s — workspace %s will "
+                    "fall back to environment auth (likely fails).",
+                    gcp_project_pk, workspace.id, exc_info=True,
+                )
+                gcp_creds = None
+                gcp_row = None
+            if gcp_creds is not None:
+                project_id, sa_json = gcp_creds
+                gcp_region = (
+                    (getattr(gcp_row, "default_region", None) or "").strip()
+                    or workspace.region
+                )
+                environment.update({
+                    "GCP_SA_KEY_JSON": sa_json,
+                    "GOOGLE_PROJECT": project_id,
+                    "GOOGLE_REGION": gcp_region,
+                })
+
+        # Tell the executor entrypoint which provider mix to expect — composed
+        # from whatever creds actually got wired in above. Unset only when the
+        # workspace has no cloud creds at all (entrypoint then defaults to AWS).
+        _providers = []
+        if aws_key:
+            _providers.append("aws")
+        if environment.get("ARM_CLIENT_ID"):
+            _providers.append("azure")
+        if environment.get("GCP_SA_KEY_JSON"):
+            _providers.append("gcp")
+        if _providers:
+            environment["TDT_CLOUD_PROVIDERS"] = ",".join(_providers)
 
         # Merge global → workspace → run variables and inject as TF_VAR_<key>.
         # Terraform parses TF_VAR_* values starting with `[` or `{` as HCL,
