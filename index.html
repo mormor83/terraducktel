@@ -4,27 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Terraducktel — Terraform &amp; Helm orchestration, self-hosted</title>
-<meta name="description" content="Plan, gate, apply, and track drift across every AWS account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
+<meta name="description" content="Plan, gate, apply, and track drift across every AWS, Azure, and GCP account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
 <link rel="canonical" href="https://mormor83.github.io/terraducktel/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mormor83.github.io/terraducktel/">
 <meta property="og:site_name" content="Terraducktel">
 <meta property="og:title" content="Terraducktel — Terraform &amp; Helm orchestration, self-hosted">
-<meta property="og:description" content="Plan, gate, apply, and track drift across every AWS account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
+<meta property="og:description" content="Plan, gate, apply, and track drift across every AWS, Azure, and GCP account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
 <meta property="og:image" content="https://mormor83.github.io/terraducktel/assets/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Terraducktel — self-hosted Terraform and Helm orchestration with a gated plan, approve, apply pipeline">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Terraducktel — Terraform &amp; Helm orchestration, self-hosted">
-<meta name="twitter:description" content="Plan, gate, apply, and track drift across every AWS account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
+<meta name="twitter:description" content="Plan, gate, apply, and track drift across every AWS, Azure, and GCP account and Kubernetes cluster you own. Self-hosted, zero seat licenses, runs on docker compose.">
 <meta name="twitter:image" content="https://mormor83.github.io/terraducktel/assets/og-card.png">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Terraducktel",
-  "description": "Self-hosted Terraform and Helm orchestration platform: plan, policy-scan, cost-estimate, human-approve, and apply infrastructure changes across AWS accounts and Kubernetes clusters, with drift detection and multi-tenant Business Units.",
+  "description": "Self-hosted Terraform and Helm orchestration platform: plan, policy-scan, cost-estimate, human-approve, and apply infrastructure changes across AWS, Azure, and GCP accounts and Kubernetes clusters, with drift detection and multi-tenant Business Units.",
   "url": "https://mormor83.github.io/terraducktel/",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux (Docker Compose)",
@@ -521,7 +521,7 @@
     <div class="trust-line">
       <span>MIT licensed</span><span class="dot"></span>
       <span>Runs on docker compose</span><span class="dot"></span>
-      <span>Your state, your S3, your rules</span>
+      <span>Your state, your buckets, your rules</span>
     </div>
   </div>
 
@@ -554,14 +554,14 @@
       <h2>The same discipline as a SaaS orchestrator. None of the toll booth.</h2>
       <p>Terraform Cloud, Spacelift, and friends are great — until the per-seat bill lands, or
         your state and cloud credentials leave your network. Terraducktel is the boring version
-        of the same idea: a small FastAPI orchestrator, Postgres, and your own S3.</p>
+        of the same idea: a small FastAPI orchestrator, Postgres, and your own cloud storage.</p>
     </div>
     <div class="compare reveal">
       <div class="panel panel-td">
         <h3>Terraducktel</h3>
         <ul>
           <li><b>Free, self-hosted</b> — one <span class="mono">docker compose up</span> away</li>
-          <li><b>Your own S3 + Postgres</b> hold state and credentials, always</li>
+          <li><b>Your own S3, Azure Blob, or GCS + Postgres</b> hold state and credentials, always</li>
           <li><b>Business Units</b> multi-tenancy built in, no paid tier</li>
           <li><b>Helm workspaces</b> run through the same gated pipeline as Terraform</li>
           <li>It's a FastAPI app — <b>fork it, read it, change it</b></li>
@@ -610,7 +610,7 @@
       <div class="stage-copy">
         <span class="stage-num">01 — SEE EVERYTHING</span>
         <h3>Every workspace, one dashboard.</h3>
-        <p>Grouped by AWS account and region, with live drift status and a running count of
+        <p>Grouped by cloud account and region, with live drift status and a running count of
           what's waiting on you. Import a whole repo's worth of stacks in one pass, or add
           workspaces by hand.</p>
       </div>
@@ -653,9 +653,16 @@
     </div>
     <div class="feat-grid reveal">
       <div class="feat">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17.5a4 4 0 0 1 1-7.9 6 6 0 0 1 11 2A3.5 3.5 0 0 1 18 17.5H7Z"/><path d="m9.5 13.5 1.7 1.7 3.3-3.8"/></svg>
+        <h4>AWS, Azure &amp; GCP</h4>
+        <p>One gated pipeline across all three clouds. Register accounts, subscriptions, or
+          projects; the executor injects the right provider credentials per run.</p>
+      </div>
+      <div class="feat">
         <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
-        <h4>Per-account state isolation</h4>
-        <p>Each AWS account gets its own dedicated S3 bucket. The state path mirrors your git
+        <h4>Pluggable state backends</h4>
+        <p>Keep Terraform state in S3, Azure Blob, or GCS — chosen per workspace. Each AWS
+          account still gets its own dedicated bucket, and the state path mirrors your git
           layout, 1:1.</p>
       </div>
       <div class="feat">
