@@ -188,6 +188,7 @@ export function InlineLinkEditor({
   canEdit,
   busy,
   onSave,
+  bare = false,
 }: {
   label: string;
   labelTitle: string;
@@ -202,15 +203,14 @@ export function InlineLinkEditor({
   canEdit: boolean;
   busy: boolean;
   onSave: (value: string) => Promise<boolean>;
+  // When true, render just the value/editor (no label, no col-span wrapper) so
+  // it drops into a table value cell — the caller supplies the label column.
+  bare?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(current);
-  return (
-    <div className="sm:col-span-2">
-      <span className="text-slate-400" title={labelTitle}>
-        {label}
-      </span>{" "}
-      {editing ? (
+  const body =
+    editing ? (
         <span className="inline-flex items-center gap-1.5">
           <select
             value={draft}
@@ -265,7 +265,14 @@ export function InlineLinkEditor({
             </button>
           )}
         </>
-      )}
+      );
+  if (bare) return <>{body}</>;
+  return (
+    <div className="sm:col-span-2">
+      <span className="text-slate-400" title={labelTitle}>
+        {label}
+      </span>{" "}
+      {body}
     </div>
   );
 }

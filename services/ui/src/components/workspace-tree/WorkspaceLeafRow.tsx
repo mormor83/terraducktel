@@ -2,10 +2,10 @@
 // and the expandable detail panel (id, region, state-aws-account override,
 // azure-subscription link, repo, auto-trigger, last run, state-lock release).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
 import { useCurrentUser, hasMinRole } from "../../hooks/useAuth";
-import { Badge, Button, ConfirmDialog, DriftBadge } from "../ui";
+import { Badge, Button, ConfirmDialog, cx, DriftBadge } from "../ui";
 import { RunModal } from "../RunModal";
 import { FileIcon, HelmChip } from "./icons";
 import { azureInfo, gcpInfo } from "./paths";
@@ -17,6 +17,26 @@ import type {
   Run,
   Workspace,
 } from "./types";
+
+// A single label/value row in the workspace-detail metadata table.
+function MetaRow({
+  label,
+  title,
+  children,
+}: {
+  label: string;
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <tr className="border-t border-slate-100 first:border-t-0 dark:border-slate-800/50">
+      <td className="whitespace-nowrap py-1.5 pr-4 align-top text-slate-400" title={title}>
+        {label}
+      </td>
+      <td className="w-full py-1.5 align-top">{children}</td>
+    </tr>
+  );
+}
 
 export function WorkspaceLeafRow({
   workspace,
@@ -68,6 +88,17 @@ export function WorkspaceLeafRow({
   const isGcp = !!workspace.gcp_project_id || !!gcpInfo(workspace);
   const linkedGcpProject = gcpProjects.find((p) => p.id === workspace.gcp_project_id);
 
+  // State backend is constrained by which cloud the workspace is linked to: s3
+  // always works; azureblob/gcs need a linked Azure subscription / GCP project.
+  // When only one backend is possible the picker is "pinned" (the server would
+  // reject any other choice anyway) so we gray it out. The current value is
+  // always kept selectable so the control never shows a stale/invalid option.
+  const currentBackend = workspace.state_backend ?? "s3";
+  const validBackends = new Set<string>(["s3", currentBackend]);
+  if (isAzure) validBackends.add("azureblob");
+  if (isGcp) validBackends.add("gcs");
+  const backendPinned = validBackends.size === 1;
+
   // ─── State-lock status (lazy-fetched on expand) ────────────────────────
   type LockStatus = { held: boolean; run_id?: string | null; acquired_at?: string | null };
   const [lockStatus, setLockStatus] = useState<LockStatus | null>(null);
@@ -76,6 +107,9 @@ export function WorkspaceLeafRow({
   // Delete confirmations (in-app dialogs — no native popups).
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [forceDeleteOpen, setForceDeleteOpen] = useState(false);
+  // "Untrack": remove a still-in-repo git-synced workspace from TDT without
+  // destroying its infra (regret an import). Re-import brings it back.
+  const [untrackOpen, setUntrackOpen] = useState(false);
   // Whether a force-delete should also drop the tfstate in S3. Default off:
   // keeping the state lets the workspace be recovered by re-importing.
   const [forceDeleteState, setForceDeleteState] = useState(false);
@@ -173,6 +207,25 @@ export function WorkspaceLeafRow({
     }
   }
 
+  // Untrack = force-delete but always keep the tfstate + infra. `force=true`
+  // bypasses the git-synced 409; `delete_state=false` leaves S3 state (and the
+  // real resources) untouched. The row + its runs/drift/locks are cleared. It
+  // won't come back on its own (discovery/import is manual) — re-import to
+  // manage it again.
+  async function untrack() {
+    setUntrackOpen(false);
+    setErr(null);
+    setBusy("delete");
+    try {
+      await api.delete(`/v1/workspaces/${workspace.id}?force=true&delete_state=false`);
+      onChanged();
+    } catch (e: any) {
+      setErr(e?.response?.data?.detail ?? e?.message ?? "Untrack failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const isGitSynced = !!workspace.repo_url && !workspace.repo_url.startsWith("local://");
   const isOrphaned = workspace.path_status === "orphaned";
   // Branch+status chip: color reflects the most recent run state on this
@@ -231,6 +284,18 @@ export function WorkspaceLeafRow({
           {busy === "delete" ? "…" : "Force delete"}
         </Button>
       )}
+      {hasMinRole(user, "admin") && isGitSynced && !isOrphaned && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setUntrackOpen(true)}
+          disabled={!!busy}
+          className="text-amber-600 hover:text-amber-500"
+          title="Remove this workspace from Terraducktel WITHOUT destroying its infrastructure — the Terraform module stays in the repo and the real resources + tfstate are untouched. TDT just stops tracking it; re-import to manage it again."
+        >
+          {busy === "delete" ? "…" : "Untrack"}
+        </Button>
+      )}
       {hasMinRole(user, "admin") && !isGitSynced && (
         <Button
           size="sm"
@@ -271,126 +336,142 @@ export function WorkspaceLeafRow({
             </div>
           )}
           {expanded && (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div>
-                <span className="text-slate-400">id</span>{" "}
-                <span className="font-mono text-[11px]">{workspace.id}</span>
-              </div>
-              <div>
-                <span className="text-slate-400">region</span>{" "}
-                <span className="font-mono text-[11px]">{workspace.region}</span>
-              </div>
-              <InlineLinkEditor
-                label="state aws account"
-                labelTitle="AWS creds used to open the terraform state backend (S3). Defaults to the workspace's own aws_account_id. Set this when the state lives in a bucket owned by a different account — e.g. a non-AWS (Cloudflare/Azure) workspace whose state happens to be in AWS S3."
-                changeTitle="Override which AWS account's creds the executor uses for the terraform state backend. Useful for non-AWS workspaces whose state lives in an AWS S3 bucket owned by another account."
-                emptyLabel="(same as workspace aws account)"
-                options={awsAccounts.map((a) => ({
-                  value: a.account_id,
-                  label: `${a.account_id} — ${a.name}`,
-                }))}
-                current={workspace.state_aws_account_id ?? ""}
-                display={
-                  workspace.state_aws_account_id
-                    ? workspace.state_aws_account_id
-                    : `(same as workspace aws account: ${workspace.aws_account_id})`
-                }
-                monoSelect
-                canEdit={hasMinRole(user, "admin")}
-                busy={busy === "rebind-state"}
-                onSave={(v) => saveLink("state_aws_account_id", v, "rebind-state")}
-              />
-              {isAzure && (
-                // Read-only: the subscription is auto-derived from the workspace
-                // path (azure/subscription-<id>/…) at import — like the AWS
-                // account is for AWS leaves — so there's no manual picker. The
-                // controllable knob is the *state* AWS account above.
-                <div title="Auto-derived from the workspace path (azure/subscription-<id>/…); injects ARM_* service-principal creds.">
-                  <span className="text-slate-400">azure subscription</span>{" "}
-                  <span className="font-mono text-[11px]">
-                    {linkedAzureSub
-                      ? `${linkedAzureSub.name} (${linkedAzureSub.subscription_id})`
-                      : workspace.azure_subscription_id
-                        ? workspace.azure_subscription_id
-                        : "(auto-derived from path)"}
-                  </span>
-                </div>
-              )}
-              {isGcp && (
-                // Read-only: the project is auto-derived from the workspace path
-                // (gcp/project-<id>/…) at import, mirroring the AWS/Azure links.
-                <div title="Auto-derived from the workspace path (gcp/project-<id>/…); injects the project's service-account credentials for the google provider.">
-                  <span className="text-slate-400">gcp project</span>{" "}
-                  <span className="font-mono text-[11px]">
-                    {linkedGcpProject
-                      ? `${linkedGcpProject.name} (${linkedGcpProject.project_id})`
-                      : workspace.gcp_project_id
-                        ? workspace.gcp_project_id
-                        : "(auto-derived from path)"}
-                  </span>
-                </div>
-              )}
-              <div title="Where this workspace's Terraform state is stored. azureblob/gcs require a linked subscription/project whose storage target is configured — otherwise the save is rejected.">
-                <span className="text-slate-400">state backend</span>{" "}
-                {hasMinRole(user, "admin") ? (
-                  <select
-                    value={workspace.state_backend ?? "s3"}
-                    disabled={busy === "rebind-backend"}
-                    onChange={(e) => saveLink("state_backend", e.target.value, "rebind-backend")}
-                    className="ml-1 rounded border border-brand-border bg-white px-1.5 py-0.5 font-mono text-[11px] text-brand-text dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            <>
+              <table className="w-full border-collapse text-xs">
+                <tbody>
+                  <MetaRow label="id">
+                    <span className="font-mono text-[11px]">{workspace.id}</span>
+                  </MetaRow>
+                  <MetaRow label="region">
+                    <span className="font-mono text-[11px]">{workspace.region}</span>
+                  </MetaRow>
+                  <MetaRow
+                    label="state aws account"
+                    title="AWS creds used to open the terraform state backend (S3). Defaults to the workspace's own aws_account_id. Set this when the state lives in a bucket owned by a different account — e.g. a non-AWS (Cloudflare/Azure) workspace whose state happens to be in AWS S3."
                   >
-                    <option value="s3">s3</option>
-                    <option value="azureblob">azureblob</option>
-                    <option value="gcs">gcs</option>
-                  </select>
-                ) : (
-                  <span className="font-mono text-[11px]">{workspace.state_backend ?? "s3"}</span>
-                )}
-              </div>
-              {workspace.repo_url && (
-                <div className="sm:col-span-2">
-                  <span className="text-slate-400">repo</span>{" "}
-                  <span className="font-mono text-[11px]">{workspace.repo_url}</span>
-                </div>
-              )}
-              {isGitSynced && (
-                <div className="sm:col-span-2">
-                  <span
-                    className="text-slate-400"
-                    title="When ON, a push to this workspace's tracked branch in the source repo triggers a plan run automatically (provided the push touches files in this workspace's tf_working_dir). Needs the per-BU webhook secret configured in Settings → Webhooks."
-                  >
-                    auto-trigger on push
-                  </span>{" "}
-                  {hasMinRole(user, "admin") ? (
-                    <label className="ml-1 inline-flex cursor-pointer items-center gap-1.5 align-middle">
-                      <input
-                        type="checkbox"
-                        checked={webhookEnabled}
-                        disabled={busy === "webhook"}
-                        onChange={(e) => toggleWebhook(e.target.checked)}
-                        className="h-3.5 w-3.5"
-                      />
+                    <InlineLinkEditor
+                      bare
+                      label="state aws account"
+                      labelTitle="AWS creds used to open the terraform state backend (S3). Defaults to the workspace's own aws_account_id. Set this when the state lives in a bucket owned by a different account — e.g. a non-AWS (Cloudflare/Azure) workspace whose state happens to be in AWS S3."
+                      changeTitle="Override which AWS account's creds the executor uses for the terraform state backend. Useful for non-AWS workspaces whose state lives in an AWS S3 bucket owned by another account."
+                      emptyLabel="(same as workspace aws account)"
+                      options={awsAccounts.map((a) => ({
+                        value: a.account_id,
+                        label: `${a.account_id} — ${a.name}`,
+                      }))}
+                      current={workspace.state_aws_account_id ?? ""}
+                      display={
+                        workspace.state_aws_account_id
+                          ? workspace.state_aws_account_id
+                          : `(same as workspace aws account: ${workspace.aws_account_id})`
+                      }
+                      monoSelect
+                      canEdit={hasMinRole(user, "admin")}
+                      busy={busy === "rebind-state"}
+                      onSave={(v) => saveLink("state_aws_account_id", v, "rebind-state")}
+                    />
+                  </MetaRow>
+                  {isAzure && (
+                    <MetaRow
+                      label="azure subscription"
+                      title="Auto-derived from the workspace path (azure/subscription-<id>/…); injects ARM_* service-principal creds."
+                    >
                       <span className="font-mono text-[11px]">
-                        {webhookEnabled ? "enabled ⚡" : "disabled"}
+                        {linkedAzureSub
+                          ? `${linkedAzureSub.name} (${linkedAzureSub.subscription_id})`
+                          : workspace.azure_subscription_id
+                            ? workspace.azure_subscription_id
+                            : "(auto-derived from path)"}
                       </span>
-                    </label>
-                  ) : (
-                    <span className="font-mono text-[11px]">
-                      {webhookEnabled ? "enabled ⚡" : "disabled"}
-                    </span>
+                    </MetaRow>
                   )}
-                </div>
-              )}
-              {recentRun && (
-                <div className="sm:col-span-2">
-                  <span className="text-slate-400">last run</span>{" "}
-                  <span className="font-mono text-[11px]">{recentRun.id.slice(0, 8)}</span>{" "}
-                  <span>{recentRun.command}</span>
-                </div>
-              )}
+                  {isGcp && (
+                    <MetaRow
+                      label="gcp project"
+                      title="Auto-derived from the workspace path (gcp/project-<id>/…); injects the project's service-account credentials for the google provider."
+                    >
+                      <span className="font-mono text-[11px]">
+                        {linkedGcpProject
+                          ? `${linkedGcpProject.name} (${linkedGcpProject.project_id})`
+                          : workspace.gcp_project_id
+                            ? workspace.gcp_project_id
+                            : "(auto-derived from path)"}
+                      </span>
+                    </MetaRow>
+                  )}
+                  <MetaRow
+                    label="state backend"
+                    title="Where this workspace's Terraform state is stored. azureblob/gcs require a linked subscription/project whose storage target is configured — otherwise the save is rejected."
+                  >
+                    {hasMinRole(user, "admin") ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <select
+                          value={currentBackend}
+                          disabled={busy === "rebind-backend" || backendPinned}
+                          onChange={(e) => saveLink("state_backend", e.target.value, "rebind-backend")}
+                          title={
+                            backendPinned
+                              ? "Pinned to s3 — link an Azure subscription or GCP project to enable an alternative state backend."
+                              : undefined
+                          }
+                          className={cx(
+                            "rounded border border-brand-border bg-white px-1.5 py-0.5 font-mono text-[11px] text-brand-text dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
+                            backendPinned && "cursor-not-allowed opacity-60",
+                          )}
+                        >
+                          {["s3", "azureblob", "gcs"].map((b) => (
+                            <option key={b} value={b} disabled={!validBackends.has(b)}>
+                              {validBackends.has(b) ? b : `${b} · needs linked provider`}
+                            </option>
+                          ))}
+                        </select>
+                        {backendPinned && <span className="text-[10px] text-slate-400">pinned</span>}
+                      </span>
+                    ) : (
+                      <span className="font-mono text-[11px]">{currentBackend}</span>
+                    )}
+                  </MetaRow>
+                  {workspace.repo_url && (
+                    <MetaRow label="repo">
+                      <span className="break-all font-mono text-[11px]">{workspace.repo_url}</span>
+                    </MetaRow>
+                  )}
+                  {isGitSynced && (
+                    <MetaRow
+                      label="auto-trigger on push"
+                      title="When ON, a push to this workspace's tracked branch in the source repo triggers a plan run automatically (provided the push touches files in this workspace's tf_working_dir). Needs the per-BU webhook secret configured in Settings → Webhooks."
+                    >
+                      {hasMinRole(user, "admin") ? (
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 align-middle">
+                          <input
+                            type="checkbox"
+                            checked={webhookEnabled}
+                            disabled={busy === "webhook"}
+                            onChange={(e) => toggleWebhook(e.target.checked)}
+                            className="h-3.5 w-3.5"
+                          />
+                          <span className="font-mono text-[11px]">
+                            {webhookEnabled ? "enabled ⚡" : "disabled"}
+                          </span>
+                        </label>
+                      ) : (
+                        <span className="font-mono text-[11px]">
+                          {webhookEnabled ? "enabled ⚡" : "disabled"}
+                        </span>
+                      )}
+                    </MetaRow>
+                  )}
+                  {recentRun && (
+                    <MetaRow label="last run">
+                      <span className="font-mono text-[11px]">{recentRun.id.slice(0, 8)}</span>{" "}
+                      <span>{recentRun.command}</span>
+                    </MetaRow>
+                  )}
+                </tbody>
+              </table>
               {lockStatus?.held && (
                 <div
-                  className="sm:col-span-2 mt-1 flex flex-wrap items-center gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-200"
+                  className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-200"
                   title="A terraform state lock is currently held. Releasing it while an executor is still running can let two runs race state — only release when certain no executor is alive."
                 >
                   <span>
@@ -415,7 +496,7 @@ export function WorkspaceLeafRow({
                   )}
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
       )}
@@ -481,6 +562,25 @@ export function WorkspaceLeafRow({
         busy={busy === "delete"}
         onConfirm={forceDeleteOrphan}
         onCancel={() => setForceDeleteOpen(false)}
+      />
+      <ConfirmDialog
+        open={untrackOpen}
+        title="Untrack workspace"
+        message={
+          <>
+            Remove <span className="font-mono">{workspace.name}</span> from Terraducktel? This does{" "}
+            <b>not</b> run terraform destroy — the Terraform module stays in the repo and the real
+            infrastructure + tfstate are left untouched. TDT just stops tracking it (its runs, drift
+            reports, and state locks are cleared). It won't reappear on its own; re-import the path
+            to manage it again.
+          </>
+        }
+        confirmLabel="Untrack"
+        cancelLabel="Cancel"
+        tone="warning"
+        busy={busy === "delete"}
+        onConfirm={untrack}
+        onCancel={() => setUntrackOpen(false)}
       />
       {runModal !== null && (
         <RunModal
