@@ -1,0 +1,113 @@
+{{- if .Values.driftDetector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drift-detector
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: drift-detector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drift-detector
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: drift-detector
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # `appuser` baked into the detector image
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: drift-detector
+          image: {{ include "tdt.image" (dict "img" .Values.driftDetector.image "root" $) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          # Needs TERRADUCKTEL_INTERNAL_TOKEN + TERRADUCKTEL_STATE_TOKEN (secret).
+          envFrom:
+            - secretRef:
+                name: {{ include "tdt.secretName" . }}
+          env:
+            - name: API_URL
+              value: "http://api:8000"
+            - name: DRIFT_INTERVAL_SEC
+              value: {{ .Values.driftDetector.intervalSec | quote }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "grep -q detector.py /proc/1/cmdline || exit 1"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.driftDetector.resources | nindent 12 }}
+{{- end }}
+{{- if .Values.livenessDetector.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: liveness-detector
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: liveness-detector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: liveness-detector
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: liveness-detector
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # `appuser` baked into the detector image
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: liveness-detector
+          image: {{ include "tdt.image" (dict "img" .Values.livenessDetector.image "root" $) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          # Needs TERRADUCKTEL_INTERNAL_TOKEN (secret). Does NOT use state token.
+          envFrom:
+            - secretRef:
+                name: {{ include "tdt.secretName" . }}
+          env:
+            - name: API_URL
+              value: "http://api:8000"
+            - name: LIVENESS_INTERVAL_SEC
+              value: {{ .Values.livenessDetector.intervalSec | quote }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "grep -q detector.py /proc/1/cmdline || exit 1"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.livenessDetector.resources | nindent 12 }}
+{{- end }}

@@ -1,0 +1,89 @@
+{{- if .Values.forgejo.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgejo
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: forgejo
+spec:
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+  selector:
+    app: forgejo
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: forgejo
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: forgejo
+spec:
+  serviceName: forgejo
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forgejo
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: forgejo
+    spec:
+      containers:
+        - name: forgejo
+          image: "{{ .Values.forgejo.image.repository }}:{{ .Values.forgejo.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: FORGEJO__database__DB_TYPE
+              value: postgres
+            - name: FORGEJO__database__HOST
+              value: postgres:5432
+            - name: FORGEJO__database__NAME
+              value: forgejo
+            - name: FORGEJO__database__USER
+              value: {{ .Values.postgres.auth.username | quote }}
+            - name: FORGEJO__database__PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tdt.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: FORGEJO__server__HTTP_PORT
+              value: "3000"
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.forgejo.resources | nindent 12 }}
+      {{- if not .Values.forgejo.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.forgejo.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.forgejo.persistence.storageClass }}
+        storageClassName: {{ .Values.forgejo.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.forgejo.persistence.size }}
+  {{- end }}
+{{- end }}

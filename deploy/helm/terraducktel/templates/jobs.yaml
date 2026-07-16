@@ -1,0 +1,99 @@
+{{- if .Values.migrationJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-migrate
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # api image `terraducktel` user
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: {{ include "tdt.image" (dict "img" .Values.api.image "root" $) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          envFrom:
+            - secretRef:
+                name: {{ include "tdt.secretName" . }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              cd /app
+              for i in $(seq 1 40); do
+                if alembic upgrade head; then exit 0; fi
+                echo "[migrate] waiting for DB... ($i)"; sleep 5
+              done
+              echo "[migrate] gave up waiting for DB"; exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+{{- end }}
+{{- if .Values.seedUsers.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-seed-users
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: seed-users
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: seed-users
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # api image `terraducktel` user
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seed-users
+          image: {{ include "tdt.image" (dict "img" .Values.api.image "root" $) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          # No SEED_RANDOM_PASSWORDS → creates the well-known dev password
+          # `password123` for admin@/operator@/viewer@test.com. DEV ONLY.
+          envFrom:
+            - secretRef:
+                name: {{ include "tdt.secretName" . }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              cd /app
+              for i in $(seq 1 40); do
+                if alembic upgrade head; then break; fi
+                echo "[seed] waiting for DB... ($i)"; sleep 5
+              done
+              python scripts/seed_dev_users.py
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

@@ -1,0 +1,100 @@
+{{- if .Values.localstack.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: localstack
+spec:
+  ports:
+    - name: edge
+      port: 4566
+      targetPort: 4566
+  selector:
+    app: localstack
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localstack
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: localstack
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: localstack
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: localstack
+    spec:
+      containers:
+        - name: localstack
+          image: "{{ .Values.localstack.image.repository }}:{{ .Values.localstack.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: edge
+              containerPort: 4566
+          env:
+            - name: SERVICES
+              value: "s3"
+            - name: DEFAULT_REGION
+              value: "us-east-1"
+            {{- if .Values.localstack.persistence.enabled }}
+            - name: PERSISTENCE
+              value: "1"
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/localstack
+          readinessProbe:
+            httpGet:
+              path: /_localstack/health
+              port: 4566
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /_localstack/health
+              port: 4566
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.localstack.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.localstack.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: localstack-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- if .Values.localstack.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: localstack-data
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: localstack
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.localstack.persistence.storageClass }}
+  storageClassName: {{ .Values.localstack.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.localstack.persistence.size }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,147 @@
+{{- if .Values.ui.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ui-nginx
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: ui
+data:
+  # Kubernetes-adapted nginx config. Differences vs the baked-in compose config:
+  #   * Dropped `resolver 127.0.0.11` (that is Docker's embedded DNS and does
+  #     not exist in a pod). We use a STATIC `proxy_pass http://api:8000` which
+  #     nginx resolves via the pod's /etc/resolv.conf (CoreDNS) at startup. The
+  #     `api` Service ClusterIP is stable for the Service's lifetime, so caching
+  #     it at boot is correct (no need to re-resolve per request).
+  # Everything else (CSP + security headers, /healthz, SPA fallback, asset
+  # caching) matches services/ui/nginx.conf.
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+        add_header Strict-Transport-Security "max-age=15768000; includeSubDomains" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+        # Proxy API (browser uses same origin: /api -> FastAPI Service `api`).
+        location /api {
+            proxy_pass http://api:8000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # SPA fallback
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # Health check endpoint
+        location /healthz {
+            return 200 'ok';
+            add_header Content-Type text/plain;
+        }
+
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: ui
+spec:
+  type: {{ .Values.ui.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.ui.service.port }}
+      targetPort: 8080
+      {{- if and (eq .Values.ui.service.type "NodePort") .Values.ui.service.nodePort }}
+      nodePort: {{ .Values.ui.service.nodePort }}
+      {{- end }}
+  selector:
+    app: ui
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: ui
+spec:
+  replicas: {{ .Values.ui.replicas }}
+  selector:
+    matchLabels:
+      app: ui
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: ui
+      annotations:
+        # Roll the UI pods when the nginx config changes.
+        checksum/nginx-config: {{ .Values.ui | toYaml | sha256sum }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100          # `appuser` baked into the nginx image
+        runAsGroup: 102
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ui
+          image: {{ include "tdt.image" (dict "img" .Values.ui.image "root" $) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: ui-nginx
+            items:
+              - key: default.conf
+                path: default.conf
+{{- end }}

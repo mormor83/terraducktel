@@ -1,0 +1,20 @@
+apiVersion: v2
+name: terraducktel
+description: |
+  Terraducktel (TDT) — self-hosted Terraform/Helm orchestration platform.
+  Packages the API, UI, drift-detector, liveness-detector, Postgres, LocalStack
+  (dev S3), and optional Forgejo + pg-backup for a Kubernetes deployment.
+type: application
+# Chart version — bump on chart changes.
+version: 0.1.0
+# The upstream app version this chart tracks (TDT is versioned in the API image).
+appVersion: "dev"
+keywords:
+  - terraform
+  - helm
+  - orchestration
+  - iac
+  - terraducktel
+home: https://github.com/mormor83/terraducktel
+maintainers:
+  - name: Terraducktel

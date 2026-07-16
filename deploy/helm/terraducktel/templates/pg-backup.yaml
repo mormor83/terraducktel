@@ -1,0 +1,73 @@
+{{- if .Values.pgBackup.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-backups
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: pg-backup
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.pgBackup.persistence.storageClass }}
+  storageClassName: {{ .Values.pgBackup.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.pgBackup.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-backup
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: pg-backup
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pg-backup
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: pg-backup
+    spec:
+      # The entrypoint starts as root to chown the backup dir, then drops to the
+      # `postgres` user (su-exec). Do NOT set runAsNonRoot here.
+      containers:
+        - name: pg-backup
+          image: {{ include "tdt.image" (dict "img" .Values.pgBackup.image "root" $) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: PG_HOST
+              value: postgres
+            - name: PG_PORT
+              value: "5432"
+            - name: PG_USER
+              value: {{ .Values.postgres.auth.username | quote }}
+            - name: PG_DB
+              value: {{ .Values.postgres.auth.database | quote }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tdt.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: BACKUP_DIR
+              value: /backups
+            - name: BACKUP_INTERVAL_SECONDS
+              value: {{ .Values.pgBackup.intervalSeconds | quote }}
+            - name: BACKUP_RETENTION_DAYS
+              value: {{ .Values.pgBackup.retentionDays | quote }}
+          volumeMounts:
+            - name: backups
+              mountPath: /backups
+          resources:
+            {{- toYaml .Values.pgBackup.resources | nindent 12 }}
+      volumes:
+        - name: backups
+          persistentVolumeClaim:
+            claimName: pg-backups
+{{- end }}

@@ -1,0 +1,49 @@
+
+Terraducktel ({{ .Chart.Name }}-{{ .Chart.Version }}) installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Components enabled:
+  api ............... {{ .Values.api.enabled }}
+  ui ................ {{ .Values.ui.enabled }}
+  postgres .......... {{ .Values.postgres.enabled }}
+  localstack ........ {{ .Values.localstack.enabled }}
+  drift-detector .... {{ .Values.driftDetector.enabled }}
+  liveness-detector . {{ .Values.livenessDetector.enabled }}
+  forgejo ........... {{ .Values.forgejo.enabled }}
+  pg-backup ......... {{ .Values.pgBackup.enabled }}
+
+1. Watch everything come up:
+     kubectl -n {{ .Release.Namespace }} get pods -w
+
+2. Open the UI (it proxies /api to the API pod itself):
+{{- if .Values.ingress.enabled }}
+     http://{{ .Values.ingress.host }}/
+{{- else if eq .Values.ui.service.type "NodePort" }}
+     kubectl -n {{ .Release.Namespace }} get svc ui   # note the NodePort, then hit http://<node-ip>:<nodePort>/
+{{- else }}
+     kubectl -n {{ .Release.Namespace }} port-forward svc/ui 8080:{{ .Values.ui.service.port }}
+     # then browse http://localhost:8080/
+{{- end }}
+
+{{- if .Values.seedUsers.enabled }}
+
+3. Dev login (seeded by the post-install hook — DEV ONLY):
+     admin@test.com / password123      (superadmin)
+     operator@test.com / password123
+     viewer@test.com / password123
+{{- end }}
+
+Caveats for the Kubernetes deployment:
+  * Executor launching is OFF (EXECUTOR_ENABLED=false). The compose stack spawns
+    executor containers via the host Docker socket, which does not exist in a
+    pod. The core platform (auth, workspaces, drift surfacing, state backend)
+    works without it. To run Terraform/Helm executions, wire an out-of-cluster
+    runtime (EXECUTOR_RUNTIME=ecs) or add a Kubernetes-Job executor runtime.
+  * LocalStack is a DEV stand-in for S3 (Terraform state). Production uses real
+    per-account S3 buckets.
+{{- if .Values.forgejo.enabled }}
+  * Forgejo needs the `forgejo` database, which the Postgres init script creates
+    only on a FRESH data directory. If you enabled Forgejo against an existing
+    Postgres volume, create the DB manually.
+{{- end }}
+  * Secrets in values.yaml are DEV DEFAULTS. Override them (or use
+    `existingSecret`) for any non-local cluster.
