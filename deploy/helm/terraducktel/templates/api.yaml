@@ -1,0 +1,111 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: api
+spec:
+  ports:
+    - name: http
+      port: {{ .Values.api.service.port }}
+      targetPort: 8000
+  selector:
+    app: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    {{- include "tdt.labels" . | nindent 4 }}
+    app: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        {{- include "tdt.labels" . | nindent 8 }}
+        app: api
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # `terraducktel` user baked into the image
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.postgres.enabled }}
+      # Block boot until Postgres accepts connections so the entrypoint's
+      # `alembic upgrade head` doesn't hit connection-refused and crash-loop.
+      initContainers:
+        - name: wait-for-postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U {{ .Values.postgres.auth.username }}; do
+                echo "waiting for postgres..."; sleep 2
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "tdt.image" (dict "img" .Values.api.image "root" $) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: {{ include "tdt.secretName" . }}
+          env:
+            - name: TDT_RUN_MIGRATIONS
+              value: {{ .Values.api.runMigrationsOnBoot | toString | quote }}
+            {{- range $k, $v := .Values.api.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Migrations run before uvicorn binds, so allow generous startup time.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 40      # ~200s for migrations + boot
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+{{- end }}

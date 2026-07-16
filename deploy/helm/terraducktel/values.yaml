@@ -1,0 +1,181 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Terraducktel Helm chart — default values (tuned for a kind/dev cluster).
+#
+# The application has HARD-CODED service DNS names it expects on the same
+# network: the API reaches Postgres at `postgres:5432` and LocalStack at
+# `localstack:4566`; the UI's nginx proxies `/api` → `http://api:8000`; the
+# drift/liveness detectors default to `http://api:8000`; Forgejo reaches
+# `postgres:5432`. For that reason the Services below are given the BARE names
+# `api`, `postgres`, `localstack`, `forgejo` (not release-prefixed). Deploy the
+# release into its own namespace so those names never collide.
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  # Default image tag applied to every TDT image unless overridden per-service.
+  imageTag: latest
+  # IfNotPresent uses images pre-loaded into the node (e.g. `kind load
+  # docker-image`) and never tries to pull a `latest` tag from a registry.
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# DEV DEFAULTS ONLY. Change every value for anything beyond a local cluster.
+# Set `existingSecret` to the name of a pre-created Secret to supply these out
+# of band instead (it must contain the same keys the chart's Secret would).
+existingSecret: ""
+secrets:
+  # Only CREDENTIAL_ENCRYPTION_KEY is required at API boot; the rest are needed
+  # for a functioning deployment (auth, state backend, internal API).
+  credentialEncryptionKey: "local-dev-encryption-key-32bytes!!"
+  jwtSecretKey: "local-dev-jwt-secret-key-at-least-32-bytes-long!!"
+  # These two MUST differ. Generate with `openssl rand -hex 32` for real use.
+  stateToken: "dev-state-token-0000000000000000000000000000aa"
+  internalToken: "dev-internal-token-11111111111111111111111bb"
+
+# ── Postgres ─────────────────────────────────────────────────────────────────
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+  auth:
+    username: terraducktel
+    password: "localdevpassword"   # dev only
+    database: terraducktel
+  # PGDATA points at a sub-directory of the mount so the volume root (which may
+  # contain a lost+found) doesn't break initdb.
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""     # "" = cluster default (kind ships `standard`)
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+# ── LocalStack (dev S3 for Terraform state) ──────────────────────────────────
+# In prod you use real AWS S3 (per-account buckets); LocalStack is the dev
+# stand-in. The API hard-codes the endpoint `http://localstack:4566` when
+# S3_USE_LOCALSTACK=true, so the Service name must be `localstack`.
+localstack:
+  enabled: true
+  image:
+    repository: localstack/localstack
+    tag: "3"
+  persistence:
+    enabled: false       # ephemeral is fine for dev
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+# ── API (FastAPI orchestrator) ───────────────────────────────────────────────
+api:
+  enabled: true
+  replicas: 1
+  image:
+    repository: terraducktel-api
+    tag: ""              # "" → global.imageTag
+  service:
+    port: 8000
+  # Runs `alembic upgrade head` on boot (idempotent). Set false to run
+  # migrations only via the dedicated migration Job below.
+  runMigrationsOnBoot: true
+  env:
+    S3_USE_LOCALSTACK: "true"
+    S3_STATE_BUCKET: "terraducktel-state"
+    # No Docker socket in-cluster → executor launching is disabled. The core
+    # platform (auth, workspaces, drift surfacing, state backend) is unaffected.
+    # See NOTES.txt for how to run executors out-of-cluster (EXECUTOR_RUNTIME=ecs).
+    EXECUTOR_ENABLED: "false"
+  extraEnv: []           # list of {name, value} for ad-hoc overrides
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
+
+# ── UI (React SPA served by nginx, proxies /api → api:8000) ──────────────────
+ui:
+  enabled: true
+  replicas: 1
+  image:
+    repository: terraducktel-ui
+    tag: ""
+  service:
+    type: ClusterIP      # set NodePort for direct kind access, or use Ingress
+    port: 80             # Service port; container listens on 8080
+    nodePort: ""         # only used when type=NodePort
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {memory: 128Mi}
+
+# ── Drift detector (periodic; talks to the API over HTTP) ────────────────────
+driftDetector:
+  enabled: true
+  image:
+    repository: terraducktel-drift-detector
+    tag: ""
+  intervalSec: "300"
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+# ── Liveness detector (periodic; needs egress to api.github.com) ─────────────
+livenessDetector:
+  enabled: true
+  image:
+    repository: terraducktel-liveness-detector
+    tag: ""
+  intervalSec: "300"
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+
+# ── Seed dev users (post-install Helm hook) ──────────────────────────────────
+# Creates admin@test.com / operator@test.com / viewer@test.com with the
+# well-known dev password `password123`. DEV ONLY — leave disabled in prod.
+seedUsers:
+  enabled: true
+
+# ── Standalone migration Job (optional) ──────────────────────────────────────
+# Only needed if api.runMigrationsOnBoot=false. Runs as a pre-install/upgrade
+# hook. Off by default because the API runs migrations on boot.
+migrationJob:
+  enabled: false
+
+# ── Forgejo (self-hosted Git; optional) ──────────────────────────────────────
+forgejo:
+  enabled: false
+  image:
+    repository: codeberg.org/forgejo/forgejo
+    tag: "7"
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+# ── Postgres logical backup sidecar (optional) ───────────────────────────────
+pgBackup:
+  enabled: false
+  image:
+    repository: terraducktel-pg-backup
+    tag: ""
+  intervalSeconds: "21600"
+  retentionDays: "7"
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+
+# ── Ingress (optional; routes to the UI which proxies /api itself) ───────────
+ingress:
+  enabled: false
+  className: ""
+  host: terraducktel.local
+  annotations: {}
+  tls: []
