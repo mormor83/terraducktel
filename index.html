@@ -473,6 +473,73 @@
   .lb-next{right:max(12px, 2.5vmin)}
   @media (max-width:560px){ .lb-nav{width:38px; height:38px} .lb-nav svg{width:18px;height:18px} }
   .lightbox.is-zoomed .lb-nav, .lightbox.is-zoomed .lb-caption{opacity:0; pointer-events:none}
+
+  /* ---------- what's new (live GitHub releases) ---------- */
+  .ver-pill{
+    display:inline-flex; align-items:center; gap:7px; position:relative;
+    background:rgba(234,243,240,0.05); color:var(--mist-soft);
+    border:1px solid var(--line); border-radius:8px;
+    padding:8px 12px; margin-left:4px; font:inherit; font-size:0.84rem; font-weight:600;
+    cursor:pointer; white-space:nowrap;
+    transition:color .15s, border-color .15s, background .15s;
+  }
+  .ver-pill:hover{color:var(--mist); border-color:rgba(234,243,240,0.2); background:rgba(234,243,240,0.08)}
+  .ver-pill svg{color:var(--amber); flex:none}
+  .ver-dot{width:7px; height:7px; border-radius:50%; background:var(--spring); box-shadow:0 0 0 3px rgba(94,184,90,0.22)}
+  .wn-backdrop{
+    position:fixed; inset:0; z-index:90; background:rgba(4,10,9,0.55);
+    -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
+    opacity:0; transition:opacity .2s ease;
+  }
+  .wn-backdrop.show{opacity:1}
+  .wn-drawer{
+    position:fixed; top:0; right:0; z-index:100; height:100%;
+    width:min(430px, 92vw); display:flex; flex-direction:column;
+    background:var(--ink-soft); border-left:1px solid var(--line);
+    box-shadow:-24px 0 60px -20px rgba(0,0,0,0.7);
+    transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1);
+  }
+  .wn-drawer.open{transform:translateX(0)}
+  .wn-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:20px 22px 14px; border-bottom:1px solid var(--line); flex:none;
+  }
+  .wn-head h3{font-size:1.15rem; color:var(--mist); display:flex; align-items:center; gap:9px}
+  .wn-head h3 svg{color:var(--amber)}
+  .wn-close{
+    width:34px; height:34px; border-radius:8px; border:1px solid var(--line);
+    background:rgba(234,243,240,0.04); color:var(--mist-soft); cursor:pointer;
+    font-size:0.95rem; line-height:1; transition:color .15s, background .15s;
+  }
+  .wn-close:hover{color:var(--mist); background:rgba(234,243,240,0.08)}
+  .wn-body{overflow-y:auto; padding:4px 22px 18px; flex:1}
+  .wn-rel{padding:18px 0; border-bottom:1px solid var(--line)}
+  .wn-rel:last-child{border-bottom:0}
+  .wn-rel-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px}
+  .wn-tag{font-family:'JetBrains Mono',monospace; font-size:0.95rem; font-weight:700; color:var(--teal-bright)}
+  .wn-latest{
+    font-size:0.6rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--ink); background:var(--spring); padding:2px 7px; border-radius:999px;
+  }
+  .wn-date{font-size:0.8rem; color:var(--mist-faint); margin-left:auto}
+  .wn-notes{font-size:0.9rem; line-height:1.65; color:var(--mist-soft)}
+  .wn-notes h4{font-size:0.92rem; color:var(--mist); margin:12px 0 6px}
+  .wn-notes ul{margin:6px 0; padding-left:18px}
+  .wn-notes li{margin:3px 0}
+  .wn-notes p{margin:6px 0}
+  .wn-notes a{color:var(--teal-bright); text-decoration:underline}
+  .wn-notes code{font-family:'JetBrains Mono',monospace; font-size:0.85em; background:rgba(234,243,240,0.08); padding:1px 5px; border-radius:4px}
+  .wn-msg{color:var(--mist-faint); font-size:0.9rem; padding:22px 0}
+  .wn-all{
+    display:block; text-align:center; padding:15px; border-top:1px solid var(--line); flex:none;
+    color:var(--teal-bright); text-decoration:none; font-size:0.9rem; font-weight:600;
+  }
+  .wn-all:hover{background:rgba(234,243,240,0.04)}
+  body.wn-lock{overflow:hidden}
+  @media (max-width:760px){ .ver-pill{display:none} }
+  @media (prefers-reduced-motion: reduce){
+    .wn-drawer, .wn-backdrop{transition:none}
+  }
 </style>
 </head>
 <body>
@@ -489,6 +556,11 @@
       <a href="#features">Features</a>
       <a href="#quickstart">Quick start</a>
     </div>
+    <button class="ver-pill" id="wnBtn" type="button" aria-haspopup="dialog" aria-controls="whatsnew" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8z"/></svg>
+      <span id="wnTag">What's new</span>
+      <span class="ver-dot" id="wnDot" hidden></span>
+    </button>
     <a class="gh-btn" href="https://github.com/mormor83/terraducktel" target="_blank" rel="noopener">
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
       <span>Star on GitHub</span>
@@ -520,7 +592,7 @@
     </div>
     <div class="trust-line">
       <span>MIT licensed</span><span class="dot"></span>
-      <span>Runs on docker compose</span><span class="dot"></span>
+      <span>docker compose or Helm</span><span class="dot"></span>
       <span>Your state, your buckets, your rules</span>
     </div>
   </div>
@@ -710,6 +782,11 @@
           Postgres, LocalStack, the API, and the UI. Sign in with the seeded admin account and
           import your first workspace straight from Git.
         </p>
+        <p style="color:var(--mist-soft); font-size:0.94rem; line-height:1.7; margin-top:14px">
+          Prefer Kubernetes? A Helm chart ships in
+          <span class="mono" style="font-size:.9em">deploy/helm/terraducktel</span> —
+          <span class="mono" style="font-size:.9em">helm&nbsp;install&nbsp;tdt&nbsp;deploy/helm/terraducktel&nbsp;-n&nbsp;terraducktel&nbsp;--create-namespace</span>.
+        </p>
       </div>
       <div class="term reveal">
         <div class="term-bar"><span></span><span></span><span></span><button class="copy-btn" type="button" aria-label="Copy setup commands to clipboard">Copy</button></div>
@@ -756,6 +833,19 @@ docker compose exec -T api python scripts/seed_dev_users.py
     </div>
   </div>
 </footer>
+
+<!-- What's new drawer — populated live from the GitHub Releases API -->
+<div class="wn-backdrop" id="wnBackdrop" hidden></div>
+<aside class="wn-drawer" id="whatsnew" role="dialog" aria-modal="true" aria-labelledby="wnTitle" aria-hidden="true">
+  <div class="wn-head">
+    <h3 id="wnTitle"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8z"/></svg> What's new</h3>
+    <button class="wn-close" id="wnClose" type="button" aria-label="Close what's new">&#10005;</button>
+  </div>
+  <div class="wn-body" id="wnBody">
+    <p class="wn-msg">Loading releases&hellip;</p>
+  </div>
+  <a class="wn-all" href="https://github.com/mormor83/terraducktel/releases" target="_blank" rel="noopener">All releases on GitHub &rarr;</a>
+</aside>
 
 <script>
   // mobile nav menu toggle
@@ -1028,6 +1118,120 @@ docker compose exec -T api python scripts/seed_dev_users.py
         btns.forEach(function(b){ b.textContent = 'Star on GitHub · ' + d.stargazers_count; });
       }
     }).catch(function(){});
+
+  // What's new — live from the GitHub Releases API, rendered into a slide-in drawer.
+  (function(){
+    var REPO = 'mormor83/terraducktel';
+    var SEEN_KEY = 'tdt_seen_release';
+    var btn = document.getElementById('wnBtn');
+    var drawer = document.getElementById('whatsnew');
+    var backdrop = document.getElementById('wnBackdrop');
+    var closeBtn = document.getElementById('wnClose');
+    var body = document.getElementById('wnBody');
+    var tagEl = document.getElementById('wnTag');
+    var dot = document.getElementById('wnDot');
+    if (!btn || !drawer || !backdrop || !body) return;
+
+    function esc(s){
+      return String(s).replace(/[&<>"']/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+      });
+    }
+    // Minimal, SAFE markdown subset: escape everything first, then re-introduce
+    // a tiny allow-list (code, bold, links, bullets, headings). No raw HTML.
+    function inline(t){
+      t = esc(t);
+      t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+      t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      return t;
+    }
+    function mdToHtml(md){
+      var lines = String(md || '').replace(/\r/g,'').split('\n');
+      var out = [], inList = false;
+      lines.forEach(function(ln){
+        var li = ln.match(/^\s*[-*]\s+(.*)$/);
+        var hd = ln.match(/^\s*#{1,4}\s+(.*)$/);
+        if (li){
+          if (!inList){ out.push('<ul>'); inList = true; }
+          out.push('<li>' + inline(li[1]) + '</li>');
+        } else {
+          if (inList){ out.push('</ul>'); inList = false; }
+          if (hd){ out.push('<h4>' + inline(hd[1]) + '</h4>'); }
+          else if (ln.trim()){ out.push('<p>' + inline(ln) + '</p>'); }
+        }
+      });
+      if (inList) out.push('</ul>');
+      return out.join('');
+    }
+    function fmtDate(iso){
+      try { return new Date(iso).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'}); }
+      catch(e){ return ''; }
+    }
+
+    var opened = false, latestTag = null;
+
+    function render(rels){
+      if (!rels || !rels.length){
+        body.innerHTML = '<p class="wn-msg">Release notes are on GitHub &mdash; use the link below.</p>';
+        return;
+      }
+      body.innerHTML = rels.map(function(r, i){
+        var title = (r.name && r.name.trim()) ? r.name : r.tag_name;
+        var badge = i === 0 ? '<span class="wn-latest">latest</span>' : '';
+        var notes = (r.body && r.body.trim()) ? mdToHtml(r.body)
+                    : '<p class="wn-msg" style="padding:2px 0">No notes for this release.</p>';
+        return '<div class="wn-rel"><div class="wn-rel-head"><span class="wn-tag">'
+          + esc(title) + '</span>' + badge + '<span class="wn-date">'
+          + fmtDate(r.published_at || r.created_at) + '</span></div>'
+          + '<div class="wn-notes">' + notes + '</div></div>';
+      }).join('');
+    }
+
+    function markSeen(){
+      if (latestTag){ try { localStorage.setItem(SEEN_KEY, latestTag); } catch(e){} }
+      if (dot) dot.hidden = true;
+    }
+    function openDrawer(){
+      opened = true;
+      backdrop.hidden = false;
+      requestAnimationFrame(function(){ backdrop.classList.add('show'); drawer.classList.add('open'); });
+      drawer.setAttribute('aria-hidden','false');
+      btn.setAttribute('aria-expanded','true');
+      document.body.classList.add('wn-lock');
+      if (closeBtn) closeBtn.focus();
+      markSeen();
+    }
+    function closeDrawer(){
+      opened = false;
+      backdrop.classList.remove('show'); drawer.classList.remove('open');
+      drawer.setAttribute('aria-hidden','true');
+      btn.setAttribute('aria-expanded','false');
+      document.body.classList.remove('wn-lock');
+      setTimeout(function(){ if (!opened) backdrop.hidden = true; }, 260);
+      btn.focus();
+    }
+
+    btn.addEventListener('click', openDrawer);
+    if (closeBtn) closeBtn.addEventListener('click', closeDrawer);
+    backdrop.addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && opened) closeDrawer(); });
+
+    fetch('https://api.github.com/repos/' + REPO + '/releases?per_page=10')
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(rels){
+        if (!rels || !Array.isArray(rels)){ render(null); return; }
+        rels = rels.filter(function(r){ return !r.draft; });
+        render(rels);
+        if (rels.length){
+          latestTag = rels[0].tag_name;
+          if (tagEl) tagEl.textContent = latestTag;
+          var seen = null; try { seen = localStorage.getItem(SEEN_KEY); } catch(e){}
+          if (dot && seen !== latestTag) dot.hidden = false;
+        }
+      })
+      .catch(function(){ render(null); });
+  })();
 </script>
 </body>
 </html>
