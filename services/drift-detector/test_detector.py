@@ -18,6 +18,29 @@ def test_arn_service():
     assert detector._arn_service("not-an-arn") == ""
 
 
+# ─── _arn_id_candidates ──────────────────────────────────────────────────────
+
+
+def test_arn_id_candidates_strips_resource_type_prefix():
+    """The arn-less types: their tfstate id is the bare `nat-…`/`pcx-…`, so it
+    must fall out of the live ARN for the diff to match."""
+    assert "nat-0a1b2c3d4e5f67890" in detector._arn_id_candidates(
+        "arn:aws:ec2:us-east-1:444444444444:natgateway/nat-0a1b2c3d4e5f67890")
+    assert "pcx-0123456789abcdef0" in detector._arn_id_candidates(
+        "arn:aws:ec2:us-east-1:444444444444:vpc-peering-connection/pcx-0123456789abcdef0")
+    # `:`-separated resource type, and an id that itself contains `/`
+    cands = detector._arn_id_candidates("arn:aws:logs:us-east-1:123:log-group:/app/api")
+    assert "/app/api" in cands
+    # no resource type at all (S3) — the whole resource part is the id
+    assert detector._arn_id_candidates("arn:aws:s3:::my-bucket") == {"my-bucket"}
+
+
+def test_arn_id_candidates_rejects_non_arns():
+    assert detector._arn_id_candidates("nat-0a1b2c3d4e5f67890") == set()
+    assert detector._arn_id_candidates("arn:aws:s3:::") == set()
+    assert detector._arn_id_candidates("arn:aws:ec2:us-east-1:123") == set()
+
+
 # ─── _managed_from_tfstate ───────────────────────────────────────────────────
 
 
@@ -35,7 +58,7 @@ def test_managed_from_tfstate_classifies_codified():
              "instances": [{"index_key": "a", "attributes": {"arn": "arn:aws:ec2:::i-1", "id": "i-1"}}]},
         ]
     }
-    assets, managed_ids = detector._managed_from_tfstate(state, "us-east-1", "123")
+    assets, managed_ids, arnless_ids = detector._managed_from_tfstate(state, "us-east-1", "123")
     assert len(assets) == 2
     addrs = {a["address"] for a in assets}
     assert "aws_s3_bucket.b" in addrs
@@ -43,11 +66,28 @@ def test_managed_from_tfstate_classifies_codified():
     assert all(a["iac_status"] == "codified" for a in assets)
     assert {a["provider"] for a in assets} == {"aws"}
     assert "arn:aws:s3:::b" in managed_ids and "i-1" in managed_ids
+    assert arnless_ids == set()  # both resources carry an `arn`
+
+
+def test_managed_from_tfstate_collects_arnless_ids():
+    """Resources the AWS provider gives no `arn` land in `arnless_ids` so the
+    live ARN can be matched by id instead."""
+    state = {
+        "resources": [
+            {"mode": "managed", "type": "aws_nat_gateway", "name": "a",
+             "instances": [{"attributes": {"id": "nat-0a1b2c3d4e5f67890"}}]},
+            {"mode": "managed", "type": "aws_vpc", "name": "main",
+             "instances": [{"attributes": {"arn": "arn:aws:ec2:::vpc/vpc-1", "id": "vpc-1"}}]},
+        ]
+    }
+    _, managed_ids, arnless_ids = detector._managed_from_tfstate(state, "us-east-1", "123")
+    assert arnless_ids == {"nat-0a1b2c3d4e5f67890"}
+    assert "vpc-1" in managed_ids and "vpc-1" not in arnless_ids
 
 
 def test_managed_from_tfstate_empty():
-    assets, ids = detector._managed_from_tfstate({}, "us-east-1", "123")
-    assert assets == [] and ids == set()
+    assets, ids, arnless = detector._managed_from_tfstate({}, "us-east-1", "123")
+    assert assets == [] and ids == set() and arnless == set()
 
 
 def test_managed_from_tfstate_skips_random_password_none_id():
@@ -67,7 +107,7 @@ def test_managed_from_tfstate_skips_random_password_none_id():
              "instances": [{"attributes": {"id": "none"}}]},
         ]
     }
-    assets, managed_ids = detector._managed_from_tfstate(state, "us-east-1", "222222222222")
+    assets, managed_ids, _ = detector._managed_from_tfstate(state, "us-east-1", "222222222222")
     # Only the real cloud resource is codified; neither random_password leaks.
     assert [a["asset_type"] for a in assets] == ["aws_db_instance"]
     assert "none" not in managed_ids
@@ -84,7 +124,7 @@ def test_managed_from_tfstate_skips_sentinel_none_id_defensively():
              "instances": [{"attributes": {"id": "none"}}]},
         ]
     }
-    assets, _ = detector._managed_from_tfstate(state, "us-east-1", "123")
+    assets, _, _ = detector._managed_from_tfstate(state, "us-east-1", "123")
     assert assets == []
 
 
@@ -180,6 +220,47 @@ def test_analyze_classifies_codified_unmanaged_and_service_managed():
     sm = [a for a in out["assets"] if a["iac_status"] == "service_managed"][0]
     assert sm["asset_id"] == "arn:aws:ec2:::fleet/f1" and "EKS" in sm["drift_summary"]
     assert "1 codified, 1 unmanaged, 1 service-managed" in out["summary"]
+
+
+def test_analyze_matches_arnless_types_by_id():
+    """Regression: NAT gateways and VPC peering connections have no `arn`
+    attribute in the AWS provider schema at all, so tfstate holds only
+    `nat-…`/`pcx-…` while the tagging API returns a full ARN. They were reported
+    `unmanaged` on every scan despite being fully codified."""
+    acct = "444444444444"
+    state = {"resources": [
+        {"mode": "managed", "type": "aws_nat_gateway", "name": "a",
+         "instances": [{"attributes": {"id": "nat-0a1b2c3d4e5f67890"}},
+                       {"attributes": {"id": "nat-0fedcba9876543210"}}]},
+        {"mode": "managed", "type": "aws_vpc_peering_connection", "name": "peer",
+         "instances": [{"attributes": {"id": "pcx-0123456789abcdef0"}}]},
+    ]}
+    live = [
+        {"arn": f"arn:aws:ec2:us-east-1:{acct}:natgateway/nat-0a1b2c3d4e5f67890", "tags": {}},
+        {"arn": f"arn:aws:ec2:us-east-1:{acct}:natgateway/nat-0fedcba9876543210", "tags": {}},
+        {"arn": f"arn:aws:ec2:us-east-1:{acct}:vpc-peering-connection/pcx-0123456789abcdef0", "tags": {}},
+    ]
+    out = detector._analyze_workspace(
+        {"name": "prod", "region": "us-east-1"}, {"account_id": acct}, state, live)
+    assert out["untracked_count"] == 0
+    assert out["resources"] == []
+    assert {a["iac_status"] for a in out["assets"]} == {"codified"}
+
+
+def test_analyze_still_flags_genuinely_rogue_arnless_resource():
+    """The id-based fallback must not swallow a real unmanaged resource: a NAT
+    gateway absent from state stays `unmanaged`."""
+    state = {"resources": [
+        {"mode": "managed", "type": "aws_nat_gateway", "name": "a",
+         "instances": [{"attributes": {"id": "nat-known"}}]}]}
+    live = [
+        {"arn": "arn:aws:ec2:us-east-1:1:natgateway/nat-known", "tags": {}},
+        {"arn": "arn:aws:ec2:us-east-1:1:natgateway/nat-rogue", "tags": {}},
+    ]
+    out = detector._analyze_workspace(
+        {"name": "x", "region": "us-east-1"}, {"account_id": "1"}, state, live)
+    assert out["untracked_count"] == 1
+    assert out["resources"][0]["address"] == "arn:aws:ec2:us-east-1:1:natgateway/nat-rogue"
 
 
 def test_analyze_empty_state_all_unmanaged():

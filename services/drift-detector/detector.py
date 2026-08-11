@@ -44,16 +44,50 @@ def _arn_service(arn: str) -> str:
     return parts[2] if len(parts) > 2 else ""
 
 
+def _arn_id_candidates(arn: str) -> set[str]:
+    """Terraform-`id`-shaped forms of a live ARN's resource part.
+
+    The live scan only ever yields ARNs, but several AWS resource types have no
+    `arn` attribute in the provider schema at all — `aws_nat_gateway` and
+    `aws_vpc_peering_connection` are the common ones — so their tfstate entry
+    contributes only the bare id (`nat-0ab…`, `pcx-09c…`). Comparing an ARN
+    against that can never match, which made every NAT gateway and peering
+    connection report as `unmanaged` no matter how well codified it was.
+
+    We can't build the missing ARN, so we go the other way: reduce the ARN to
+    the id forms Terraform actually stores and look those up instead.
+
+        arn:aws:ec2:us-east-1:123:natgateway/nat-0ab   → {natgateway/nat-0ab, nat-0ab}
+        arn:aws:logs:us-east-1:123:log-group:/app/api  → {log-group:/app/api, /app/api, api}
+        arn:aws:s3:::my-bucket                         → {my-bucket}
+
+    Returns an empty set for anything that isn't an ARN.
+    """
+    if not arn.startswith("arn:"):
+        return set()
+    parts = arn.split(":", 5)
+    if len(parts) < 6 or not parts[5]:
+        return set()
+    resource = parts[5]
+    # Both separators AWS uses between resource type and resource id, split from
+    # the right so ids that themselves contain `/` or `:` survive one level.
+    return {c for c in (resource, resource.rsplit("/", 1)[-1], resource.rsplit(":", 1)[-1]) if c}
+
+
 # ─── tfstate parsing (managed resources) ─────────────────────────────────────
 
 
-def _managed_from_tfstate(state: dict, region: str, account_id: str) -> tuple[list, set]:
+def _managed_from_tfstate(state: dict, region: str, account_id: str) -> tuple[list, set, set]:
     """Parse a raw Terraform state document into codified assets.
 
-    Returns (assets, managed_ids). `managed_ids` is the set of ARNs/ids used to
-    diff against the live scan. Only `mode == "managed"` resources count; data
-    sources are skipped. Handles state v4 (flat `resources[]` with a `module`
-    field on nested-module resources).
+    Returns (assets, managed_ids, arnless_ids). `managed_ids` is the set of
+    ARNs/ids used to diff against the live scan. `arnless_ids` holds the ids of
+    resources whose provider schema exposes no `arn` at all — the live scan's
+    ARN has to be reduced to an id form (`_arn_id_candidates`) to match those,
+    and keeping them separate confines that fuzzier lookup to the types that
+    need it. Only `mode == "managed"` resources count; data sources are skipped.
+    Handles state v4 (flat `resources[]` with a `module` field on nested-module
+    resources).
 
     Resources from non-cloud "logical" providers (random/null/tls/time/…) are
     skipped: they aren't cloud assets, and several carry non-unique sentinel ids
@@ -64,6 +98,7 @@ def _managed_from_tfstate(state: dict, region: str, account_id: str) -> tuple[li
     """
     assets: list[dict] = []
     managed_ids: set[str] = set()
+    arnless_ids: set[str] = set()
 
     for res in state.get("resources", []) or []:
         if res.get("mode") != "managed":
@@ -93,6 +128,8 @@ def _managed_from_tfstate(state: dict, region: str, account_id: str) -> tuple[li
                 managed_ids.add(arn)
             if rid:
                 managed_ids.add(rid)
+                if not arn:
+                    arnless_ids.add(rid)
 
             address = ".".join(p for p in [module, f"{rtype}.{rname}"] if p)
             idx = inst.get("index_key")
@@ -112,7 +149,7 @@ def _managed_from_tfstate(state: dict, region: str, account_id: str) -> tuple[li
                 }
             )
 
-    return assets, managed_ids
+    return assets, managed_ids, arnless_ids
 
 
 # ─── AWS live scan ───────────────────────────────────────────────────────────
@@ -211,14 +248,19 @@ def _analyze_workspace(workspace: dict, creds: dict, state: dict, live: list) ->
     region = workspace.get("region", "us-east-1")
     account_id = (creds or {}).get("account_id", "") or workspace.get("aws_account_id", "")
 
-    managed_assets, managed_ids = _managed_from_tfstate(state, region, account_id)
+    managed_assets, managed_ids, arnless_ids = _managed_from_tfstate(state, region, account_id)
 
     unmanaged_resources: list[dict] = []
     extra_assets: list[dict] = []
     unmanaged = service_managed = 0
     for item in live:
         arn = item.get("arn") if isinstance(item, dict) else item
-        if not arn or arn in managed_ids:
+        if not arn:
+            continue
+        # Exact ARN first; fall back to id-shaped forms for the types the AWS
+        # provider gives no `arn` (NAT gateways, VPC peering connections, …),
+        # whose state entry is a bare id and so can never match an ARN.
+        if arn in managed_ids or (arnless_ids and arnless_ids & _arn_id_candidates(arn)):
             continue
         owner = _service_owner(item.get("tags", {})) if isinstance(item, dict) else None
         if owner:

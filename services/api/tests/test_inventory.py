@@ -283,3 +283,80 @@ async def test_duplicate_managed_asset_id_across_workspaces_does_not_500(
             select(func.count()).select_from(CloudAsset).where(CloudAsset.asset_id == "none")
         )).scalar()
     assert n == 1
+
+
+async def test_arnless_asset_codified_by_sibling_is_not_flagged_unmanaged(
+    auth_client, admin_token, workspace_id
+):
+    """A NAT gateway codified by one workspace under its bare id (`nat-…`, since
+    the AWS provider exposes no `arn` for the type) must not be re-reported as
+    `unmanaged` by a sibling workspace that only sees its live ARN.
+
+    Regression for an Inventory dashboard false positive: the cross-workspace
+    dedup compared ARN-vs-id as strings, so these could never match.
+    """
+    hdr = {"Authorization": f"Bearer {admin_token}"}
+    ws2 = await auth_client.post(
+        "/api/v1/workspaces",
+        json={"name": "inv-ws-arnless", "environment": "dev",
+              "aws_account_id": "123456789012", "region": "us-east-1",
+              "tf_working_dir": "envs/inv-ws-arnless"},
+        headers=hdr,
+    )
+    assert ws2.status_code == 201, ws2.text
+    ws2_id = ws2.json()["id"]
+
+    # Workspace 1 codifies it — tfstate has no arn, so asset_id is the bare id.
+    await _post_assets(auth_client, admin_token, workspace_id, assets=[
+        {"asset_id": "nat-0a1b2c3d4e5f67890", "address": "module.vpc.aws_nat_gateway.a",
+         "asset_type": "aws_nat_gateway", "provider": "aws", "region": "us-east-1",
+         "account_id": "444444444444", "iac_status": "codified"},
+    ])
+    # Workspace 2's live scan sees the same resource as a full ARN.
+    await _post_assets(auth_client, admin_token, ws2_id, assets=[
+        {"asset_id": "arn:aws:ec2:us-east-1:444444444444:natgateway/nat-0a1b2c3d4e5f67890",
+         "address": "", "asset_type": "ec2", "provider": "aws", "region": "us-east-1",
+         "account_id": "444444444444", "iac_status": "unmanaged",
+         "drift_summary": "live resource not present in tfstate"},
+    ])
+
+    s = (await auth_client.get("/api/v1/inventory/summary", headers=hdr)).json()
+    assert s["counts"].get("unmanaged", 0) == 0
+    assert s["counts"]["codified"] == 1
+
+
+async def test_stale_arnless_unmanaged_row_is_swept_once_codified(
+    auth_client, admin_token, workspace_id
+):
+    """A false-positive `unmanaged` row left over from before the arn-less match
+    fix must clear on the next scan.
+
+    It's account-scoped (workspace_id NULL) and keyed by full ARN, so the
+    per-workspace delete, the account prune (no non-managed asset left to name
+    the account) and the exact-asset_id collision delete all miss it.
+    """
+    hdr = {"Authorization": f"Bearer {admin_token}"}
+    arn = "arn:aws:ec2:us-east-1:444444444444:natgateway/nat-0a1b2c3d4e5f67890"
+
+    # Pre-fix scan: reported unmanaged.
+    await _post_assets(auth_client, admin_token, workspace_id, assets=[
+        {"asset_id": arn, "address": "", "asset_type": "ec2", "provider": "aws",
+         "region": "us-east-1", "account_id": "444444444444", "iac_status": "unmanaged",
+         "drift_summary": "live resource not present in tfstate"},
+    ])
+    assert (await auth_client.get(
+        "/api/v1/inventory/summary", headers=hdr)).json()["counts"]["unmanaged"] == 1
+
+    # Post-fix scan: the same resource now matches state, codified under its
+    # bare id, and reports no unmanaged asset at all for the account.
+    await _post_assets(auth_client, admin_token, workspace_id, assets=[
+        {"asset_id": "nat-0a1b2c3d4e5f67890", "address": "module.vpc.aws_nat_gateway.a",
+         "asset_type": "aws_nat_gateway", "provider": "aws", "region": "us-east-1",
+         "account_id": "444444444444", "iac_status": "codified"},
+    ])
+
+    s = (await auth_client.get("/api/v1/inventory/summary", headers=hdr)).json()
+    assert s["counts"].get("unmanaged", 0) == 0
+    assert s["counts"]["codified"] == 1
+    rows = (await auth_client.get("/api/v1/inventory/assets", headers=hdr)).json()
+    assert [r["asset_id"] for r in rows["items"]] == ["nat-0a1b2c3d4e5f67890"]
