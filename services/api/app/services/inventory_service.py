@@ -25,6 +25,25 @@ from app.models.inventory_ignore_rule import InventoryIgnoreRule
 logger = logging.getLogger(__name__)
 
 
+def _arn_id_candidates(arn: str) -> set[str]:
+    """Terraform-`id`-shaped forms of an ARN's resource part.
+
+    Twin of `_arn_id_candidates` in services/drift-detector/detector.py (the two
+    services share no package; keep them in step). Needed because resource types
+    with no `arn` in the provider schema — `aws_nat_gateway`,
+    `aws_vpc_peering_connection` — are codified under their bare id (`nat-0ab…`),
+    while a live hit for the same resource arrives as a full ARN. Comparing the
+    two as strings never matches, so they looked `unmanaged`.
+    """
+    if not arn.startswith("arn:"):
+        return set()
+    parts = arn.split(":", 5)
+    if len(parts) < 6 or not parts[5]:
+        return set()
+    resource = parts[5]
+    return {c for c in (resource, resource.rsplit("/", 1)[-1], resource.rsplit(":", 1)[-1]) if c}
+
+
 def _matches_any_rule(asset_id: str, asset_type: str, rules) -> bool:
     """True if the asset matches any ignore rule (arn_glob / asset_type)."""
     for r in rules:
@@ -125,6 +144,10 @@ async def refresh_workspace_assets(db: AsyncSession, workspace, assets) -> None:
             # cause was non-unique provider ids like random_password's "none",
             # now also filtered at the detector.)
             continue
+        if not is_managed and managed_elsewhere & _arn_id_candidates(a.asset_id):
+            # Same live resource as an arn-less asset a sibling workspace already
+            # codified under its bare id — not rogue, just unmatchable by string.
+            continue
         seen.add(a.asset_id)
         to_insert.append(a)
 
@@ -138,6 +161,33 @@ async def refresh_workspace_assets(db: AsyncSession, workspace, assets) -> None:
                 CloudAsset.asset_id.in_(collide_ids),
             )
         )
+
+    # 6. Sweep account-scoped rows that are the *same live resource* as an
+    #    arn-less asset this payload codifies (their asset_id is the full ARN,
+    #    the codified row's is the bare id). Neither step 2 (only prunes accounts
+    #    still reporting a non-managed asset) nor step 5 (exact asset_id) catches
+    #    those, so a false positive fixed upstream would otherwise never clear.
+    bare_ids = {
+        a.asset_id for a in to_insert
+        if a.iac_status in MANAGED_STATES and not a.asset_id.startswith("arn:")
+    }
+    bare_accounts = {
+        a.account_id for a in to_insert if a.asset_id in bare_ids and a.account_id
+    }
+    if bare_ids and bare_accounts:
+        stale = (
+            await db.execute(
+                select(CloudAsset).where(
+                    CloudAsset.business_unit_id == bu,
+                    CloudAsset.workspace_id.is_(None),
+                    CloudAsset.iac_status.not_in(MANAGED_STATES),
+                    CloudAsset.account_id.in_(bare_accounts),
+                )
+            )
+        ).scalars().all()
+        for row in stale:
+            if bare_ids & _arn_id_candidates(row.asset_id):
+                await db.delete(row)
 
     for a in to_insert:
         is_managed = a.iac_status in MANAGED_STATES
