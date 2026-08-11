@@ -50,6 +50,17 @@ jobs:
         working-directory: services/ui
         run: npm run test
 
+  release-version:
+    name: Release version logic
+    runs-on: ubuntu-latest
+    # Guards the semver bump the Release workflow derives from conventional
+    # commits. Cheap (throwaway git repos in a temp dir, no deps) and worth it:
+    # a bug here silently mis-versions or skips a release.
+    steps:
+      - uses: actions/checkout@v4
+      - name: next-version regression tests
+        run: bash scripts/test-next-version.sh
+
   security-scan:
     name: Trivy IaC scan (informational)
     runs-on: ubuntu-latest
