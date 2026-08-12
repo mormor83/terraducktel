@@ -25,6 +25,7 @@ Design:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import subprocess
@@ -158,7 +159,12 @@ async def check_workspace_paths(
     for (repo_url, ref, bu_id), wss in groups.items():
         bu_slug = await _bu_slug_by_id(session, bu_id)
         username, token = await _resolve_token(session, repo_url, bu_slug)
-        tmpdir, err = _shallow_clone(repo_url, ref, username, token)
+        # `_shallow_clone` shells out to git and blocks for as long as the clone
+        # takes (up to its own 60s timeout). Run it on a worker thread — calling
+        # it inline would park the whole event loop, and this loop iterates once
+        # per (repo, ref, bu) group, so the API would stop serving *every*
+        # request for the duration of the sync pass.
+        tmpdir, err = await asyncio.to_thread(_shallow_clone, repo_url, ref, username, token)
         if err:
             res.errors.append(f"{_redact_url(repo_url)} @ {ref}: {err}")
             # Leave each workspace's path_status untouched on clone error.
@@ -179,7 +185,9 @@ async def check_workspace_paths(
                 ws.path_status_checked_at = datetime.now(timezone.utc)
                 res.checked += 1
         finally:
-            _cleanup(tmpdir)
+            # rmtree over a freshly cloned worktree can be thousands of unlinks;
+            # keep it off the event loop for the same reason as the clone.
+            await asyncio.to_thread(_cleanup, tmpdir)
 
     return res
 
@@ -235,8 +243,6 @@ async def repo_sync_loop(session_factory):
     logged and swallowed — a transient git outage must not kill the
     loop.
     """
-    import asyncio
-
     await asyncio.sleep(60)
     while True:
         try:

@@ -3,6 +3,7 @@
 Provides GET/POST for state, POST/DELETE for lock.
 These endpoints are internal (used by Terraform directly).
 """
+import asyncio
 import json
 import logging
 import os
@@ -164,7 +165,12 @@ async def get_state(
 
     try:
         svc, key = await _service_for(ws, db)
-        data = svc.get_state_at(key)
+        # StateStore is a *sync* contract (see services/state_store.py) backed by
+        # boto3 / azure-blob / gcs clients. Called inline it parks the event loop
+        # for the whole round trip — a cross-account GetObject plus a full-body
+        # read of a multi-MB tfstate — and this is the hottest state route
+        # (every terraform refresh/plan hits it). Offload to a worker thread.
+        data = await asyncio.to_thread(svc.get_state_at, key)
     except Exception:
         logger.exception("State fetch failed for workspace %s", workspace_id)
         raise HTTPException(
@@ -228,7 +234,9 @@ async def put_state(
 
     try:
         svc, key = await _service_for(ws, db)
-        svc.put_state_at(key, body)
+        # Same reasoning as the GET path — an upload of the full state body must
+        # not block every other request while it is in flight.
+        await asyncio.to_thread(svc.put_state_at, key, body)
     except Exception:
         logger.exception("Failed to persist state for workspace %s", workspace_id)
         raise HTTPException(status_code=500, detail="Failed to persist state")
