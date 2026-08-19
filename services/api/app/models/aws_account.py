@@ -31,6 +31,11 @@ class AwsAccount(Base):
     # Human-readable display name (e.g. "example-prod").
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optional UI colour token (see app.services.account_colors). Purely
+    # cosmetic: paints a rail on Runs rows and the Slack attachment stripe so
+    # humans can attribute a run to an account at a glance. NULL = auto —
+    # the API derives a stable colour from the account's natural id.
+    color: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Dedicated state bucket for this account.
     state_bucket: Mapped[str] = mapped_column(String(255), nullable=False)
     state_bucket_region: Mapped[str] = mapped_column(String(50), nullable=False, default="us-east-1")

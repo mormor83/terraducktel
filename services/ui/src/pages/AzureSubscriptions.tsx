@@ -14,6 +14,8 @@ import {
   Skeleton,
   Spinner,
 } from "../components/ui";
+import { AccountColorPicker } from "../components/AccountTag";
+import { ACCOUNT_COLOR_CLASSES, asAccountColor } from "../components/accountColors";
 
 type AzureSubscription = {
   id: string;
@@ -26,6 +28,9 @@ type AzureSubscription = {
   default_location: string;
   state_storage_account?: string | null;
   state_container?: string | null;
+  // Stored choice (null = auto) vs. what to paint. See accountColors.ts.
+  color?: string | null;
+  color_effective?: string;
   client_secret_masked: string;
 };
 
@@ -39,6 +44,7 @@ type FormState = {
   default_location: string;
   state_storage_account: string;
   state_container: string;
+  color: string;
 };
 
 const EMPTY: FormState = {
@@ -51,6 +57,7 @@ const EMPTY: FormState = {
   default_location: "eastus",
   state_storage_account: "",
   state_container: "",
+  color: "",
 };
 
 function SubForm({
@@ -135,6 +142,14 @@ function SubForm({
             <Label>Description</Label>
             <Input value={f.description} onChange={(e) => update("description", e.target.value)} />
           </div>
+          <div className="md:col-span-2">
+            <Label>Color</Label>
+            <AccountColorPicker value={f.color} onChange={(c) => update("color", c)} />
+            <p className="mt-1 text-xs text-slate-500">
+              Tags this account across the Runs page and Slack alerts. Leave
+              untouched on create to get the first color unused in this business unit.
+            </p>
+          </div>
           <div className="md:col-span-2 mt-1 border-t border-slate-200 pt-3 dark:border-slate-700">
             <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
               Azure Blob state backend (optional)
@@ -213,6 +228,8 @@ export default function AzureSubscriptions() {
         const body: any = { ...f };
         if (!body.state_storage_account) delete body.state_storage_account;
         if (!body.state_container) delete body.state_container;
+        // Absent (not "") lets the API claim the first free colour.
+        if (!body.color) delete body.color;
         await api.post("/v1/azure-subscriptions", body);
       } else if (showForm?.mode === "edit" && showForm.row) {
         // Skip empty client_secret on edit so we keep the existing one.
@@ -277,6 +294,8 @@ export default function AzureSubscriptions() {
           default_location: showForm.row.default_location,
           state_storage_account: showForm.row.state_storage_account ?? "",
           state_container: showForm.row.state_container ?? "",
+          // Prefill with the painted colour so the picker matches Runs.
+          color: showForm.row.color_effective ?? showForm.row.color ?? "",
         }
       : EMPTY;
 
@@ -325,7 +344,15 @@ export default function AzureSubscriptions() {
           {rows.map((row) => {
             const t = testResult[row.id];
             return (
-              <Card key={row.id}>
+              <Card key={row.id} className="relative overflow-hidden">
+                {/* Same rail as a Runs row — see AwsAccounts. */}
+                <span
+                  aria-hidden
+                  className={
+                    "absolute inset-y-0 left-0 w-[3px] " +
+                    ACCOUNT_COLOR_CLASSES[asAccountColor(row.color_effective ?? row.color)].solid
+                  }
+                />
                 <CardBody>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">

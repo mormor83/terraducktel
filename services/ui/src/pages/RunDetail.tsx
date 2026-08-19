@@ -17,6 +17,8 @@ import RunSteps from "../components/RunSteps";
 import RunLogsModal from "../components/RunLogsModal";
 import PolicyResults, { PolicyStatusBadge } from "../components/PolicyResults";
 import { useCurrentUser, hasMinRole } from "../hooks/useAuth";
+import { AccountTag } from "../components/AccountTag";
+import { useAccountColors } from "../hooks/useAccountColors";
 
 type Run = {
   id: string;
@@ -43,6 +45,10 @@ type Workspace = {
   repo_ref?: string;
   // "terraform" (default) or "helm".
   kind?: string;
+  // Consumed by useAccountColors to attribute the run to a cloud account.
+  azure_subscription_id?: string | null;
+  gcp_project_id?: string | null;
+  cluster_id?: string | null;
 };
 
 type Tab = "timeline" | "plan" | "policies";
@@ -73,6 +79,7 @@ export default function RunDetail() {
   const user = useCurrentUser();
   const [run, setRun] = useState<Run | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const { badgeFor } = useAccountColors();
   const [planOutput, setPlanOutput] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("timeline");
   const [busy, setBusy] = useState<string | null>(null);
@@ -229,6 +236,7 @@ export default function RunDetail() {
   // `planned`; they go straight to `awaiting_approval`.)
   const cancellable = new Set(["pending", "running", "planning", "awaiting_approval"]);
   const isAwaitingApproval = run.status === "awaiting_approval";
+  const account = badgeFor(workspace ?? undefined);
   const tabs: Tab[] = ["timeline", "plan", "policies"];
 
   return (
@@ -239,7 +247,19 @@ export default function RunDetail() {
           workspace ? (
             <span>
               <Link to="/" className="hover:underline">{workspace.name}</Link>{" "}
-              · <span className="font-mono">{workspace.aws_account_id}</span>{" "}
+              ·{" "}
+              {/* Account name + colour dot, matching the Runs row. Falls back
+                  to the raw id when the account isn't registered. */}
+              {account ? (
+                <AccountTag
+                  color={account.color}
+                  name={account.name}
+                  id={account.id}
+                  className="align-middle font-medium"
+                />
+              ) : (
+                <span className="font-mono">{workspace.aws_account_id}</span>
+              )}{" "}
               · <span className="font-mono">{workspace.region}</span>
             </span>
           ) : "Workspace deleted."

@@ -7,7 +7,9 @@ import {
 } from "../api/businessUnits";
 import { getCurrentBusinessUnit, setCurrentBusinessUnit } from "../api/client";
 
-const BU_CHANGED_EVENT = "terraducktel:bu-changed";
+// Dispatched by setCurrentBusinessUnit in api/client.ts. Exported so any hook
+// holding BU-scoped data can refetch on a switch (there is no page reload).
+export const BU_CHANGED_EVENT = "terraducktel:bu-changed";
 
 /**
  * Current Business Unit selection — backed by localStorage.

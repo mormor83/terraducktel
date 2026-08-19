@@ -17,6 +17,8 @@ import {
 import { useCurrentUser, hasMinRole } from "../hooks/useAuth";
 import RunSteps from "../components/RunSteps";
 import RunLogsModal from "../components/RunLogsModal";
+import { AccountRail, AccountTag } from "../components/AccountTag";
+import { useAccountColors } from "../hooks/useAccountColors";
 
 type Run = {
   id: string;
@@ -40,6 +42,11 @@ type Workspace = {
   region: string;
   aws_account_id: string;
   tf_working_dir?: string;
+  // Consumed by useAccountColors to attribute the run to a cloud account.
+  kind?: string;
+  azure_subscription_id?: string | null;
+  gcp_project_id?: string | null;
+  cluster_id?: string | null;
 };
 
 type UserLite = {
@@ -111,6 +118,7 @@ export default function Runs() {
   const [logsRunId, setLogsRunId] = useState<string | null>(null);
   const user = useCurrentUser();
   const nav = useNavigate();
+  const { badgeFor } = useAccountColors();
 
   async function load() {
     try {
@@ -246,6 +254,7 @@ export default function Runs() {
           r.status,
           ws?.name ?? "",
           ws?.aws_account_id ?? "",
+          badgeFor(ws)?.name ?? "",
           ws?.region ?? "",
           ws?.environment ?? "",
           u?.email ?? "",
@@ -256,7 +265,7 @@ export default function Runs() {
       })
       .slice()
       .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
-  }, [runs, workspaces, users, filter, statusFilter]);
+  }, [runs, workspaces, users, filter, statusFilter, badgeFor]);
 
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -401,11 +410,20 @@ export default function Runs() {
                 <ul className="divide-y divide-slate-200 dark:divide-slate-800/80">
                   {g.runs.map((run) => {
                     const ws = workspaces[run.workspace_id];
+                    const account = badgeFor(ws);
                     const u = run.triggered_by ? users[run.triggered_by] : undefined;
                     const triggerLabel = u?.email ?? (run.triggered_by?.startsWith("webhook:") ? run.triggered_by : run.triggered_by?.slice(0, 8) ?? "—");
                     const isOpen = openRunId === run.id;
                     return (
-                      <li key={run.id} className={cx("transition-colors", isOpen && "bg-slate-50 dark:bg-slate-900/40") }>
+                      <li
+                        key={run.id}
+                        className={cx("relative transition-colors", isOpen && "bg-slate-50 dark:bg-slate-900/40")}
+                      >
+                        {/* Colour rail: which cloud account this run touched.
+                            Absent (not gray) when the workspace has no
+                            attributable account, so "no account" and "gray
+                            account" stay distinguishable. */}
+                        {account && <AccountRail color={account.color} />}
                         <div className="flex flex-wrap items-start gap-3 px-5 py-4">
                           {/* left column: workspace context */}
                           <div className="min-w-0 flex-1">
@@ -459,12 +477,27 @@ export default function Runs() {
                               </span>
                               <RunStatusBadge status={run.status} />
                             </div>
-                            <p className="mt-1 truncate font-mono text-[11px] text-slate-500">
+                            <p className="mt-1 flex min-w-0 items-center gap-1 truncate font-mono text-[11px] text-slate-500">
                               {ws ? (
                                 <>
-                                  {ws.aws_account_id} · {ws.region}
+                                  {/* Account name beats the 12-digit id for
+                                      recognition; the id stays in the tooltip
+                                      (and is still searchable above). Falls
+                                      back to the raw id for an unregistered or
+                                      deleted account. */}
+                                  {account ? (
+                                    <AccountTag
+                                      color={account.color}
+                                      name={account.name}
+                                      id={account.id}
+                                      className="max-w-[14rem] font-sans font-medium text-slate-600 dark:text-slate-300"
+                                    />
+                                  ) : (
+                                    <span>{ws.aws_account_id}</span>
+                                  )}
+                                  <span>· {ws.region}</span>
                                   {ws.tf_working_dir && ws.tf_working_dir !== "." && (
-                                    <> · {ws.tf_working_dir}</>
+                                    <span className="truncate">· {ws.tf_working_dir}</span>
                                   )}
                                 </>
                               ) : (

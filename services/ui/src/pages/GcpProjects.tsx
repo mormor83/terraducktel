@@ -14,6 +14,8 @@ import {
   Skeleton,
   Spinner,
 } from "../components/ui";
+import { AccountColorPicker } from "../components/AccountTag";
+import { ACCOUNT_COLOR_CLASSES, asAccountColor } from "../components/accountColors";
 
 type GcpProject = {
   id: string;
@@ -25,6 +27,9 @@ type GcpProject = {
   default_region: string;
   state_bucket?: string | null;
   state_prefix?: string | null;
+  // Stored choice (null = auto) vs. what to paint. See accountColors.ts.
+  color?: string | null;
+  color_effective?: string;
   service_account_masked: string;
 };
 
@@ -35,6 +40,7 @@ type FormState = {
   default_region: string;
   state_bucket: string;
   state_prefix: string;
+  color: string;
   service_account_json: string;
 };
 
@@ -45,6 +51,7 @@ const EMPTY: FormState = {
   default_region: "us-central1",
   state_bucket: "",
   state_prefix: "",
+  color: "",
   service_account_json: "",
 };
 
@@ -122,6 +129,14 @@ function ProjForm({
             <Label>Description</Label>
             <Input value={f.description} onChange={(e) => update("description", e.target.value)} />
           </div>
+          <div className="md:col-span-2">
+            <Label>Color</Label>
+            <AccountColorPicker value={f.color} onChange={(c) => update("color", c)} />
+            <p className="mt-1 text-xs text-slate-500">
+              Tags this account across the Runs page and Slack alerts. Leave
+              untouched on create to get the first color unused in this business unit.
+            </p>
+          </div>
           <div className="md:col-span-2 mt-1 border-t border-slate-200 pt-3 dark:border-slate-700">
             <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
               GCS state backend (optional)
@@ -193,6 +208,8 @@ export default function GcpProjects() {
       // Empty optional fields → null (avoid storing "").
       body.state_bucket = body.state_bucket || null;
       body.state_prefix = body.state_prefix || null;
+      // Absent (not "") lets the API claim the first free colour.
+      if (!body.color) delete body.color;
       if (showForm?.mode === "create") {
         await api.post("/v1/gcp-projects", body);
       } else if (showForm?.mode === "edit" && showForm.row) {
@@ -258,6 +275,8 @@ export default function GcpProjects() {
           default_region: showForm.row.default_region,
           state_bucket: showForm.row.state_bucket ?? "",
           state_prefix: showForm.row.state_prefix ?? "",
+          // Prefill with the painted colour so the picker matches Runs.
+          color: showForm.row.color_effective ?? showForm.row.color ?? "",
           service_account_json: "",
         }
       : EMPTY;
@@ -306,7 +325,15 @@ export default function GcpProjects() {
           {rows.map((row) => {
             const t = testResult[row.id];
             return (
-              <Card key={row.id}>
+              <Card key={row.id} className="relative overflow-hidden">
+                {/* Same rail as a Runs row — see AwsAccounts. */}
+                <span
+                  aria-hidden
+                  className={
+                    "absolute inset-y-0 left-0 w-[3px] " +
+                    ACCOUNT_COLOR_CLASSES[asAccountColor(row.color_effective ?? row.color)].solid
+                  }
+                />
                 <CardBody>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">

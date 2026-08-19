@@ -21,7 +21,7 @@ from app.schemas.aws_account import (
     AwsAccountUpdate,
     CreateBucketResult,
 )
-from app.services import aws_account_service as accs
+from app.services import account_colors, aws_account_service as accs
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,8 @@ def _to_response(acc: AwsAccount) -> AwsAccountResponse:
         state_bucket_region=acc.state_bucket_region,
         default_region=acc.default_region,
         aws_profile_name=acc.aws_profile_name,
+        color=acc.color,
+        color_effective=account_colors.effective(acc.color, acc.account_id),
         access_key_id_masked=accs.mask_access_key_tail(plain_key) if plain_key else "(unreadable)",
     )
 
@@ -102,6 +104,9 @@ async def create_aws_account(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"AWS account {body.account_id} is already configured in this business unit",
         )
+    # Claim a colour up-front so it's stored once and never shifts. Explicit
+    # choice wins; otherwise the first colour unused in this BU.
+    color = await account_colors.assign_for_bu(db, bu.bu_id, body.color)
     acc = AwsAccount(
         id=str(uuid.uuid4()),
         business_unit_id=bu.bu_id,
@@ -112,6 +117,7 @@ async def create_aws_account(
         state_bucket_region=body.state_bucket_region,
         default_region=body.default_region,
         aws_profile_name=body.aws_profile_name,
+        color=color,
         access_key_id_encrypted=accs.encrypt_secret(body.access_key_id),
         secret_access_key_encrypted=accs.encrypt_secret(body.secret_access_key),
     )

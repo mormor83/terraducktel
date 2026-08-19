@@ -183,7 +183,7 @@ async def submit_drift_report(
         await db.commit()
 
     if body.has_drift:
-        await send_drift_alert(db, ws.name, body.summary)
+        await send_drift_alert(db, ws.name, body.summary, workspace_id=ws.id)
 
     return DriftReportOut(
         report_id=report.id,

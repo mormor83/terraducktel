@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.bu_context import BUScope, current_bu
@@ -23,6 +23,7 @@ from app.auth.rbac import Role, require_role
 from app.db import get_db
 from app.models.k8s_cluster import K8sCluster
 from app.models.user import User
+from app.services import account_colors
 from app.services import cluster_service as clusters
 
 logger = logging.getLogger(__name__)
@@ -40,8 +41,16 @@ class ClusterCreate(BaseModel):
     # Optional AWS account (12-digit id) whose creds authenticate to EKS via
     # the kubeconfig's `aws eks get-token` exec plugin. Null for non-EKS.
     aws_account_id: Optional[str] = None
+    # Cosmetic UI/Slack colour token; None/"" = auto-derive. See
+    # app.services.account_colors.
+    color: Optional[str] = None
     # Full kubeconfig YAML. Encrypted at rest; never echoed back.
     kubeconfig: str = Field(..., min_length=1)
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v: Optional[str]) -> Optional[str]:
+        return account_colors.normalize(v)
 
 
 class ClusterUpdate(BaseModel):
@@ -50,8 +59,15 @@ class ClusterUpdate(BaseModel):
     server_url: Optional[str] = None
     default_namespace: Optional[str] = None
     aws_account_id: Optional[str] = None
+    # Send "" (or null) to clear back to the auto-derived colour.
+    color: Optional[str] = None
     # If supplied we re-encrypt on the server.
     kubeconfig: Optional[str] = None
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v: Optional[str]) -> Optional[str]:
+        return account_colors.normalize(v)
 
 
 class ClusterResponse(BaseModel):
@@ -63,6 +79,10 @@ class ClusterResponse(BaseModel):
     server_url: Optional[str] = None
     default_namespace: Optional[str] = None
     aws_account_id: Optional[str] = None
+    # `color` is what's stored (None = auto); `color_effective` is what the
+    # UI paints and is always populated. See app.services.account_colors.
+    color: Optional[str] = None
+    color_effective: str = "gray"
     kubeconfig_tail: str
     created_at: Optional[datetime] = None
 
@@ -92,6 +112,8 @@ def _to_response(c: K8sCluster) -> ClusterResponse:
         server_url=c.server_url,
         default_namespace=c.default_namespace,
         aws_account_id=getattr(c, "aws_account_id", None),
+        color=c.color,
+        color_effective=account_colors.effective(c.color, c.id),
         kubeconfig_tail=tail,
         created_at=getattr(c, "created_at", None),
     )
@@ -121,6 +143,8 @@ async def create_cluster(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Set X-Business-Unit header to a specific BU when creating a cluster",
         )
+    # See aws_accounts.create_aws_account — colour claimed at creation.
+    color = await account_colors.assign_for_bu(db, bu.bu_id, body.color)
     try:
         cluster = await clusters.create_cluster(
             db,
@@ -130,6 +154,7 @@ async def create_cluster(
             server_url=body.server_url,
             default_namespace=body.default_namespace,
             aws_account_id=body.aws_account_id,
+            color=color,
             kubeconfig=body.kubeconfig,
         )
     except clusters.UnsafeKubeconfigError as e:
@@ -160,6 +185,8 @@ async def update_cluster(
             kubeconfig=data.get("kubeconfig"),
             aws_account_id=data.get("aws_account_id"),
             aws_account_id_set=("aws_account_id" in data),
+            color=data.get("color"),
+            color_set=("color" in data),
         )
     except clusters.UnsafeKubeconfigError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))

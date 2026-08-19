@@ -29,6 +29,11 @@ class K8sCluster(Base):
     # Human-readable display name (e.g. "prod-eks"). Unique per BU.
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optional UI colour token (see app.services.account_colors). Purely
+    # cosmetic: paints a rail on Runs rows and the Slack attachment stripe so
+    # humans can attribute a run to an account at a glance. NULL = auto —
+    # the API derives a stable colour from the account's natural id.
+    color: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Optional API server URL, surfaced for display / connectivity testing.
     server_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Default namespace used by helm runs when a workspace doesn't override it.

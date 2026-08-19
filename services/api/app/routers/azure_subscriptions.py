@@ -20,6 +20,7 @@ from app.schemas.azure_subscription import (
     AzureSubscriptionTestResult,
     AzureSubscriptionUpdate,
 )
+from app.services import account_colors
 from app.services import azure_subscription_service as svc
 from app.services.azure_blob_state_service import AzureBlobStateService
 
@@ -44,6 +45,8 @@ def _to_response(sub: AzureSubscription) -> AzureSubscriptionResponse:
         default_location=sub.default_location,
         state_storage_account=sub.state_storage_account,
         state_container=sub.state_container,
+        color=sub.color,
+        color_effective=account_colors.effective(sub.color, sub.subscription_id),
         client_secret_masked=svc.mask_secret_tail(plain) if plain else "(unreadable)",
     )
 
@@ -92,6 +95,8 @@ async def create_azure_subscription(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Azure subscription {body.subscription_id} is already configured in this business unit",
         )
+    # See aws_accounts.create_aws_account — colour claimed at creation.
+    color = await account_colors.assign_for_bu(db, bu.bu_id, body.color)
     sub = AzureSubscription(
         id=str(uuid.uuid4()),
         business_unit_id=bu.bu_id,
@@ -103,6 +108,7 @@ async def create_azure_subscription(
         default_location=body.default_location,
         state_storage_account=body.state_storage_account,
         state_container=body.state_container,
+        color=color,
         client_secret_encrypted=svc.encrypt_secret(body.client_secret),
     )
     db.add(sub)

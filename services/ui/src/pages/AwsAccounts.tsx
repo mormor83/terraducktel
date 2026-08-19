@@ -15,6 +15,8 @@ import {
   Skeleton,
   Spinner,
 } from "../components/ui";
+import { AccountColorPicker } from "../components/AccountTag";
+import { ACCOUNT_COLOR_CLASSES, asAccountColor } from "../components/accountColors";
 
 type AwsAccount = {
   id: string;
@@ -25,6 +27,9 @@ type AwsAccount = {
   state_bucket_region: string;
   default_region: string;
   aws_profile_name?: string | null;
+  // Stored choice (null = auto) vs. what to paint. See accountColors.ts.
+  color?: string | null;
+  color_effective?: string;
   access_key_id_masked: string;
 };
 
@@ -36,6 +41,7 @@ type FormState = {
   state_bucket_region: string;
   default_region: string;
   aws_profile_name: string;
+  color: string;
   access_key_id: string;
   secret_access_key: string;
 };
@@ -48,6 +54,9 @@ const EMPTY: FormState = {
   state_bucket_region: "us-east-1",
   default_region: "us-east-1",
   aws_profile_name: "",
+  // Left blank on create so the API claims the first colour unused in this BU;
+  // touching the picker replaces it with an explicit choice.
+  color: "",
   access_key_id: "",
   secret_access_key: "",
 };
@@ -113,6 +122,17 @@ function AccountForm({
                 onChange={(e) => update("description", e.target.value)}
                 placeholder="Production AWS account"
               />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Color</Label>
+              <AccountColorPicker value={f.color} onChange={(c) => update("color", c)} />
+              <p className="mt-1 text-xs text-slate-500">
+                Tags this account across the Runs page and Slack alerts so a run
+                is attributable at a glance.{" "}
+                {editing
+                  ? "Colors are unique per business unit unless you reuse one deliberately."
+                  : "Leave untouched to get the first color not already used in this business unit."}
+              </p>
             </div>
             <div>
               <Label>State S3 bucket</Label>
@@ -241,6 +261,8 @@ export default function AwsAccounts() {
         state_bucket_region: f.state_bucket_region,
         default_region: f.default_region,
         aws_profile_name: f.aws_profile_name || null,
+        // undefined (not null) so the API auto-assigns rather than storing NULL.
+        color: f.color || undefined,
         access_key_id: f.access_key_id,
         secret_access_key: f.secret_access_key,
       });
@@ -266,6 +288,7 @@ export default function AwsAccounts() {
         default_region: f.default_region,
         aws_profile_name: f.aws_profile_name || null,
       };
+      if (f.color) body.color = f.color;
       if (f.access_key_id) body.access_key_id = f.access_key_id;
       if (f.secret_access_key) body.secret_access_key = f.secret_access_key;
       await api.put(`/v1/aws-accounts/${showForm.row.id}`, body);
@@ -353,6 +376,9 @@ export default function AwsAccounts() {
                   state_bucket_region: showForm.row.state_bucket_region,
                   default_region: showForm.row.default_region,
                   aws_profile_name: showForm.row.aws_profile_name ?? "",
+                  // Prefill with the painted colour, not the stored one, so the
+                  // picker shows what the user actually sees on the Runs page.
+                  color: showForm.row.color_effective ?? showForm.row.color ?? "",
                   access_key_id: "",
                   secret_access_key: "",
                 }
@@ -393,7 +419,16 @@ export default function AwsAccounts() {
           {accounts.map((acc) => {
             const tr = testResult[acc.id];
             return (
-              <Card key={acc.id}>
+              <Card key={acc.id} className="relative overflow-hidden">
+                {/* Same rail as a Runs row — Settings previews the cue rather
+                    than just configuring it. */}
+                <span
+                  aria-hidden
+                  className={
+                    "absolute inset-y-0 left-0 w-[3px] " +
+                    ACCOUNT_COLOR_CLASSES[asAccountColor(acc.color_effective ?? acc.color)].solid
+                  }
+                />
                 <CardHeader>
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-orange-100 text-sm font-semibold text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">

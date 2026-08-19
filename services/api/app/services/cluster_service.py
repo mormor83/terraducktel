@@ -152,6 +152,7 @@ async def create_cluster(
     server_url: str | None = None,
     default_namespace: str | None = None,
     aws_account_id: str | None = None,
+    color: str | None = None,
 ) -> K8sCluster:
     """Create and persist a new cluster, encrypting the kubeconfig at rest."""
     validate_kubeconfig(kubeconfig)
@@ -162,6 +163,7 @@ async def create_cluster(
         server_url=server_url,
         default_namespace=default_namespace,
         aws_account_id=(aws_account_id or None),
+        color=color,
         kubeconfig_encrypted=encrypt_secret(kubeconfig),
     )
     session.add(cluster)
@@ -181,6 +183,8 @@ async def update_cluster(
     kubeconfig: str | None = None,
     aws_account_id: str | None = None,
     aws_account_id_set: bool = False,
+    color: str | None = None,
+    color_set: bool = False,
 ) -> K8sCluster:
     """Apply partial updates. Re-encrypts the kubeconfig only when supplied.
 
@@ -197,6 +201,10 @@ async def update_cluster(
         cluster.default_namespace = default_namespace
     if aws_account_id_set:
         cluster.aws_account_id = (aws_account_id or None)
+    # Same set/clear distinction as aws_account_id: None means "back to the
+    # auto-derived colour", which is a real value the caller can send.
+    if color_set:
+        cluster.color = (color or None)
     if kubeconfig is not None:
         validate_kubeconfig(kubeconfig)
         cluster.kubeconfig_encrypted = encrypt_secret(kubeconfig)

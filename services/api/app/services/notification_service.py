@@ -3,6 +3,7 @@ import email.message
 import logging
 import os
 import smtplib
+from typing import NamedTuple
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,8 +29,14 @@ async def send_plan_approval_notification(
     plan_summary: str,
     *,
     api_base_url: str | None = None,
+    workspace_id: str | None = None,
 ) -> None:
-    """POST Slack Block Kit message with plan excerpt and approve/reject links."""
+    """POST Slack Block Kit message with plan excerpt and approve/reject links.
+
+    `workspace_id` is optional only for back-compat with callers that predate
+    account colours; pass it whenever you have it so the message carries the
+    same account stripe / emoji as the bot-token path.
+    """
     url = await get_slack_webhook_url(session)
     # Prefer PUBLIC_UI_URL for the user-facing links; PUBLIC_API_URL is the
     # back-compat fallback for deployments where UI + API share a host.
@@ -40,37 +47,47 @@ async def send_plan_approval_notification(
         or "http://localhost:8000"
     ).rstrip("/")
     excerpt = (plan_summary or "")[:2000]
+    badge = await _account_badge(session, workspace_id) if workspace_id else _NO_ACCOUNT
 
     if url:
-        payload = {
-            "blocks": [
-                {
-                    "type": "header",
-                    "text": {"type": "plain_text", "text": f"Terraform plan ready: {workspace_name}"},
-                },
-                {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"```{excerpt}\n```"},
-                },
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Approve"},
-                            "style": "primary",
-                            "url": f"{base}/runs/{run_id}/approve",
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Reject"},
-                            "style": "danger",
-                            "url": f"{base}/runs/{run_id}/reject",
-                        },
-                    ],
-                },
-            ]
-        }
+        blocks: list[dict] = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"Terraform plan ready: {workspace_name}"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"```{excerpt}\n```"},
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Approve"},
+                        "style": "primary",
+                        "url": f"{base}/runs/{run_id}/approve",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Reject"},
+                        "style": "danger",
+                        "url": f"{base}/runs/{run_id}/reject",
+                    },
+                ],
+            },
+        ]
+        if badge.label:
+            # Insert directly under the header, before the plan dump — an
+            # account line buried below 2000 chars of plan is useless.
+            blocks.insert(1, _fields_block([("Account", badge.label)]))
+        # Incoming webhooks previously sent `blocks` with no top-level `text`,
+        # which leaves mobile pushes blank. Always send one now.
+        payload = _stripe_payload(
+            text=f"{badge.emoji} Terraform plan ready: {workspace_name}".lstrip(),
+            blocks=blocks,
+            color=badge.hex,
+        )
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(url, json=payload, timeout=30.0)
@@ -84,8 +101,9 @@ async def send_plan_approval_notification(
         session,
         subject=f"Terraform plan ready: {workspace_name}",
         body=(
-            f"Run {run_id} is awaiting approval for workspace '{workspace_name}'.\n\n"
-            f"Plan excerpt:\n{excerpt}\n\n"
+            f"Run {run_id} is awaiting approval for workspace '{workspace_name}'.\n"
+            + (f"Account: {badge.label.replace('`', '')}\n" if badge.label else "")
+            + f"\nPlan excerpt:\n{excerpt}\n\n"
             f"Approve: {base}/runs/{run_id}/approve\n"
             f"Reject:  {base}/runs/{run_id}/reject"
         ),
@@ -117,6 +135,8 @@ async def send_drift_alert(
     session: AsyncSession,
     workspace_name: str,
     summary: str,
+    *,
+    workspace_id: str | None = None,
 ) -> None:
     """Slack + email alert when drift is detected.
 
@@ -125,9 +145,13 @@ async def send_drift_alert(
     drift run as failed and skip subsequent workspaces).
     """
     url = await get_slack_webhook_url(session)
+    badge = await _account_badge(session, workspace_id) if workspace_id else _NO_ACCOUNT
     if url:
-        text = f"*Drift detected* — `{workspace_name}`\n{summary}"
-        payload = {"text": text, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]}
+        text = f"{badge.emoji} *Drift detected* — `{workspace_name}`\n{summary}".lstrip()
+        blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+        if badge.label:
+            blocks.append(_fields_block([("Account", badge.label)]))
+        payload = _stripe_payload(text=text, blocks=blocks, color=badge.hex)
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(url, json=payload, timeout=30.0)
@@ -137,7 +161,11 @@ async def send_drift_alert(
     await send_email_notification(
         session,
         subject=f"Drift detected: {workspace_name}",
-        body=f"Drift was detected in workspace '{workspace_name}'.\n\nSummary:\n{summary}",
+        body=(
+            f"Drift was detected in workspace '{workspace_name}'.\n"
+            + (f"Account: {badge.label.replace('`', '')}\n" if badge.label else "")
+            + f"\nSummary:\n{summary}"
+        ),
     )
 
 
@@ -179,18 +207,109 @@ async def _resolve_bu_slug_for_workspace(
     return bu.slug if bu else None
 
 
+class _AccountBadge(NamedTuple):
+    """How a workspace's cloud account is presented in Slack."""
+
+    label: str  # e.g. "Prod-Account (444444444444)"
+    hex: str | None  # attachment stripe
+    emoji: str  # prefixed onto the fallback text
+
+
+# Badge for "no account to attribute" — an unresolvable workspace, or a legacy
+# caller that didn't pass a workspace_id. No stripe, no emoji, no Account field.
+_NO_ACCOUNT = _AccountBadge(label="", hex=None, emoji="")
+
+
+def _stripe_payload(*, text: str, blocks: list[dict], color: str | None) -> dict:
+    """Incoming-webhook payload, striped with the account colour when known.
+
+    Same shape decision as `slack.post_message`: a colour means the blocks move
+    inside one attachment (the only way Slack draws the left bar), and `text`
+    stays top-level either way so notification previews keep working.
+    """
+    if color:
+        return {"text": text, "attachments": [{"color": color, "blocks": blocks}]}
+    return {"text": text, "blocks": blocks}
+
+
+async def _account_badge(session: AsyncSession, workspace_id: str) -> _AccountBadge:
+    """Resolve the cloud account behind a workspace into a Slack badge.
+
+    Mirrors the Runs page rail: helm workspaces are attributed to their K8s
+    cluster, terraform workspaces to whichever cloud account their state
+    backend resolves through. A deleted or unregistered account degrades to a
+    bare id with no stripe rather than failing the notification.
+    """
+    from app.models.aws_account import AwsAccount
+    from app.models.azure_subscription import AzureSubscription
+    from app.models.gcp_project import GcpProject
+    from app.models.k8s_cluster import K8sCluster
+    from app.models.workspace import Workspace
+    from app.services import account_colors
+    from sqlalchemy import select
+
+    ws = await session.get(Workspace, workspace_id)
+    if ws is None:
+        return _AccountBadge(label="", hex=None, emoji="")
+
+    row = None
+    fallback = ""
+    if ws.kind == "helm" and ws.cluster_id:
+        row = await session.get(K8sCluster, ws.cluster_id)
+        fallback = ws.cluster_id
+    elif ws.azure_subscription_id:
+        row = await session.get(AzureSubscription, ws.azure_subscription_id)
+        fallback = ws.azure_subscription_id
+    elif ws.gcp_project_id:
+        row = await session.get(GcpProject, ws.gcp_project_id)
+        fallback = ws.gcp_project_id
+    elif ws.aws_account_id:
+        fallback = ws.aws_account_id
+        row = (
+            await session.execute(
+                select(AwsAccount).where(
+                    AwsAccount.account_id == ws.aws_account_id,
+                    AwsAccount.business_unit_id == ws.business_unit_id,
+                )
+            )
+        ).scalars().first()
+
+    if row is None:
+        # "global" is the sentinel for provider-less workspaces — showing it as
+        # an account would be misleading, so show nothing.
+        return _AccountBadge(
+            label="" if fallback in ("", "global") else f"`{fallback}`",
+            hex=None,
+            emoji="",
+        )
+
+    key = getattr(row, "account_id", None) or row.id
+    token = account_colors.effective(row.color, key)
+    natural = getattr(row, "account_id", None)
+    label = f"{row.name} (`{natural}`)" if natural else row.name
+    return _AccountBadge(
+        label=label,
+        hex=account_colors.COLOR_HEX[token],
+        emoji=account_colors.COLOR_EMOJI[token],
+    )
+
+
 async def send_slack_bot_notification(
     session: AsyncSession,
     *,
     bu_slug: str,
     text: str,
     blocks: list | None = None,
+    color: str | None = None,
 ) -> None:
     """Post to the BU's configured Slack channel via bot token.
 
     Silently no-ops when the BU has no Slack config. All errors are
     swallowed and logged — notification must never break the calling
     flow (run PATCH, drift detector, etc.).
+
+    `color` is the cloud account's hex (see `_account_badge`) and becomes the
+    message's left stripe.
     """
     from app.services import slack as slack_svc
 
@@ -198,7 +317,7 @@ async def send_slack_bot_notification(
     if not token or not channel:
         return
     try:
-        await slack_svc.post_message(token, channel, text, blocks=blocks)
+        await slack_svc.post_message(token, channel, text, blocks=blocks, color=color)
     except slack_svc.SlackError as e:
         logger.warning(
             "Slack post failed for BU %s (channel=%s): %s",
@@ -306,7 +425,8 @@ async def send_slack_run_auto_approved(
         return
     link = _run_link(run_id)
     leaf = _leaf_path(working_dir, region)
-    text = f"✅ Auto-approved — {workspace_name} (no changes; <{link}|view run>)"
+    badge = await _account_badge(session, workspace_id)
+    text = f"{badge.emoji} ✅ Auto-approved — {workspace_name} (no changes; <{link}|view run>)".lstrip()
     blocks: list[dict] = [
         {
             "type": "section",
@@ -320,6 +440,7 @@ async def send_slack_run_auto_approved(
         },
         _fields_block(
             [
+                ("Account", badge.label),
                 ("Workspace", workspace_name or ""),
                 ("Path", f"`{leaf}`" if leaf else ""),
                 ("Region", region or ""),
@@ -330,7 +451,9 @@ async def send_slack_run_auto_approved(
         ),
         _link_button_block("View run", link),
     ]
-    await send_slack_bot_notification(session, bu_slug=bu_slug, text=text, blocks=blocks)
+    await send_slack_bot_notification(
+        session, bu_slug=bu_slug, text=text, blocks=blocks, color=badge.hex
+    )
 
 
 async def send_slack_run_awaiting_approval(
@@ -355,8 +478,9 @@ async def send_slack_run_awaiting_approval(
     link = _run_link(run_id)
     leaf = _leaf_path(working_dir, region)
     plan = _plan_summary_str(add, change, destroy)
+    badge = await _account_badge(session, workspace_id)
     text = (
-        f"⏸ Awaiting approval — {workspace_name}"
+        f"{badge.emoji} ⏸ Awaiting approval — {workspace_name}".lstrip()
         + (f" · {plan}" if plan else "")
         + f" (<{link}|review>)"
     )
@@ -370,6 +494,7 @@ async def send_slack_run_awaiting_approval(
         },
         _fields_block(
             [
+                ("Account", badge.label),
                 ("Workspace", workspace_name or ""),
                 ("Path", f"`{leaf}`" if leaf else ""),
                 ("Region", region or ""),
@@ -381,7 +506,9 @@ async def send_slack_run_awaiting_approval(
         ),
         _link_button_block("Review run", link),
     ]
-    await send_slack_bot_notification(session, bu_slug=bu_slug, text=text, blocks=blocks)
+    await send_slack_bot_notification(
+        session, bu_slug=bu_slug, text=text, blocks=blocks, color=badge.hex
+    )
 
 
 async def send_slack_run_failed(
@@ -404,8 +531,9 @@ async def send_slack_run_failed(
         return
     link = _run_link(run_id)
     leaf = _leaf_path(working_dir, region)
+    badge = await _account_badge(session, workspace_id)
     text = (
-        f"❌ Run failed — {workspace_name} ({command})"
+        f"{badge.emoji} ❌ Run failed — {workspace_name} ({command})".lstrip()
         + (f" at {failed_stage}" if failed_stage else "")
         + f" (<{link}|view>)"
     )
@@ -419,6 +547,7 @@ async def send_slack_run_failed(
         },
         _fields_block(
             [
+                ("Account", badge.label),
                 ("Workspace", workspace_name or ""),
                 ("Path", f"`{leaf}`" if leaf else ""),
                 ("Region", region or ""),
@@ -434,7 +563,9 @@ async def send_slack_run_failed(
             {"type": "section", "text": {"type": "mrkdwn", "text": f"```{excerpt}```"}}
         )
     blocks.append(_link_button_block("View run", link))
-    await send_slack_bot_notification(session, bu_slug=bu_slug, text=text, blocks=blocks)
+    await send_slack_bot_notification(
+        session, bu_slug=bu_slug, text=text, blocks=blocks, color=badge.hex
+    )
 
 
 async def send_slack_drift_detected(
@@ -453,7 +584,8 @@ async def send_slack_drift_detected(
     excerpt = (summary or "")[:800].strip()
     leaf = _leaf_path(working_dir, region)
     link = _workspace_link(workspace_id)
-    text = f"⚠ Drift detected — {workspace_name} (<{link}|view>)"
+    badge = await _account_badge(session, workspace_id)
+    text = f"{badge.emoji} ⚠ Drift detected — {workspace_name} (<{link}|view>)".lstrip()
     blocks: list[dict] = [
         {
             "type": "section",
@@ -464,6 +596,7 @@ async def send_slack_drift_detected(
         },
         _fields_block(
             [
+                ("Account", badge.label),
                 ("Workspace", workspace_name or ""),
                 ("Path", f"`{leaf}`" if leaf else ""),
                 ("Region", region or ""),
@@ -475,7 +608,9 @@ async def send_slack_drift_detected(
             {"type": "section", "text": {"type": "mrkdwn", "text": f"```{excerpt}```"}}
         )
     blocks.append(_link_button_block("View workspace", link))
-    await send_slack_bot_notification(session, bu_slug=bu_slug, text=text, blocks=blocks)
+    await send_slack_bot_notification(
+        session, bu_slug=bu_slug, text=text, blocks=blocks, color=badge.hex
+    )
 
 
 async def send_email_notification(
