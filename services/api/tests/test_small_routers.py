@@ -240,8 +240,9 @@ async def test_drift_scan_and_report(auth_client, admin_token, _setup_db, monkey
     # drifted report → triggers the alert hook (mocked)
     sent = {}
 
-    async def fake_alert(db, name, summary):
+    async def fake_alert(db, name, summary, *, workspace_id=None):
         sent["name"] = name
+        sent["workspace_id"] = workspace_id
 
     monkeypatch.setattr("app.routers.drift.send_drift_alert", fake_alert)
     drifted = await auth_client.post(
@@ -250,6 +251,9 @@ async def test_drift_scan_and_report(auth_client, admin_token, _setup_db, monkey
         headers=_h(admin_token),
     )
     assert drifted.json()["has_drift"] is True and sent["name"] == "drift-ws"
+    # The router must forward the workspace so the alert can resolve the
+    # account's colour/stripe.
+    assert sent["workspace_id"] == ws_id
 
 
 # ─── audit ───────────────────────────────────────────────────────────────────

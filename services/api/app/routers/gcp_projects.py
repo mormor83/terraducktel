@@ -21,6 +21,7 @@ from app.schemas.gcp_project import (
     GcpProjectTestResult,
     GcpProjectUpdate,
 )
+from app.services import account_colors
 from app.services import gcp_project_service as svc
 from app.services.gcs_state_service import GcsStateService
 
@@ -40,6 +41,8 @@ def _to_response(proj: GcpProject) -> GcpProjectResponse:
         default_region=proj.default_region,
         state_bucket=proj.state_bucket,
         state_prefix=proj.state_prefix,
+        color=proj.color,
+        color_effective=account_colors.effective(proj.color, proj.project_id),
         service_account_masked=svc.mask_sa(proj.client_email),
     )
 
@@ -98,6 +101,8 @@ async def create_gcp_project(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"GCP project {body.project_id} is already configured in this business unit",
         )
+    # See aws_accounts.create_aws_account — colour claimed at creation.
+    color = await account_colors.assign_for_bu(db, bu.bu_id, body.color)
     proj = GcpProject(
         id=str(uuid.uuid4()),
         business_unit_id=bu.bu_id,
@@ -108,6 +113,7 @@ async def create_gcp_project(
         default_region=body.default_region,
         state_bucket=body.state_bucket,
         state_prefix=body.state_prefix,
+        color=color,
         service_account_json_encrypted=svc.encrypt_secret(body.service_account_json),
     )
     db.add(proj)

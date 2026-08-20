@@ -143,12 +143,30 @@ async def list_channels(token: str, limit: int = 1000) -> list[SlackChannel]:
     return out
 
 
-async def post_message(token: str, channel: str, text: str, blocks: list | None = None) -> None:
+async def post_message(
+    token: str,
+    channel: str,
+    text: str,
+    blocks: list | None = None,
+    color: str | None = None,
+) -> None:
     """Post a message to a channel. Raises SlackError on failure.
 
     Callers used in notification hooks should wrap this in try/except and
-    log — a transient Slack outage must not break the run loop."""
+    log — a transient Slack outage must not break the run loop.
+
+    `color` is a hex like "#2563eb" (see app.services.account_colors). When set,
+    the blocks move inside a single attachment so Slack draws its vertical
+    coloured bar down the left of the message — the same at-a-glance account cue
+    the Runs page paints as a row rail. Attachments are the only way to get that
+    stripe; Block Kit has no equivalent. The top-level `text` stays put either
+    way so mobile pushes and notification previews remain informative.
+    """
     payload: dict = {"channel": channel, "text": text}
-    if blocks:
+    if color and blocks:
+        payload["attachments"] = [{"color": color, "blocks": blocks}]
+    elif color:
+        payload["attachments"] = [{"color": color, "text": text}]
+    elif blocks:
         payload["blocks"] = blocks
     await _post(token, "chat.postMessage", payload)

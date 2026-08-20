@@ -4,6 +4,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.services import account_colors
+
 # GCP project ids: 6-30 chars, start with a lowercase letter, then lowercase
 # letters / digits / hyphens, no trailing hyphen.
 _PROJECT_ID_PATTERN = r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
@@ -36,6 +38,13 @@ class GcpProjectCreate(BaseModel):
     # The full service-account key JSON (pasted from the downloaded key file).
     # Validated structurally here; encrypted at rest by the service layer.
     service_account_json: str = Field(..., min_length=50)
+    # Cosmetic UI/Slack colour token; None/"" = auto-derive. See account_colors.
+    color: Optional[str] = None
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v: Optional[str]) -> Optional[str]:
+        return account_colors.normalize(v)
 
     @field_validator("service_account_json")
     @classmethod
@@ -49,8 +58,15 @@ class GcpProjectUpdate(BaseModel):
     default_region: Optional[str] = None
     state_bucket: Optional[str] = None
     state_prefix: Optional[str] = None
+    # Send "" (or null) to clear back to the auto-derived colour.
+    color: Optional[str] = None
     # If provided, re-encrypted on the server.
     service_account_json: Optional[str] = None
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v: Optional[str]) -> Optional[str]:
+        return account_colors.normalize(v)
 
     @field_validator("service_account_json")
     @classmethod
@@ -73,6 +89,12 @@ class GcpProjectResponse(BaseModel):
     default_region: str
     state_bucket: Optional[str] = None
     state_prefix: Optional[str] = None
+    # `color` is what's stored (None = auto, so Settings can show "Auto"
+    # selected); `color_effective` is what the UI actually paints and is
+    # always populated. Two fields so the derived-default hash lives in
+    # exactly one place — the server.
+    color: Optional[str] = None
+    color_effective: str = "gray"
     service_account_masked: str
 
     model_config = {"from_attributes": False}

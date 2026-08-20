@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.services import account_colors
+
 # Azure tenant/subscription/client/object ids are UUIDs. Accept the canonical
 # 8-4-4-4-12 hex form, case-insensitive.
 _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -23,6 +25,13 @@ class AzureSubscriptionCreate(BaseModel):
     state_container: Optional[str] = Field(
         default=None, pattern=r"^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
     )
+    # Cosmetic UI/Slack colour token; None/"" = auto-derive. See account_colors.
+    color: Optional[str] = None
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v: Optional[str]) -> Optional[str]:
+        return account_colors.normalize(v)
 
     @field_validator("subscription_id", "tenant_id", "client_id")
     @classmethod
@@ -36,8 +45,15 @@ class AzureSubscriptionUpdate(BaseModel):
     default_location: Optional[str] = None
     state_storage_account: Optional[str] = None
     state_container: Optional[str] = None
+    # Send "" (or null) to clear back to the auto-derived colour.
+    color: Optional[str] = None
     # If client_secret is provided we re-encrypt it on the server.
     client_secret: Optional[str] = None
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v: Optional[str]) -> Optional[str]:
+        return account_colors.normalize(v)
 
 
 class AzureSubscriptionResponse(BaseModel):
@@ -56,6 +72,12 @@ class AzureSubscriptionResponse(BaseModel):
     default_location: str
     state_storage_account: Optional[str] = None
     state_container: Optional[str] = None
+    # `color` is what's stored (None = auto, so Settings can show "Auto"
+    # selected); `color_effective` is what the UI actually paints and is
+    # always populated. Two fields so the derived-default hash lives in
+    # exactly one place — the server.
+    color: Optional[str] = None
+    color_effective: str = "gray"
     client_secret_masked: str
 
     model_config = {"from_attributes": False}

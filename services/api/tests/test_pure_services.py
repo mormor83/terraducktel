@@ -224,6 +224,20 @@ async def test_post_message_with_and_without_blocks(monkeypatch):
     assert "blocks" not in seen[0]
     assert seen[1]["blocks"] == [{"type": "section"}]
 
+    # With a colour the blocks move inside a single attachment — that's what
+    # draws Slack's left stripe. `text` stays top-level either way so mobile
+    # pushes (which render neither) keep working.
+    await slack.post_message("t", "C1", "hi", blocks=[{"type": "section"}], color="#2563eb")
+    assert "blocks" not in seen[2]
+    assert seen[2]["attachments"] == [
+        {"color": "#2563eb", "blocks": [{"type": "section"}]}
+    ]
+    assert seen[2]["text"] == "hi"
+
+    # Colour with no blocks still gets a stripe.
+    await slack.post_message("t", "C1", "hi", color="#dc2626")
+    assert seen[3]["attachments"] == [{"color": "#dc2626", "text": "hi"}]
+
 
 def test_slackerror_message_defaults_to_code():
     assert str(slack.SlackError("rate_limited")) == "rate_limited"

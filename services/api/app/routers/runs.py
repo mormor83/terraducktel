@@ -417,6 +417,9 @@ async def patch_run(
                         run.id,
                         notification_payload["workspace_name"],
                         notification_payload["plan_output"],
+                        # Lets the message carry the account's stripe + emoji,
+                        # matching the bot-token path.
+                        workspace_id=run.workspace_id,
                     )
                 except (httpx.RequestError, smtplib.SMTPException, OSError):
                     logger.warning(

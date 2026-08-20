@@ -15,6 +15,8 @@ import {
   Skeleton,
   Spinner,
 } from "../components/ui";
+import { AccountColorPicker } from "../components/AccountTag";
+import { ACCOUNT_COLOR_CLASSES, asAccountColor } from "../components/accountColors";
 
 type Cluster = {
   id: string;
@@ -24,6 +26,9 @@ type Cluster = {
   server_url?: string | null;
   default_namespace?: string | null;
   aws_account_id?: string | null;
+  // Stored choice (null = auto) vs. what to paint. See accountColors.ts.
+  color?: string | null;
+  color_effective?: string;
   kubeconfig_tail: string;
   created_at?: string | null;
 };
@@ -34,6 +39,7 @@ type FormState = {
   server_url: string;
   default_namespace: string;
   aws_account_id: string;
+  color: string;
   kubeconfig: string;
 };
 
@@ -43,6 +49,7 @@ const EMPTY: FormState = {
   server_url: "",
   default_namespace: "default",
   aws_account_id: "",
+  color: "",
   kubeconfig: "",
 };
 
@@ -104,6 +111,15 @@ function ClusterForm({
                 onChange={(e) => update("description", e.target.value)}
                 placeholder="Production EKS cluster (eu-west-1)"
               />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Color</Label>
+              <AccountColorPicker value={f.color} onChange={(c) => update("color", c)} />
+              <p className="mt-1 text-xs text-slate-500">
+                Tags helm runs against this cluster across the Runs page and
+                Slack alerts. Leave untouched on create to get the first color
+                unused in this business unit.
+              </p>
             </div>
             <div className="sm:col-span-2">
               <Label>Server URL (optional)</Label>
@@ -221,6 +237,8 @@ export default function Clusters() {
         name: f.name,
         description: f.description || undefined,
         server_url: f.server_url || undefined,
+        // undefined (not null) so the API auto-assigns rather than storing NULL.
+        color: f.color || undefined,
         default_namespace: f.default_namespace || undefined,
         aws_account_id: f.aws_account_id.trim() || undefined,
         kubeconfig: f.kubeconfig,
@@ -246,6 +264,7 @@ export default function Clusters() {
         default_namespace: f.default_namespace || null,
         aws_account_id: f.aws_account_id.trim() || null,
       };
+      if (f.color) body.color = f.color;
       // Only send kubeconfig when the operator entered a new one; blank keeps
       // the existing encrypted value untouched.
       if (f.kubeconfig) body.kubeconfig = f.kubeconfig;
@@ -307,6 +326,8 @@ export default function Clusters() {
                   server_url: showForm.row.server_url ?? "",
                   default_namespace: showForm.row.default_namespace ?? "",
                   aws_account_id: showForm.row.aws_account_id ?? "",
+                  // Prefill with the painted colour so the picker matches Runs.
+                  color: showForm.row.color_effective ?? showForm.row.color ?? "",
                   kubeconfig: "",
                 }
               : EMPTY
@@ -346,7 +367,15 @@ export default function Clusters() {
           {clusters.map((c) => {
             const tr = testResult[c.id];
             return (
-              <Card key={c.id}>
+              <Card key={c.id} className="relative overflow-hidden">
+                {/* Same rail as a Runs row — see AwsAccounts. */}
+                <span
+                  aria-hidden
+                  className={
+                    "absolute inset-y-0 left-0 w-[3px] " +
+                    ACCOUNT_COLOR_CLASSES[asAccountColor(c.color_effective ?? c.color)].solid
+                  }
+                />
                 <CardHeader>
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-100 text-sm font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">

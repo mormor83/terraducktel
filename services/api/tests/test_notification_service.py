@@ -135,6 +135,97 @@ async def test_drift_alert_slack_and_email(db_session, fake_http):
     await ns.send_drift_alert(db_session, "ws", "x")
 
 
+# ─── account colour on the legacy webhook path ───────────────────────────────
+
+
+async def _ws_with_account(db_session, color="purple"):
+    """A workspace whose AWS account is registered, so a badge resolves."""
+    from app.models.aws_account import AwsAccount
+    from app.services import aws_account_service as accs
+
+    ws = await _make_ws(db_session, name="coloured-ws")
+    db_session.add(
+        AwsAccount(
+            business_unit_id=DEFAULT_BU_ID,
+            account_id=ws.aws_account_id,
+            name="Prod-Account",
+            state_bucket="b",
+            state_bucket_region="us-east-1",
+            default_region="us-east-1",
+            color=color,
+            access_key_id_encrypted=accs.encrypt_secret("AKIAX"),
+            secret_access_key_encrypted=accs.encrypt_secret("s"),
+        )
+    )
+    await db_session.commit()
+    return ws
+
+
+async def test_plan_approval_carries_account_stripe(db_session, fake_http):
+    ws = await _ws_with_account(db_session)
+    await _set(db_session, "slack.webhook_url", "https://hooks/ok")
+    await ns.send_plan_approval_notification(
+        db_session, "run1", "ws", "PLAN", workspace_id=ws.id
+    )
+    _, body = fake_http.last_posts[-1]
+    # Blocks move inside one attachment — that's what draws Slack's left bar.
+    assert body["attachments"][0]["color"] == "#7c3aed"
+    assert "blocks" not in body
+    # Top-level text (with the emoji) so mobile pushes aren't blank.
+    assert body["text"].startswith("\U0001f7e3 ")
+    # Account sits directly under the header, above the plan dump.
+    blocks = body["attachments"][0]["blocks"]
+    assert blocks[0]["type"] == "header"
+    assert "Prod-Account" in blocks[1]["fields"][0]["text"]
+
+
+async def test_drift_alert_carries_account_stripe(db_session, fake_http):
+    ws = await _ws_with_account(db_session, color="green")
+    await _set(db_session, "slack.webhook_url", "https://hooks/ok")
+    await ns.send_drift_alert(db_session, "ws", "changed", workspace_id=ws.id)
+    _, body = fake_http.last_posts[-1]
+    assert body["attachments"][0]["color"] == "#059669"
+    assert body["text"].startswith("\U0001f7e2 ")
+
+
+async def test_legacy_senders_without_workspace_id_are_unstriped(db_session, fake_http):
+    """Back-compat: a caller that passes no workspace_id still posts, plainly."""
+    await _set(db_session, "slack.webhook_url", "https://hooks/ok")
+    await ns.send_drift_alert(db_session, "ws", "changed")
+    _, body = fake_http.last_posts[-1]
+    assert "attachments" not in body
+    assert body["blocks"]
+    assert not body["text"].startswith(" ")
+
+
+async def test_unregistered_account_gets_no_stripe(db_session, fake_http):
+    """A workspace whose account isn't in aws_accounts must not invent a colour."""
+    ws = await _make_ws(db_session, name="orphan-ws")
+    await _set(db_session, "slack.webhook_url", "https://hooks/ok")
+    await ns.send_drift_alert(db_session, "ws", "changed", workspace_id=ws.id)
+    _, body = fake_http.last_posts[-1]
+    assert "attachments" not in body
+
+
+async def test_email_names_the_account(db_session, monkeypatch):
+    """Slack and email must not disagree about which account is affected."""
+    ws = await _ws_with_account(db_session)
+    bodies = []
+    monkeypatch.setattr(
+        ns,
+        "send_email_notification",
+        lambda session, *, subject, body: bodies.append(body) or _noop(),
+    )
+    await ns.send_drift_alert(db_session, "ws", "changed", workspace_id=ws.id)
+    # Plaintext, so the Slack mrkdwn backticks are stripped.
+    assert "Account: Prod-Account (123456789012)" in bodies[0]
+    assert "`" not in bodies[0]
+
+
+async def _noop():
+    return None
+
+
 async def test_email_paths(db_session, monkeypatch):
     sent = {}
 
@@ -271,7 +362,7 @@ async def test_send_slack_bot_notification_paths(db_session, monkeypatch):
 
     calls = []
 
-    async def ok(token, channel, text, blocks=None):
+    async def ok(token, channel, text, blocks=None, color=None):
         calls.append((token, channel))
 
     monkeypatch.setattr(slack_svc, "post_message", ok)
@@ -299,7 +390,7 @@ async def test_run_event_builders_resolve_and_skip(db_session, monkeypatch):
     ws = await _make_ws(db_session)
     posted = []
 
-    async def rec(session, *, bu_slug, text, blocks=None):
+    async def rec(session, *, bu_slug, text, blocks=None, color=None):
         posted.append(text)
 
     monkeypatch.setattr(ns, "send_slack_bot_notification", rec)

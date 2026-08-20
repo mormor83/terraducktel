@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.services import account_colors
+
 
 class AwsAccountCreate(BaseModel):
     account_id: str = Field(..., pattern=r"^\d{12}$")
@@ -12,8 +14,15 @@ class AwsAccountCreate(BaseModel):
     state_bucket_region: str = "us-east-1"
     default_region: str = "us-east-1"
     aws_profile_name: Optional[str] = None
+    # Cosmetic UI/Slack colour token; None/"" = auto-derive. See account_colors.
+    color: Optional[str] = None
     access_key_id: str = Field(..., min_length=4)
     secret_access_key: str = Field(..., min_length=4)
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v: Optional[str]) -> Optional[str]:
+        return account_colors.normalize(v)
 
     @field_validator("state_bucket")
     @classmethod
@@ -32,9 +41,16 @@ class AwsAccountUpdate(BaseModel):
     state_bucket_region: Optional[str] = None
     default_region: Optional[str] = None
     aws_profile_name: Optional[str] = None
+    # Send "" (or null) to clear back to the auto-derived colour.
+    color: Optional[str] = None
     # If either credential is provided we re-encrypt on the server.
     access_key_id: Optional[str] = None
     secret_access_key: Optional[str] = None
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v: Optional[str]) -> Optional[str]:
+        return account_colors.normalize(v)
 
 
 class AwsAccountResponse(BaseModel):
@@ -52,6 +68,12 @@ class AwsAccountResponse(BaseModel):
     state_bucket_region: str
     default_region: str
     aws_profile_name: Optional[str] = None
+    # `color` is what's stored (None = auto, so Settings can show "Auto"
+    # selected); `color_effective` is what the UI actually paints and is
+    # always populated. Two fields so the derived-default hash lives in
+    # exactly one place — the server.
+    color: Optional[str] = None
+    color_effective: str = "gray"
     access_key_id_masked: str
 
     model_config = {"from_attributes": False}
