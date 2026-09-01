@@ -6,6 +6,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
 import { useCurrentUser, hasMinRole } from "../../hooks/useAuth";
 import { Badge, Button, ConfirmDialog, cx, DriftBadge } from "../ui";
+import { TagChip, TagList } from "../TagChip";
+import { useTagFilter } from "./tagFilter";
 import { RunModal } from "../RunModal";
 import { FileIcon, HelmChip } from "./icons";
 import { azureInfo, gcpInfo } from "./paths";
@@ -30,7 +32,10 @@ function MetaRow({
 }) {
   return (
     <tr className="border-t border-slate-100 first:border-t-0 dark:border-slate-800/50">
-      <td className="whitespace-nowrap py-1.5 pr-4 align-top text-slate-400" title={title}>
+      <td
+        className="whitespace-nowrap py-1.5 pr-4 align-top text-slate-400"
+        title={title}
+      >
         {label}
       </td>
       <td className="w-full py-1.5 align-top">{children}</td>
@@ -58,6 +63,7 @@ export function WorkspaceLeafRow({
   gcpProjects: GcpProjectLite[];
 }) {
   const user = useCurrentUser();
+  const { onTagClick, activeTag } = useTagFilter();
   const [busy, setBusy] = useState<null | string>(null);
   const [err, setErr] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -86,7 +92,9 @@ export function WorkspaceLeafRow({
   // GCP mirror of the Azure link: auto-derived from the gcp/project-<id>/ path
   // or the explicit gcp_project_id link. Read-only in the row.
   const isGcp = !!workspace.gcp_project_id || !!gcpInfo(workspace);
-  const linkedGcpProject = gcpProjects.find((p) => p.id === workspace.gcp_project_id);
+  const linkedGcpProject = gcpProjects.find(
+    (p) => p.id === workspace.gcp_project_id,
+  );
 
   // State backend is constrained by which cloud the workspace is linked to: s3
   // always works; azureblob/gcs need a linked Azure subscription / GCP project.
@@ -100,7 +108,11 @@ export function WorkspaceLeafRow({
   const backendPinned = validBackends.size === 1;
 
   // ─── State-lock status (lazy-fetched on expand) ────────────────────────
-  type LockStatus = { held: boolean; run_id?: string | null; acquired_at?: string | null };
+  type LockStatus = {
+    held: boolean;
+    run_id?: string | null;
+    acquired_at?: string | null;
+  };
   const [lockStatus, setLockStatus] = useState<LockStatus | null>(null);
   const [releaseLockOpen, setReleaseLockOpen] = useState(false);
 
@@ -146,7 +158,9 @@ export function WorkspaceLeafRow({
     setErr(null);
     setBusy("webhook");
     try {
-      await api.put(`/v1/workspaces/${workspace.id}`, { webhook_enabled: next });
+      await api.put(`/v1/workspaces/${workspace.id}`, {
+        webhook_enabled: next,
+      });
       onChanged();
     } catch (e: any) {
       setErr(e?.response?.data?.detail ?? e?.message ?? "Update failed");
@@ -217,7 +231,9 @@ export function WorkspaceLeafRow({
     setErr(null);
     setBusy("delete");
     try {
-      await api.delete(`/v1/workspaces/${workspace.id}?force=true&delete_state=false`);
+      await api.delete(
+        `/v1/workspaces/${workspace.id}?force=true&delete_state=false`,
+      );
       onChanged();
     } catch (e: any) {
       setErr(e?.response?.data?.detail ?? e?.message ?? "Untrack failed");
@@ -226,13 +242,20 @@ export function WorkspaceLeafRow({
     }
   }
 
-  const isGitSynced = !!workspace.repo_url && !workspace.repo_url.startsWith("local://");
+  const isGitSynced =
+    !!workspace.repo_url && !workspace.repo_url.startsWith("local://");
   const isOrphaned = workspace.path_status === "orphaned";
   // Branch+status chip: color reflects the most recent run state on this
   // workspace (not the workspace itself). Operators pick branches inside the
   // Run modal — clicking the chip is intentionally a no-op, the chip is a
   // status indicator, not an action.
-  const chip = <BranchStatusChip branch={branch} run={recentRun} webhookEnabled={webhookEnabled} />;
+  const chip = (
+    <BranchStatusChip
+      branch={branch}
+      run={recentRun}
+      webhookEnabled={webhookEnabled}
+    />
+  );
 
   const isHelm = workspace.kind === "helm";
 
@@ -245,7 +268,14 @@ export function WorkspaceLeafRow({
           <Badge tone="warning">orphaned · path missing</Badge>
         </span>
       )}
-      {workspace.drift_status !== "unknown" && <DriftBadge status={workspace.drift_status} />}
+      {workspace.drift_status !== "unknown" && (
+        <DriftBadge status={workspace.drift_status} />
+      )}
+      <TagList
+        tags={workspace.tags}
+        onTagClick={onTagClick}
+        activeTag={activeTag}
+      />
       {hasMinRole(user, "operator") && !isOrphaned && (
         <>
           <Button
@@ -317,9 +347,13 @@ export function WorkspaceLeafRow({
         depth={depth}
         icon={<FileIcon />}
         label={<span className="font-medium">{displayName}</span>}
-        meta={workspace.tf_working_dir && workspace.tf_working_dir !== "." ? (
-          <span className="font-mono text-[11px]">{workspace.tf_working_dir}</span>
-        ) : null}
+        meta={
+          workspace.tf_working_dir && workspace.tf_working_dir !== "." ? (
+            <span className="font-mono text-[11px]">
+              {workspace.tf_working_dir}
+            </span>
+          ) : null
+        }
         right={right}
         onToggle={() => setExpanded((v) => !v)}
         open={expanded}
@@ -340,10 +374,43 @@ export function WorkspaceLeafRow({
               <table className="w-full border-collapse text-xs">
                 <tbody>
                   <MetaRow label="id">
-                    <span className="font-mono text-[11px]">{workspace.id}</span>
+                    <span className="font-mono text-[11px]">
+                      {workspace.id}
+                    </span>
                   </MetaRow>
                   <MetaRow label="region">
-                    <span className="font-mono text-[11px]">{workspace.region}</span>
+                    <span className="font-mono text-[11px]">
+                      {workspace.region}
+                    </span>
+                  </MetaRow>
+                  <MetaRow
+                    label="tags"
+                    title="Key/value labels. Click one to filter the tree. Edit with `tdt ws tag`, or PUT /workspaces/{id}."
+                  >
+                    {Object.keys(workspace.tags ?? {}).length === 0 ? (
+                      <span className="text-[11px] text-slate-400">—</span>
+                    ) : (
+                      // No `max` here: the collapsed row truncates, the detail
+                      // view is where you go to see all of them.
+                      <span className="inline-flex flex-wrap items-center gap-1">
+                        {Object.entries(workspace.tags ?? {})
+                          .sort(([a], [b]) => a.localeCompare(b))
+                          .map(([k, v]) => (
+                            <TagChip
+                              key={k}
+                              tagKey={k}
+                              value={v}
+                              onClick={onTagClick}
+                              active={
+                                !!activeTag &&
+                                activeTag.key === k &&
+                                (activeTag.value === null ||
+                                  activeTag.value === v)
+                              }
+                            />
+                          ))}
+                      </span>
+                    )}
                   </MetaRow>
                   <MetaRow
                     label="state aws account"
@@ -368,7 +435,9 @@ export function WorkspaceLeafRow({
                       monoSelect
                       canEdit={hasMinRole(user, "admin")}
                       busy={busy === "rebind-state"}
-                      onSave={(v) => saveLink("state_aws_account_id", v, "rebind-state")}
+                      onSave={(v) =>
+                        saveLink("state_aws_account_id", v, "rebind-state")
+                      }
                     />
                   </MetaRow>
                   {isAzure && (
@@ -408,7 +477,13 @@ export function WorkspaceLeafRow({
                         <select
                           value={currentBackend}
                           disabled={busy === "rebind-backend" || backendPinned}
-                          onChange={(e) => saveLink("state_backend", e.target.value, "rebind-backend")}
+                          onChange={(e) =>
+                            saveLink(
+                              "state_backend",
+                              e.target.value,
+                              "rebind-backend",
+                            )
+                          }
                           title={
                             backendPinned
                               ? "Pinned to s3 — link an Azure subscription or GCP project to enable an alternative state backend."
@@ -420,20 +495,34 @@ export function WorkspaceLeafRow({
                           )}
                         >
                           {["s3", "azureblob", "gcs"].map((b) => (
-                            <option key={b} value={b} disabled={!validBackends.has(b)}>
-                              {validBackends.has(b) ? b : `${b} · needs linked provider`}
+                            <option
+                              key={b}
+                              value={b}
+                              disabled={!validBackends.has(b)}
+                            >
+                              {validBackends.has(b)
+                                ? b
+                                : `${b} · needs linked provider`}
                             </option>
                           ))}
                         </select>
-                        {backendPinned && <span className="text-[10px] text-slate-400">pinned</span>}
+                        {backendPinned && (
+                          <span className="text-[10px] text-slate-400">
+                            pinned
+                          </span>
+                        )}
                       </span>
                     ) : (
-                      <span className="font-mono text-[11px]">{currentBackend}</span>
+                      <span className="font-mono text-[11px]">
+                        {currentBackend}
+                      </span>
                     )}
                   </MetaRow>
                   {workspace.repo_url && (
                     <MetaRow label="repo">
-                      <span className="break-all font-mono text-[11px]">{workspace.repo_url}</span>
+                      <span className="break-all font-mono text-[11px]">
+                        {workspace.repo_url}
+                      </span>
                     </MetaRow>
                   )}
                   {isGitSynced && (
@@ -463,7 +552,9 @@ export function WorkspaceLeafRow({
                   )}
                   {recentRun && (
                     <MetaRow label="last run">
-                      <span className="font-mono text-[11px]">{recentRun.id.slice(0, 8)}</span>{" "}
+                      <span className="font-mono text-[11px]">
+                        {recentRun.id.slice(0, 8)}
+                      </span>{" "}
                       <span>{recentRun.command}</span>
                     </MetaRow>
                   )}
@@ -480,7 +571,11 @@ export function WorkspaceLeafRow({
                       {(lockStatus.run_id ?? "unknown").slice(0, 8)}
                     </span>
                     {lockStatus.acquired_at && (
-                      <> · since {new Date(lockStatus.acquired_at).toLocaleTimeString()}</>
+                      <>
+                        {" "}
+                        · since{" "}
+                        {new Date(lockStatus.acquired_at).toLocaleTimeString()}
+                      </>
                     )}
                   </span>
                   {hasMinRole(user, "operator") && (
@@ -505,9 +600,11 @@ export function WorkspaceLeafRow({
         title="Force-release state lock"
         message={
           <>
-            This clears the terraform state lock for <span className="font-mono">{displayName}</span>.
-            Only do this if you're certain no executor is currently running against this workspace —
-            releasing under a live apply can let a concurrent run race state.
+            This clears the terraform state lock for{" "}
+            <span className="font-mono">{displayName}</span>. Only do this if
+            you're certain no executor is currently running against this
+            workspace — releasing under a live apply can let a concurrent run
+            race state.
           </>
         }
         confirmLabel="Release lock"
@@ -522,8 +619,9 @@ export function WorkspaceLeafRow({
         title="Delete workspace"
         message={
           <>
-            Delete workspace <span className="font-mono">{workspace.name}</span>? All runs, drift
-            reports, and state locks for this workspace will be removed.
+            Delete workspace <span className="font-mono">{workspace.name}</span>
+            ? All runs, drift reports, and state locks for this workspace will
+            be removed.
           </>
         }
         confirmLabel="Delete"
@@ -538,9 +636,11 @@ export function WorkspaceLeafRow({
         message={
           <div className="space-y-2.5">
             <p>
-              Force-delete orphaned workspace <span className="font-mono">{workspace.name}</span>?
-              The source path is missing from the repo, so a real terraform destroy isn't possible.
-              This removes the TDT row + all runs/drift reports/state locks.
+              Force-delete orphaned workspace{" "}
+              <span className="font-mono">{workspace.name}</span>? The source
+              path is missing from the repo, so a real terraform destroy isn't
+              possible. This removes the TDT row + all runs/drift reports/state
+              locks.
             </p>
             <label className="flex cursor-pointer items-start gap-2">
               <input
@@ -551,13 +651,16 @@ export function WorkspaceLeafRow({
                 className="mt-0.5 h-3.5 w-3.5"
               />
               <span>
-                Also delete the tfstate file in S3. You won't be able to recover this workspace by
-                re-importing. Leave unchecked to keep the tfstate (recommended).
+                Also delete the tfstate file in S3. You won't be able to recover
+                this workspace by re-importing. Leave unchecked to keep the
+                tfstate (recommended).
               </span>
             </label>
           </div>
         }
-        confirmLabel={forceDeleteState ? "Force delete + tfstate" : "Force delete"}
+        confirmLabel={
+          forceDeleteState ? "Force delete + tfstate" : "Force delete"
+        }
         tone="danger"
         busy={busy === "delete"}
         onConfirm={forceDeleteOrphan}
@@ -568,11 +671,12 @@ export function WorkspaceLeafRow({
         title="Untrack workspace"
         message={
           <>
-            Remove <span className="font-mono">{workspace.name}</span> from Terraducktel? This does{" "}
-            <b>not</b> run terraform destroy — the Terraform module stays in the repo and the real
-            infrastructure + tfstate are left untouched. TDT just stops tracking it (its runs, drift
-            reports, and state locks are cleared). It won't reappear on its own; re-import the path
-            to manage it again.
+            Remove <span className="font-mono">{workspace.name}</span> from
+            Terraducktel? This does <b>not</b> run terraform destroy — the
+            Terraform module stays in the repo and the real infrastructure +
+            tfstate are left untouched. TDT just stops tracking it (its runs,
+            drift reports, and state locks are cleared). It won't reappear on
+            its own; re-import the path to manage it again.
           </>
         }
         confirmLabel="Untrack"

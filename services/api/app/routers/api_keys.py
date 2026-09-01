@@ -11,7 +11,7 @@ even for `admin`-tier keys (which otherwise satisfy `require_role(admin)`).
 Letting a key mint or revoke keys would be a privilege-escalation hole.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -24,7 +24,13 @@ from app.models.api_key import APIKey
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.schemas.api_key import APIKeyCreate, APIKeyCreateResponse, APIKeyResponse
+from app.schemas.api_key import (
+    APIKeyCreate,
+    APIKeyCreateResponse,
+    APIKeyResponse,
+    APIKeyRotate,
+    APIKeyRotateResponse,
+)
 from app.services import api_key_service
 from app.services.audit_chain import stamp
 
@@ -206,6 +212,124 @@ async def regenerate_api_key(
 
     base = APIKeyResponse.model_validate(key, from_attributes=True)
     return APIKeyCreateResponse(**base.model_dump(), token=plaintext)
+
+
+@router.post(
+    "/{key_id}/rotate",
+    response_model=APIKeyRotateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def rotate_api_key(
+    key_id: str,
+    body: APIKeyRotate | None = None,
+    current_user: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mint a successor key, leaving the old one usable for an overlap window.
+
+    The difference from `/regenerate` is the whole point. `regenerate` swaps a
+    key's secret in place and the old one dies that instant — fine if exactly
+    one consumer holds it, useless when the same key sits in a CI secret store,
+    a laptop keychain and a cron job, because you cannot update all three
+    atomically. Rotation gives you a window in which **both** secrets work, so
+    consumers can be moved over one at a time.
+
+    Two rows are involved, not one, because an overlap needs two usable secrets
+    and `token_hash` is unique per row:
+
+      old key → `expires_at` pulled in to now + overlap_hours, `rotated_at` set,
+                `superseded_by_id` pointed at the new key. Nothing else changes,
+                so it keeps authenticating until the window closes.
+      new key → same name, capability, workspace scope, owner and BU; fresh
+                secret, returned once.
+
+    `overlap_hours=0` cuts over immediately. If the old key already expires
+    sooner than the requested window, its earlier expiry wins — a rotation must
+    never *extend* a credential's life.
+    """
+    bu_id = _require_bu(bu)
+    opts = body or APIKeyRotate()
+
+    key = await db.get(APIKey, key_id)
+    if key is None or key.business_unit_id != bu_id:
+        raise HTTPException(status_code=404, detail="API key not found")
+    if key.revoked_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot rotate a revoked key — create a new one instead.",
+        )
+    if not api_key_service.is_active(key):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot rotate an expired key — create a new one instead.",
+        )
+    if key.superseded_by_id is not None:
+        # Chaining rotations would leave several live secrets behind one name
+        # and make "which one do I retire?" ambiguous.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This key has already been rotated; rotate its successor "
+                f"({key.superseded_by_id}) instead."
+            ),
+        )
+
+    now = datetime.now(timezone.utc)
+    plaintext, prefix, token_hash = api_key_service.generate_token()
+    successor = APIKey(
+        name=key.name,
+        token_prefix=prefix,
+        token_hash=token_hash,
+        user_id=key.user_id,
+        business_unit_id=key.business_unit_id,
+        capability=key.capability,
+        workspace_ids=key.workspace_ids,
+        expires_at=key.expires_at,
+        created_by=current_user.id,
+    )
+    db.add(successor)
+    await db.flush()
+
+    # Never extend the credential's life: if the old key already dies before the
+    # window would close, keep the earlier deadline.
+    window_end = now + timedelta(hours=opts.overlap_hours)
+    old_expiry = key.expires_at
+    if old_expiry is not None and old_expiry.tzinfo is None:
+        old_expiry = old_expiry.replace(tzinfo=timezone.utc)
+    key.expires_at = window_end if old_expiry is None else min(old_expiry, window_end)
+    key.rotated_at = now
+    key.superseded_by_id = successor.id
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        action="api_key.rotate",
+        resource_type="api_key",
+        resource_id=key.id,
+        details={
+            "name": key.name,
+            "capability": key.capability,
+            "business_unit_id": bu_id,
+            "old_token_prefix": key.token_prefix,
+            "new_token_prefix": prefix,
+            "successor_id": successor.id,
+            "overlap_hours": opts.overlap_hours,
+            "predecessor_expires_at": key.expires_at.isoformat(),
+        },
+    )
+    db.add(audit)
+    await stamp(db, audit)
+    await db.commit()
+    await db.refresh(successor)
+    await db.refresh(key)
+
+    base = APIKeyResponse.model_validate(successor, from_attributes=True)
+    return APIKeyRotateResponse(
+        **base.model_dump(),
+        token=plaintext,
+        predecessor_id=key.id,
+        predecessor_expires_at=key.expires_at,
+    )
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_200_OK)

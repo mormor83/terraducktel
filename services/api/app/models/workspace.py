@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Boolean, ForeignKey, String, Text, DateTime, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, ForeignKey, String, Text, DateTime, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 
@@ -95,6 +95,11 @@ class Workspace(Base):
     # For kind="helm": the target K8s cluster (k8s_clusters.id). Null for
     # terraform workspaces (and for helm workspaces not yet wired to a cluster).
     cluster_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Free-form key/value tags, e.g. {"team": "payments", "tier": "prod"}.
+    # A JSON object rather than a join table: at this fleet size a dict scan
+    # matches what an index would give, and it keeps tags atomic with the row
+    # they describe. See app/services/workspace_tags.py.
+    tags: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     @property

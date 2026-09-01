@@ -26,6 +26,22 @@ class APIKeyCreate(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+DEFAULT_OVERLAP_HOURS = 24
+MAX_OVERLAP_HOURS = 24 * 7
+
+
+class APIKeyRotate(BaseModel):
+    """Body for `POST /api-keys/{id}/rotate`."""
+
+    # How long the OLD secret keeps working after the new one is minted. The
+    # point of the whole feature: you cannot atomically swap a credential that
+    # lives in a CI secret store, a laptop keychain and a cron job at once.
+    # 0 means immediate cutover, which is what `regenerate` does in place.
+    overlap_hours: int = Field(
+        default=DEFAULT_OVERLAP_HOURS, ge=0, le=MAX_OVERLAP_HOURS
+    )
+
+
 class APIKeyResponse(BaseModel):
     id: str
     name: str
@@ -39,6 +55,10 @@ class APIKeyResponse(BaseModel):
     last_used_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     revoked_at: Optional[datetime] = None
+    # Set when this key was superseded by a rotation; `expires_at` then marks
+    # the end of its overlap window.
+    rotated_at: Optional[datetime] = None
+    superseded_by_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -47,3 +67,15 @@ class APIKeyCreateResponse(APIKeyResponse):
     """Returned exactly once on creation — includes the plaintext token."""
 
     token: str
+
+
+class APIKeyRotateResponse(APIKeyCreateResponse):
+    """The successor key, plus what happens to the one it replaced.
+
+    Returned once, like creation. `predecessor_expires_at` is the deadline for
+    swapping the old secret out of wherever it lives; after it passes the old
+    key stops authenticating on its own, with no second call needed.
+    """
+
+    predecessor_id: str
+    predecessor_expires_at: Optional[datetime] = None

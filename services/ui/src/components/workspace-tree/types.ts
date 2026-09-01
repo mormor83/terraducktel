@@ -41,6 +41,11 @@ export type Workspace = {
   // pre-028 rows (no column yet) still render as terraform.
   kind?: string;
   cluster_id?: string | null;
+  // Free-form key/value tags, e.g. {"team": "payments"}. Keys are
+  // lowercased by the API. Always an object on the wire — an untagged
+  // workspace sends {} rather than null — but typed optional so older
+  // fixtures and pre-043 responses still satisfy the type.
+  tags?: Record<string, string> | null;
 };
 
 export type Run = {

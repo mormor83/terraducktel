@@ -5,7 +5,7 @@ import re
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,6 +90,7 @@ def _gcp_project_id_from_path(path: str) -> str | None:
         if m:
             return m.group(1)
     return None
+from app.models.audit_log import AuditLog
 from app.schemas.workspace import (
     BulkImportRequest,
     BulkImportResult,
@@ -97,12 +98,18 @@ from app.schemas.workspace import (
     DiscoveryRequest,
     DiscoveryResultOut,
     StackCandidateOut,
+    TagKey,
+    TagValue,
     WorkspaceCreate,
     WorkspaceResponse,
+    WorkspaceTagEdit,
+    WorkspaceTagEditResult,
     WorkspaceUpdate,
 )
 from app.services import repo_discovery
 from app.services import api_key_service
+from app.services import workspace_tags
+from app.services.audit_chain import stamp
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
@@ -146,6 +153,14 @@ async def _validate_state_backend_linkage(
 
 @router.get("", response_model=list[WorkspaceResponse])
 async def list_workspaces(
+    tag: list[str] | None = Query(
+        None,
+        description=(
+            "Filter by tag, repeatable and AND-ed: `?tag=team=payments&tag=tier=prod`. "
+            "A bare key (`?tag=owner`) matches any workspace carrying it, whatever "
+            "the value."
+        ),
+    ),
     current_user: User = Depends(require_role(Role.viewer)),
     bu: BUScope = Depends(current_bu),
     db: AsyncSession = Depends(get_db),
@@ -154,12 +169,121 @@ async def list_workspaces(
 
     Superadmin with no `X-Business-Unit` header (or `all`) sees every workspace
     across all BUs.
+
+    Tag matching happens in Python, not SQL: `tags` is a JSON column and the
+    predicate would not be portable across SQLite and Postgres. The BU scope is
+    still applied in the query, so this only ever walks one BU's rows.
     """
     stmt = select(Workspace)
     if bu.bu_id is not None:
         stmt = stmt.where(Workspace.business_unit_id == bu.bu_id)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    rows = (await db.execute(stmt)).scalars().all()
+
+    if tag:
+        try:
+            filters = [workspace_tags.parse_filter(t) for t in tag]
+        except workspace_tags.TagError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        rows = [w for w in rows if workspace_tags.matches(w.tags, filters)]
+    return rows
+
+
+@router.get("/tags", response_model=list[TagKey])
+async def list_workspace_tags(
+    current_user: User = Depends(require_role(Role.viewer)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every tag key in this BU with its values and usage counts.
+
+    Feeds filter autocomplete, and answers "what tags do we actually use?" —
+    which is how you notice `team`/`owner` drift apart before it is entrenched.
+
+    Declared before `/{workspace_id}` so the literal path wins the route match;
+    otherwise "tags" would be read as a workspace id.
+    """
+    stmt = select(Workspace)
+    if bu.bu_id is not None:
+        stmt = stmt.where(Workspace.business_unit_id == bu.bu_id)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    counts: dict[str, dict[str, int]] = {}
+    for ws in rows:
+        for key, value in (ws.tags or {}).items():
+            counts.setdefault(key, {}).setdefault(value, 0)
+            counts[key][value] += 1
+
+    return [
+        TagKey(
+            key=key,
+            count=sum(values.values()),
+            values=[
+                TagValue(value=v, count=c)
+                for v, c in sorted(values.items(), key=lambda kv: (-kv[1], kv[0]))
+            ],
+        )
+        for key, values in sorted(counts.items())
+    ]
+
+
+@router.post("/tags", response_model=WorkspaceTagEditResult)
+async def bulk_edit_workspace_tags(
+    body: WorkspaceTagEdit,
+    current_user: User = Depends(require_role(Role.operator)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set and/or unset tags across many workspaces in one call.
+
+    `set` merges per key rather than replacing the map, so retagging twenty
+    workspaces' `team` cannot wipe the `owner` tag one of them happens to carry.
+
+    All-or-nothing: an id outside the current BU fails the whole request rather
+    than silently tagging a subset, because a partial bulk edit is worse than a
+    rejected one — you cannot tell which half applied.
+    """
+    if not body.set and not body.unset:
+        raise HTTPException(status_code=400, detail="nothing to set or unset")
+
+    stmt = select(Workspace).where(Workspace.id.in_(body.workspace_ids))
+    if bu.bu_id is not None:
+        stmt = stmt.where(Workspace.business_unit_id == bu.bu_id)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    missing = set(body.workspace_ids) - {w.id for w in rows}
+    if missing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workspaces not in this BU: {', '.join(sorted(missing))}",
+        )
+
+    try:
+        for ws in rows:
+            merged = workspace_tags.apply_edit(ws.tags, body.set, body.unset)
+            # Reassign rather than mutate: SQLAlchemy does not track in-place
+            # edits to a JSON dict, so a mutation would silently not persist.
+            ws.tags = merged or None
+    except workspace_tags.TagError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # One row per workspace rather than one for the batch: `resource_id` is NOT
+    # NULL, and per-resource entries are what make "what happened to workspace
+    # X?" answerable later. `stamp` chains them, so they must be added in order.
+    for ws in rows:
+        audit = AuditLog(
+            user_id=current_user.id,
+            action="workspace.tags_bulk_edit",
+            resource_type="workspace",
+            resource_id=ws.id,
+            workspace_id=ws.id,
+            details={"set": body.set, "unset": body.unset, "tags_after": ws.tags or {}},
+        )
+        db.add(audit)
+        await stamp(db, audit)
+    await db.commit()
+    for ws in rows:
+        await db.refresh(ws)
+    return WorkspaceTagEditResult(updated=len(rows), workspaces=rows)
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
@@ -270,6 +394,11 @@ async def create_workspace(
         db, state_backend, azure_sub_pk, gcp_project_pk
     )
 
+    try:
+        create_tags = workspace_tags.validate(body.tags or {})
+    except workspace_tags.TagError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     ws = Workspace(
         id=str(uuid.uuid4()),
         business_unit_id=bu.bu_id,
@@ -286,6 +415,7 @@ async def create_workspace(
         azure_subscription_id=azure_sub_pk,
         gcp_project_id=gcp_project_pk,
         state_backend=state_backend,
+        tags=create_tags or None,
     )
     db.add(ws)
     await _commit_or_conflict(
@@ -426,6 +556,14 @@ async def update_workspace(
             else ws.gcp_project_id
         )
         await _validate_state_backend_linkage(db, effective_backend, eff_azure, eff_gcp)
+
+    if "tags" in update_data:
+        # PUT replaces the whole map. Validate before the blind setattr below,
+        # which would otherwise persist an unvalidated dict straight to JSON.
+        try:
+            update_data["tags"] = workspace_tags.validate(update_data["tags"] or {}) or None
+        except workspace_tags.TagError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     for field, value in update_data.items():
         setattr(ws, field, value)
