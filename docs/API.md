@@ -56,8 +56,9 @@ config key (`local` / `oidc` / `both`).
 | Method | Path | Description | Auth |
 |---|---|---|---|
 | POST | `/auth/token` | Local email+password login. Returns access + refresh tokens. | public |
-| GET  | `/auth/config` | Public auth config: `{mode, oidc_enabled, oidc_issuer}`. | public |
-| GET  | `/auth/oidc/login` | Begin OIDC login redirect for the configured provider. 404 if OIDC isn't enabled; 503 if enabled but not configured. | public |
+| POST | `/auth/refresh` | Redeem a refresh token for a fresh access+refresh pair. Rejects access tokens, run-scoped executor tokens and `tdt_` API keys. | public (bearer not required — the body carries the token) |
+| GET  | `/auth/config` | Public auth config: `{mode, oidc_enabled, oidc_issuer, cli_loopback}`. | public |
+| GET  | `/auth/oidc/login` | Begin OIDC login redirect for the configured provider. 404 if OIDC isn't enabled; 503 if enabled but not configured. Optional `cli_port` + `cli_nonce` query params switch the callback to the CLI loopback hand-off (see below). | public |
 | GET  | `/auth/oidc/callback` | OIDC callback target — exchanges the auth code for tokens, upserts the local user, redirects the browser to `/auth/oidc-finish?access_token=…&refresh_token=…`. | public |
 
 **POST /auth/token** body `{"email": "...", "password": "..."}` →
@@ -69,6 +70,29 @@ configurable claim (default group/role claim) and maps it to a TDT role +
 `is_superadmin`; see `services/api/app/auth/oidc.py` for the config-key contract.
 
 ---
+
+**POST /auth/refresh** body `{"refresh_token": "..."}` → a new
+`{access_token, refresh_token, token_type}`.
+
+Both `/auth/token` and the OIDC callback have always *minted* a refresh token;
+this is what redeems one. A new refresh token comes back each time, so an
+actively-used client slides forward indefinitely and never re-authenticates.
+
+Tokens are stateless — there is no server-side revocation list — so a leaked
+refresh token stays usable until it expires
+(`auth.refresh_token_expire_hours`, default 24). Keep that TTL short, and
+revoke access by deleting the user. Claims are re-read from the user row on
+every refresh, so a demotion takes effect on the next one rather than
+persisting for the life of the token.
+
+**CLI loopback sign-in.** `GET /auth/oidc/login?cli_port=<1024-65535>&cli_nonce=<16-128 url-safe chars>`
+makes the callback hand the token pair to a listener on `http://127.0.0.1:<cli_port>/callback`
+instead of redirecting to the SPA. The IdP's registered `redirect_uri` is
+unchanged — it still points at this API's own callback — and `cli_port` travels
+in the signed session cookie rather than the callback URL, so a crafted callback
+cannot retarget the hand-off. The redirect host is hardcoded to `127.0.0.1`.
+`GET /auth/config` advertises `cli_loopback: true` so a client can tell whether
+a deployment supports this before trying.
 
 ## Users — `/api/v1/users`
 
@@ -117,6 +141,7 @@ router — an API key can never mint, rotate, or revoke API keys, even at the
 | GET | `/api-keys` | List keys in the current BU (masked — `token_prefix`, never the token). | admin |
 | POST | `/api-keys` | Mint a key. Returns the plaintext `token` **once**. | admin |
 | POST | `/api-keys/{id}/regenerate` | Rotate an active key's secret in place, keeping name/capability/allowlist/expiry. Returns the new plaintext `token` **once**. | admin |
+| POST | `/api-keys/{id}/rotate` | Mint a **successor** key and keep the old secret usable for an overlap window. Returns the new plaintext `token` **once**, plus `predecessor_id` and `predecessor_expires_at`. | admin |
 | DELETE | `/api-keys/{id}` | Soft-revoke a key (immediate 401 for further use). Idempotent. | admin |
 
 **POST /api-keys** body:
@@ -139,6 +164,46 @@ workspace allowlist, expiry) unchanged. The old token stops working
 immediately. Rejects with **409** if the key is already revoked or has
 already expired — rotation only ever refreshes a *live* secret; create a new
 key instead of trying to revive a dead one.
+
+**POST /api-keys/{id}/rotate** body `{"overlap_hours": 24}` (0–168, default 24)
+— the option to reach for when more than one consumer holds the key.
+
+`regenerate` swaps a secret in place and the old one dies that instant, which
+is fine for a single consumer and unusable when the same key sits in a CI
+secret store, a laptop keychain and a cron job: those cannot be updated
+atomically. Rotation creates a **second key** so both secrets work at once, and
+you move consumers over one at a time.
+
+Two rows are involved, because an overlap needs two usable secrets and
+`token_hash` is unique per row:
+
+| | |
+|---|---|
+| old key | `expires_at` pulled in to `now + overlap_hours`, `rotated_at` set, `superseded_by_id` → the successor. Nothing else changes, so it keeps authenticating until the window closes. |
+| new key | same name, capability, workspace allowlist, owner and BU; fresh secret, clean `last_used_at`. |
+
+```jsonc
+{ ...successorKey,
+  "token": "tdt_…",                                  // once, as on create
+  "predecessor_id": "…",
+  "predecessor_expires_at": "2026-09-02T14:45:01Z" } // deadline for the swap
+```
+
+The window rides the ordinary `expires_at` check, so the old key stops on its
+own — there is nothing to call afterwards and no cleanup job. `overlap_hours: 0`
+is an immediate cutover.
+
+Constraints:
+
+- A rotation **never extends** a credential's life. If the old key already
+  expires sooner than the requested window, the earlier deadline wins.
+- A key can be rotated **once**. Chaining would leave several live secrets
+  behind one name; **409** names the successor to rotate instead.
+- Revoked or expired keys are refused with **409**, as with `regenerate`.
+
+`rotated_at` and `superseded_by_id` appear on every key in `GET /api-keys`, so a
+client can tell "expiring because an admin said so" from "retiring because it
+was rotated".
 
 **DELETE /api-keys/{id}** — sets `revoked_at`; calling it again on an
 already-revoked key is a no-op 200 (idempotent), not a 404/409.
@@ -334,9 +399,17 @@ state is stored. `azureblob` requires a linked `azure_subscription_id` whose
 `gcp_project_id` links the workspace to a GCP project (google provider), the
 mirror of `azure_subscription_id`.
 
+`tags` is a free-form key/value map (`{"team": "payments", "tier": "prod"}`).
+Keys are lowercased on write — `Team` and `team` are the same tag — while values
+keep their case. A workspace carries at most 32; keys are 1–64 chars matching
+`[a-z0-9][a-z0-9._-]*[a-z0-9]`, values up to 255. Responses always return an
+object, never `null`.
+
 | Method | Path | Description | Min role | BU |
 |---|---|---|---|---|
-| GET | `/workspaces` | List workspaces. | viewer | BU-scoped |
+| GET | `/workspaces` | List workspaces. `?tag=team=payments` filters by tag — repeatable and AND-ed; a bare `?tag=owner` matches any value. | viewer | BU-scoped |
+| GET | `/workspaces/tags` | Every tag key in the BU with its values and usage counts. | viewer | BU-scoped |
+| POST | `/workspaces/tags` | Bulk set/unset tags across many workspaces. | operator | BU-scoped |
 | GET | `/workspaces/{id}` | Get a single workspace. | viewer | BU-scoped |
 | POST | `/workspaces` | Create a workspace (manual). | admin | BU-scoped |
 | PUT | `/workspaces/{id}` | Update workspace (branch override, drift settings, `state_aws_account_id`, `azure_subscription_id`, `gcp_project_id`, `state_backend`, …). | admin-tier key or interactive operator+ | BU-scoped |
@@ -458,6 +531,41 @@ a second concurrent run race state.
 
 ---
 
+
+### POST /workspaces/tags — body
+
+```jsonc
+{
+  "workspace_ids": ["<ws-id>", "<ws-id>"],
+  "set":   { "team": "payments", "tier": "prod" },  // merged per key
+  "unset": ["deprecated"]                           // removed if present
+}
+```
+
+→ `{ "updated": 2, "workspaces": [ …full workspace objects… ] }`
+
+`set` **merges** rather than replacing the map, so retagging twenty workspaces'
+`team` cannot wipe the `owner` tag one of them happens to carry. To replace a
+single workspace's tags wholesale, `PUT /workspaces/{id}` with a `tags` object.
+
+The batch is **all-or-nothing**: any id outside the current BU fails the whole
+request with 404 rather than tagging a subset, because a partially-applied bulk
+edit leaves you unable to tell which half landed. 400 if neither `set` nor
+`unset` is given, or if a key or value fails validation.
+
+Each affected workspace gets its own `AuditLog` row (`workspace.tags_bulk_edit`),
+so "what happened to workspace X?" stays answerable.
+
+### GET /workspaces/tags
+
+```jsonc
+[ { "key": "team", "count": 3,
+    "values": [ {"value": "payments", "count": 2}, {"value": "ops", "count": 1} ] } ]
+```
+
+Keys sorted alphabetically, values by descending usage. Feeds filter
+autocomplete, and makes it obvious when two keys have drifted apart.
+
 ## Workspace variables — `/api/v1/workspaces/{id}/variables`
 
 | Method | Path | Description | Min role |
@@ -501,7 +609,7 @@ per key).
 | Method | Path | Description | Min role |
 |---|---|---|---|
 | POST | `/workspaces/{id}/runs` | Trigger a run (plan/apply/destroy). | operator (+ `plan` or `apply` API-key tier) |
-| GET | `/runs` | List runs (BU-scoped; API-key callers additionally narrowed to their workspace allowlist). | viewer |
+| GET | `/runs` | List runs, newest first (BU-scoped; API-key callers additionally narrowed to their workspace allowlist). Filters: `?workspace_id=`, `?status=` (comma-separated, e.g. `failed,cancelled`; an unknown value is a **400** listing the valid ones), `?limit=` (1–1000). No default cap — the UI fetches the full list and buckets it client-side. | viewer |
 | GET | `/runs/{run_id}` | Get a run. | viewer |
 | PATCH | `/runs/{run_id}` | Executor callbacks — status, plan output, plan_json, tfplan_b64, policy_status. Triggers notifications + auto-approve gate on `awaiting_approval`. | operator |
 | POST | `/runs/{run_id}/heartbeat` | Executor liveness ping (run_jobs.heartbeat_at). 204, or 404 if there's no picked job for this run. | operator |
@@ -509,7 +617,7 @@ per key).
 | GET | `/runs/{run_id}/plan` | Raw plan output: `{plan_output}`. | viewer (+ `read` API-key tier) |
 | GET | `/runs/{run_id}/tfplan` | Base64-encoded `tfplan` binary (executor uses this on apply): `{tfplan_b64}`. | operator |
 | GET | `/runs/{run_id}/graph` | Structured `{nodes, edges, summary}` parsed from plan_json. | viewer (+ `read` API-key tier) |
-| GET | `/runs/{run_id}/steps` | Run timeline (Init / Checkov / Plan / etc). | viewer (+ `read` API-key tier) |
+| GET | `/runs/{run_id}/steps` | Run timeline (Init / Checkov / Plan / etc). `?since=<position>` returns only steps at or after that index, and `?include_output=false` omits each step's log blob — together they make polling a long apply cheap, since the finished prefix carries the bulk of the bytes. | viewer (+ `read` API-key tier) |
 | PATCH | `/runs/{run_id}/steps/{step_id}` | Executor callback to update a single step. | operator |
 | GET | `/runs/{run_id}/policies` | OPA policy bundle + gate config the executor should enforce for this run. BU is derived from the run's workspace. | operator |
 
@@ -541,7 +649,7 @@ guardrails enforced by `PATCH /runs/{run_id}`:
   a reconnecting executor retry a heartbeat-adjacent status write safely).
 - Cancellable source states: `pending`, `running`, `planning`, `planned`,
   `awaiting_approval`. Once `applying`, a run must complete or fail — it can
-  no longer be cancelled (409 on `POST /cancel`).
+  no longer be cancelled (409 on `POST /runs/{run_id}/cancel`).
 
 ### Auto-approve flow
 
@@ -875,6 +983,20 @@ is `pg_try_advisory_lock`-based, not DynamoDB.
 
 ---
 
+## Operational endpoints (unversioned, no auth)
+
+These sit outside `/api/v1` and are for probes and scrapers, not clients.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Liveness/readiness probe. Used by the compose healthcheck and the ECS target group. |
+| GET | `/metrics` | Prometheus text-format counters (request counts and latency sums). |
+| GET | `/server-info` | Build/version identification. |
+
+They are deliberately unauthenticated so a load balancer can reach them before
+any credential exists. Do not expose `/metrics` publicly without a proxy in
+front of it.
+
 ## Status codes used everywhere
 
 - `200 / 201 / 204` — success.
@@ -891,8 +1013,12 @@ is `pg_try_advisory_lock`-based, not DynamoDB.
 ## Audit actions you'll see
 
 `login`, `workspace.create`, `workspace.update`, `workspace.delete`,
-`workspace.force_delete`, `workspace.force_unlock`, `auto_delete_orphan`,
-`run.trigger`, `approve`, `auto_approve`, `auto_apply_skipped`, `reject`,
-`aws_account.create`, `aws_account.update`, `integration.github.set`,
-`integration.slack.set`, `api_key.create`, `api_key.regenerate`,
-`api_key.revoke`, …
+`workspace.force_delete`, `workspace.force_unlock`, `workspace.tags_bulk_edit`,
+`auto_delete_orphan`, `run.trigger`, `approve`, `auto_approve`,
+`auto_apply_skipped`, `reject`, `aws_account.create`, `aws_account.update`,
+`integration.github.set`, `integration.slack.set`, `api_key.create`,
+`api_key.regenerate`, `api_key.rotate`, `api_key.revoke`, …
+
+`workspace.tags_bulk_edit` writes **one row per affected workspace** rather than
+one per batch, so a workspace's own audit trail shows every tag change that ever
+touched it.
