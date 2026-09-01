@@ -7,6 +7,7 @@ import {
   createApiKey,
   listApiKeys,
   regenerateApiKey,
+  rotateApiKey,
   revokeApiKey,
 } from "../../api/apiKeys";
 import { useBusinessUnits, useBusinessUnitSelection } from "../../hooks/useBusinessUnit";
@@ -23,6 +24,11 @@ import {
   Spinner,
   cx,
 } from "../ui";
+
+// Default overlap offered by the UI. The API accepts 0–168; a day is long
+// enough to update a CI secret and a laptop keychain without being long
+// enough that a leaked old token matters much.
+const ROTATE_OVERLAP_HOURS = 24;
 
 type WsLite = { id: string; name: string; environment?: string; region?: string };
 
@@ -79,7 +85,7 @@ export default function ApiKeysSection() {
 
   // Pending destructive action awaiting in-app confirmation (no native popups).
   const [confirmAction, setConfirmAction] = useState<
-    { kind: "revoke" | "regenerate"; key: ApiKey } | null
+    { kind: "revoke" | "regenerate" | "rotate"; key: ApiKey } | null
   >(null);
   const [actionBusy, setActionBusy] = useState(false);
 
@@ -148,16 +154,22 @@ export default function ApiKeysSection() {
       if (kind === "revoke") {
         await revokeApiKey(key.id);
         await load();
+      } else if (kind === "rotate") {
+        setCreated(await rotateApiKey(key.id, ROTATE_OVERLAP_HOURS));
+        await load();
       } else {
-        const rotated = await regenerateApiKey(key.id);
-        setCreated(rotated);
+        setCreated(await regenerateApiKey(key.id));
         await load();
       }
       setConfirmAction(null);
     } catch (e: any) {
       setErr(
         e?.response?.data?.detail ??
-          (kind === "revoke" ? "Revoke failed" : "Regenerate failed"),
+          (kind === "revoke"
+            ? "Revoke failed"
+            : kind === "rotate"
+              ? "Rotate failed"
+              : "Regenerate failed"),
       );
     } finally {
       setActionBusy(false);
@@ -372,6 +384,15 @@ export default function ApiKeysSection() {
                       <td className="py-2 pr-3 text-right">
                         {!revoked && (
                           <div className="flex justify-end gap-1">
+                            {!expired && !k.superseded_by_id && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setConfirmAction({ kind: "rotate", key: k })}
+                              >
+                                Rotate
+                              </Button>
+                            )}
                             {!expired && (
                               <Button
                                 size="sm"
@@ -404,12 +425,25 @@ export default function ApiKeysSection() {
       <ConfirmDialog
         open={confirmAction !== null}
         tone={confirmAction?.kind === "revoke" ? "danger" : "warning"}
-        title={confirmAction?.kind === "revoke" ? "Revoke API key" : "Regenerate API key"}
+        title={
+          confirmAction?.kind === "revoke"
+            ? "Revoke API key"
+            : confirmAction?.kind === "rotate"
+              ? "Rotate API key"
+              : "Regenerate API key"
+        }
         message={
           confirmAction?.kind === "revoke" ? (
             <>
               Revoke API key <strong>"{confirmAction?.key.name}"</strong>? Automation using it will
               stop working immediately. This cannot be undone.
+            </>
+          ) : confirmAction?.kind === "rotate" ? (
+            <>
+              Rotate API key <strong>"{confirmAction?.key.name}"</strong>? A new token is issued and
+              shown once, and the current one keeps working for{" "}
+              <strong>{ROTATE_OVERLAP_HOURS} hours</strong> so you can move consumers over one at a
+              time. After that it stops on its own — nothing else to click.
             </>
           ) : (
             <>
@@ -419,7 +453,13 @@ export default function ApiKeysSection() {
             </>
           )
         }
-        confirmLabel={confirmAction?.kind === "revoke" ? "Revoke" : "Regenerate"}
+        confirmLabel={
+          confirmAction?.kind === "revoke"
+            ? "Revoke"
+            : confirmAction?.kind === "rotate"
+              ? "Rotate"
+              : "Regenerate"
+        }
         busy={actionBusy}
         onConfirm={runConfirmedAction}
         onCancel={() => setConfirmAction(null)}

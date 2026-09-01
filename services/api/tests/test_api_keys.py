@@ -526,3 +526,242 @@ async def test_admin_key_confined_to_its_bu(auth_client, admin_token, default_bu
         f"/api/v1/workspaces/{other_ws}", json={"name": "pwned"}, headers=hk
     )
     assert upd.status_code == 404, upd.text
+
+
+# ─── rotation with an overlap window ────────────────────────────────────────
+
+
+async def _rotate(client, admin_token, key_id, **body) -> dict:
+    r = await client.post(
+        f"/api/v1/api-keys/{key_id}/rotate", json=body or {}, headers=_h(admin_token)
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _as_utc(value: str) -> datetime:
+    """Parse a timestamp from the API, tolerating a missing offset.
+
+    SQLite does not persist tzinfo, so under the test DB a `DateTime(timezone=
+    True)` column round-trips naive; Postgres returns it aware. The endpoint
+    normalizes the same way before comparing, so this mirrors production
+    behaviour rather than papering over a bug.
+    """
+    dt = datetime.fromisoformat(value)
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+async def _authenticates(client, token) -> bool:
+    r = await client.get("/api/v1/workspaces", headers=_h(token))
+    assert r.status_code in (200, 401), r.text
+    return r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_both_secrets_work_during_the_overlap(auth_client, admin_token, default_bu):
+    """The entire point of the feature.
+
+    `regenerate` kills the old secret instantly, which is unusable when the same
+    key lives in CI, a laptop keychain and a cron job — you cannot update all
+    three atomically. During the window both must authenticate.
+    """
+    old = await _mint(auth_client, admin_token, name="ci", capability="read")
+    rotated = await _rotate(auth_client, admin_token, old["id"], overlap_hours=24)
+
+    assert rotated["token"] != old["token"]
+    assert await _authenticates(auth_client, old["token"]), "old secret died immediately"
+    assert await _authenticates(auth_client, rotated["token"]), "new secret does not work"
+
+
+@pytest.mark.asyncio
+async def test_rotation_sets_the_predecessor_deadline(auth_client, admin_token, default_bu):
+    old = await _mint(auth_client, admin_token, name="ci")
+    before = datetime.now(timezone.utc)
+    rotated = await _rotate(auth_client, admin_token, old["id"], overlap_hours=6)
+
+    assert rotated["predecessor_id"] == old["id"]
+    deadline = _as_utc(rotated["predecessor_expires_at"])
+    delta = deadline - before
+    assert timedelta(hours=5, minutes=55) < delta < timedelta(hours=6, minutes=5)
+
+
+@pytest.mark.asyncio
+async def test_old_key_stops_working_once_the_window_closes(
+    auth_client, admin_token, default_bu, _setup_db
+):
+    """No sweeper needed: the overlap rides the existing `expires_at` check."""
+    from app.models.api_key import APIKey
+
+    old = await _mint(auth_client, admin_token, name="ci")
+    await _rotate(auth_client, admin_token, old["id"], overlap_hours=1)
+    assert await _authenticates(auth_client, old["token"])
+
+    # Wind the clock past the window rather than sleeping through it.
+    async with _setup_db() as session:
+        row = await session.get(APIKey, old["id"])
+        row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await session.commit()
+
+    assert not await _authenticates(auth_client, old["token"]), "expired key still works"
+
+
+@pytest.mark.asyncio
+async def test_zero_overlap_is_an_immediate_cutover(auth_client, admin_token, default_bu):
+    old = await _mint(auth_client, admin_token, name="ci")
+    rotated = await _rotate(auth_client, admin_token, old["id"], overlap_hours=0)
+    assert not await _authenticates(auth_client, old["token"])
+    assert await _authenticates(auth_client, rotated["token"])
+
+
+@pytest.mark.asyncio
+async def test_default_overlap_is_24h(auth_client, admin_token, default_bu):
+    old = await _mint(auth_client, admin_token, name="ci")
+    r = await auth_client.post(
+        f"/api/v1/api-keys/{old['id']}/rotate", json={}, headers=_h(admin_token)
+    )
+    assert r.status_code == 201, r.text
+    deadline = _as_utc(r.json()["predecessor_expires_at"])
+    assert timedelta(hours=23) < deadline - datetime.now(timezone.utc) < timedelta(hours=25)
+
+
+@pytest.mark.asyncio
+async def test_rotation_never_extends_a_shorter_expiry(auth_client, admin_token, default_bu):
+    """A key expiring in 2h must not gain 22 more hours by being rotated."""
+    soon = datetime.now(timezone.utc) + timedelta(hours=2)
+    old = await _mint(auth_client, admin_token, name="ci", expires_at=soon.isoformat())
+    rotated = await _rotate(auth_client, admin_token, old["id"], overlap_hours=24)
+    deadline = _as_utc(rotated["predecessor_expires_at"])
+    assert deadline <= soon + timedelta(seconds=1), "rotation extended the credential's life"
+
+
+@pytest.mark.asyncio
+async def test_successor_inherits_scope_and_owner(auth_client, admin_token, default_bu, _setup_db):
+    ws_id = await _seed_workspace(_setup_db) if "_seed_workspace" in globals() else None
+    old = await _mint(auth_client, admin_token, name="scoped", capability="plan")
+    rotated = await _rotate(auth_client, admin_token, old["id"])
+    for field in ("name", "capability", "business_unit_id", "user_id", "workspace_ids"):
+        assert rotated[field] == old[field], f"{field} not carried to the successor"
+
+
+@pytest.mark.asyncio
+async def test_successor_gets_a_clean_usage_trail(auth_client, admin_token, default_bu):
+    old = await _mint(auth_client, admin_token, name="ci")
+    await _authenticates(auth_client, old["token"])  # stamp last_used_at
+    rotated = await _rotate(auth_client, admin_token, old["id"])
+    assert rotated["last_used_at"] is None
+    assert rotated["rotated_at"] is None
+    assert rotated["superseded_by_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_predecessor_records_the_link(auth_client, admin_token, default_bu):
+    old = await _mint(auth_client, admin_token, name="ci")
+    rotated = await _rotate(auth_client, admin_token, old["id"])
+    r = await auth_client.get("/api/v1/api-keys", headers=_h(admin_token))
+    rows = {k["id"]: k for k in r.json()}
+    assert rows[old["id"]]["superseded_by_id"] == rotated["id"]
+    assert rows[old["id"]]["rotated_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_cannot_rotate_the_same_key_twice(auth_client, admin_token, default_bu):
+    """Chaining would leave several live secrets behind one name."""
+    old = await _mint(auth_client, admin_token, name="ci")
+    first = await _rotate(auth_client, admin_token, old["id"])
+    r = await auth_client.post(
+        f"/api/v1/api-keys/{old['id']}/rotate", json={}, headers=_h(admin_token)
+    )
+    assert r.status_code == 409
+    assert first["id"] in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_can_rotate_the_successor(auth_client, admin_token, default_bu):
+    old = await _mint(auth_client, admin_token, name="ci")
+    first = await _rotate(auth_client, admin_token, old["id"])
+    second = await _rotate(auth_client, admin_token, first["id"])
+    assert second["predecessor_id"] == first["id"]
+    assert await _authenticates(auth_client, second["token"])
+
+
+@pytest.mark.asyncio
+async def test_cannot_rotate_a_revoked_or_expired_key(auth_client, admin_token, default_bu, _setup_db):
+    from app.models.api_key import APIKey
+
+    revoked = await _mint(auth_client, admin_token, name="dead")
+    await auth_client.delete(f"/api/v1/api-keys/{revoked['id']}", headers=_h(admin_token))
+    r = await auth_client.post(
+        f"/api/v1/api-keys/{revoked['id']}/rotate", json={}, headers=_h(admin_token)
+    )
+    assert r.status_code == 409 and "revoked" in r.json()["detail"].lower()
+
+    stale = await _mint(auth_client, admin_token, name="old")
+    async with _setup_db() as session:
+        row = await session.get(APIKey, stale["id"])
+        row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await session.commit()
+    r = await auth_client.post(
+        f"/api/v1/api-keys/{stale['id']}/rotate", json={}, headers=_h(admin_token)
+    )
+    assert r.status_code == 409 and "expired" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_overlap_hours_is_range_checked(auth_client, admin_token, default_bu):
+    old = await _mint(auth_client, admin_token, name="ci")
+    for bad in (-1, 24 * 7 + 1):
+        r = await auth_client.post(
+            f"/api/v1/api-keys/{old['id']}/rotate",
+            json={"overlap_hours": bad},
+            headers=_h(admin_token),
+        )
+        assert r.status_code == 422, f"overlap_hours={bad} accepted"
+
+
+@pytest.mark.asyncio
+async def test_rotation_is_audited(auth_client, admin_token, default_bu, _setup_db):
+    from sqlalchemy import select
+
+    from app.models.audit_log import AuditLog
+
+    old = await _mint(auth_client, admin_token, name="ci")
+    rotated = await _rotate(auth_client, admin_token, old["id"], overlap_hours=12)
+
+    async with _setup_db() as session:
+        rows = (await session.execute(
+            select(AuditLog).where(AuditLog.action == "api_key.rotate")
+        )).scalars().all()
+    assert len(rows) == 1
+    details = rows[0].details
+    assert details["successor_id"] == rotated["id"]
+    assert details["overlap_hours"] == 12
+    # The plaintext must never reach the audit log.
+    assert rotated["token"] not in str(details)
+
+
+@pytest.mark.asyncio
+async def test_rotation_is_scoped_to_the_bu(auth_client, admin_token, default_bu, _setup_db):
+    """A key in another BU must be invisible, not merely forbidden."""
+    from app.models.business_unit import BusinessUnit
+    from app.models.api_key import APIKey
+    from app.services import api_key_service as svc
+
+    other_bu, other_key = str(uuid.uuid4()), str(uuid.uuid4())
+    _, prefix, token_hash = svc.generate_token()
+    async with _setup_db() as session:
+        session.add(BusinessUnit(id=other_bu, slug="other-rot", name="Other"))
+        await session.commit()
+        me = (await session.execute(
+            __import__("sqlalchemy").select(APIKey).limit(1)
+        )).scalars().first()
+        session.add(APIKey(
+            id=other_key, name="foreign", token_prefix=prefix, token_hash=token_hash,
+            user_id=(me.user_id if me else None) or str(uuid.uuid4()),
+            business_unit_id=other_bu, capability="read",
+        ))
+        await session.commit()
+
+    r = await auth_client.post(
+        f"/api/v1/api-keys/{other_key}/rotate", json={}, headers=_h(admin_token)
+    )
+    assert r.status_code == 404

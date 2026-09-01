@@ -52,13 +52,85 @@ def resolve_workspace(obj: AppCtx, ref: str) -> dict:
 def ws_list(
     ctx: typer.Context,
     env: str | None = typer.Option(None, "--env", help="Filter by environment (client-side)."),
+    tag: list[str] | None = typer.Option(
+        None, "--tag", "-t",
+        help="Filter by tag, repeatable and AND-ed: -t team=payments -t tier=prod. "
+             "A bare key (-t owner) matches any value.",
+    ),
 ) -> None:
     """List workspaces in the current BU."""
     obj: AppCtx = ctx.obj
-    rows = obj.client.get("/workspaces") or []
+    params = {"tag": list(tag)} if tag else None
+    rows = obj.client.get("/workspaces", params=params) or []
     if env:
         rows = [r for r in rows if str(r.get("environment", "")).lower() == env.lower()]
     render(obj.fmt, rows, _COLUMNS, empty="No workspaces in this BU.")
+
+
+@app.command("tags")
+def ws_tags(ctx: typer.Context) -> None:
+    """Every tag key in this BU, with values and usage counts."""
+    obj: AppCtx = ctx.obj
+    keys = obj.client.get("/workspaces/tags") or []
+    if obj.fmt is Fmt.json:
+        render(obj.fmt, keys)
+        return
+    rows = [
+        {
+            "key": k["key"],
+            "used": k["count"],
+            "values": ", ".join(f"{v['value']} ({v['count']})" for v in k["values"][:6])
+            + (" …" if len(k["values"]) > 6 else ""),
+        }
+        for k in keys
+    ]
+    render(obj.fmt, rows, [("KEY", "key"), ("USED", "used"), ("VALUES", "values")],
+           empty="No tags in this BU.")
+
+
+@app.command("tag")
+def ws_tag(
+    ctx: typer.Context,
+    workspaces: list[str] = typer.Argument(..., help="Workspace ids or names."),
+    set_: list[str] | None = typer.Option(
+        None, "--set", "-s", help="key=value, repeatable. Merges — other tags are kept.",
+    ),
+    unset: list[str] | None = typer.Option(
+        None, "--unset", "-u", help="Tag key to remove, repeatable.",
+    ),
+) -> None:
+    """Set or remove tags across one or more workspaces.
+
+    `--set` merges per key, so tagging a batch's `team` never wipes the `owner`
+    tag one of them happens to carry. The whole batch is rejected if any
+    workspace is outside this BU — a half-applied bulk edit is worse than none.
+    """
+    obj: AppCtx = ctx.obj
+    if not set_ and not unset:
+        raise TdtError("Give at least one --set or --unset.", ExitCode.USAGE)
+
+    pairs: dict[str, str] = {}
+    for item in set_ or []:
+        if "=" not in item:
+            raise TdtError(f"--set expects key=value, got '{item}'.", ExitCode.USAGE)
+        key, _, value = item.partition("=")
+        pairs[key.strip()] = value.strip()
+
+    ids = [resolve_workspace(obj, ref)["id"] for ref in workspaces]
+    result = obj.client.post(
+        "/workspaces/tags",
+        {"workspace_ids": ids, "set": pairs, "unset": list(unset or [])},
+    )
+    if obj.fmt is Fmt.json:
+        render(obj.fmt, result)
+        return
+    ok(f"Updated {result['updated']} workspace(s).")
+    render(
+        obj.fmt,
+        [{"name": w["name"], "tags": ", ".join(f"{k}={v}" for k, v in sorted((w["tags"] or {}).items())) or "—"}
+         for w in result["workspaces"]],
+        [("NAME", "name"), ("TAGS", "tags")],
+    )
 
 
 @app.command("get")

@@ -96,6 +96,8 @@ class WorkspaceCreate(BaseModel):
     gcp_project_id: Optional[str] = None
     # Where Terraform state is stored: "s3" (default), "azureblob", or "gcs".
     state_backend: str = "s3"
+    # Key/value tags, e.g. {"team": "payments"}. Keys are lowercased.
+    tags: Optional[dict] = None
 
     @field_validator("kind")
     @classmethod
@@ -138,6 +140,9 @@ class WorkspaceUpdate(BaseModel):
     # Change where state is stored: "s3", "azureblob", or "gcs". The router
     # validates the required cloud linkage before applying the change.
     state_backend: Optional[str] = None
+    # Replaces the whole tag map. Use POST /workspaces/tags to edit
+    # individual keys across many workspaces without clobbering others.
+    tags: Optional[dict] = None
 
     @field_validator("state_backend")
     @classmethod
@@ -165,6 +170,11 @@ class WorkspaceResponse(BaseModel):
     kind: str = "terraform"
     # Target k8s cluster FK for helm workspaces, else null.
     cluster_id: Optional[str] = None
+    # Always an object, never null: an untagged workspace stores NULL but
+    # every consumer wants to iterate it without a guard. `default_factory`
+    # alone is not enough — it fires when the field is *absent*, not when the
+    # ORM hands us an explicit None — hence the coercing validator below.
+    tags: dict = Field(default_factory=dict)
     drift_status: str = "unknown"
     path_status: str = "unknown"
     path_status_checked_at: Optional[datetime] = None
@@ -187,6 +197,10 @@ class WorkspaceResponse(BaseModel):
 # Git-tree discovery / bulk import
 # ---------------------------------------------------------------------------
 
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _null_tags_are_empty(cls, v):
+        return {} if v is None else v
 
 class StackCandidateOut(BaseModel):
     path: str
@@ -272,3 +286,34 @@ class BulkImportRequest(BaseModel):
 class BulkImportResult(BaseModel):
     created: List[WorkspaceResponse]
     skipped: List[dict]  # {"path": ..., "reason": ...}
+
+
+# ─── tags ───────────────────────────────────────────────────────────────────
+
+
+class WorkspaceTagEdit(BaseModel):
+    """Bulk tag edit — `POST /workspaces/tags`.
+
+    `set` merges per key rather than replacing the map, so retagging twenty
+    workspaces' `team` cannot wipe the `owner` tag one of them happens to have.
+    """
+
+    workspace_ids: list[str] = Field(min_length=1)
+    set: dict = Field(default_factory=dict)
+    unset: list[str] = Field(default_factory=list)
+
+
+class WorkspaceTagEditResult(BaseModel):
+    updated: int
+    workspaces: list[WorkspaceResponse]
+
+
+class TagValue(BaseModel):
+    value: str
+    count: int
+
+
+class TagKey(BaseModel):
+    key: str
+    count: int
+    values: list[TagValue]

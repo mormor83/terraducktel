@@ -71,3 +71,21 @@ class APIKey(Base):
     revoked_at: Mapped[DateTime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # ─── Rotation with overlap ────────────────────────────────────────────
+    # A rotation mints a *successor* row rather than replacing this row's
+    # secret, because an overlap window needs two usable secrets at once and
+    # `token_hash` is unique per row. The old key keeps working until its
+    # `expires_at` (set to now + overlap at rotation time) passes, which
+    # `is_active()` already enforces — no new auth path.
+    #
+    # `rotated_at` is what distinguishes "this expiry was set by a rotation"
+    # from "an admin gave this key an expiry", so the UI can say *retiring*
+    # rather than merely *expiring*.
+    rotated_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # The key that replaced this one. SET NULL rather than CASCADE: deleting a
+    # successor must never delete the audit trail of its predecessor.
+    superseded_by_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("api_keys.id", ondelete="SET NULL"), nullable=True
+    )

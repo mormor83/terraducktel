@@ -64,6 +64,9 @@ tdt run destroy <workspace> --yes --auto-approve --max-destroy 1
 ```bash
 tdt context -o json                  # one-shot BU snapshot: workspaces, recent runs, drift
 tdt ws list                          # add -o json for ids
+tdt ws list -t team=payments         # filter by tag; repeatable and AND-ed
+tdt ws tags                          # every tag key in the BU, with counts
+tdt ws tag <ws> -s team=payments     # set/unset tags; --set merges, never clobbers
 tdt run list -w <workspace> --status failed -n 5
 tdt run get <run-id>
 tdt run graph <run-id>               # the +/~/-/± diff and changed addresses

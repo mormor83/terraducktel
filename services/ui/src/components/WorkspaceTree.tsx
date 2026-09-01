@@ -4,8 +4,19 @@
 // public entry point and orchestrates grouping.
 import { useMemo, useState } from "react";
 import { Card, Input } from "./ui";
-import { AccountGroup, AzureSubscriptionGroup, GcpProjectGroup } from "./workspace-tree/groups";
-import { azureInfo, gcpInfo, workspacePathSegments } from "./workspace-tree/paths";
+import {
+  AccountGroup,
+  AzureSubscriptionGroup,
+  GcpProjectGroup,
+} from "./workspace-tree/groups";
+import {
+  azureInfo,
+  gcpInfo,
+  workspacePathSegments,
+} from "./workspace-tree/paths";
+import { TagChip } from "./TagChip";
+import { TagFilterContext, type ActiveTag } from "./workspace-tree/tagFilter";
+import { matchesTag, tagsAsSearchText } from "./workspace-tree/tagMatch";
 import type {
   AwsAccountLite,
   AzureSubscriptionLite,
@@ -16,7 +27,13 @@ import type {
 } from "./workspace-tree/types";
 
 // Public surface preserved for existing importers (Dashboard, Settings).
-export type { AwsAccountLite, AzureSubscriptionLite, GcpProjectLite, Run, Workspace };
+export type {
+  AwsAccountLite,
+  AzureSubscriptionLite,
+  GcpProjectLite,
+  Run,
+  Workspace,
+};
 export { azureInfo, gcpInfo, workspacePathSegments };
 
 export default function WorkspaceTree({
@@ -35,6 +52,11 @@ export default function WorkspaceTree({
   onChanged: () => void;
 }) {
   const [filter, setFilter] = useState("");
+  // Tag filter, set by clicking a chip on any row. Separate from the text box:
+  // the text box is fuzzy ("payments" also matches a workspace called
+  // payments-api), a tag filter is exact, and mixing the two into one input
+  // makes "why is this row here?" unanswerable.
+  const [activeTag, setActiveTag] = useState<ActiveTag>(null);
   const [expandSignal, setExpandSignal] = useState<ExpandSignal>(null);
 
   const accountNameById = useMemo(() => {
@@ -101,12 +123,20 @@ export default function WorkspaceTree({
     const info = azureInfo(w);
     if (info) {
       const sub = azureByGuid.get(info.guid);
-      return { cloud: "azure", key: sub ? sub.id : `guid:${info.guid}`, region: info.region };
+      return {
+        cloud: "azure",
+        key: sub ? sub.id : `guid:${info.guid}`,
+        region: info.region,
+      };
     }
     const ginfo = gcpInfo(w);
     if (ginfo) {
       const proj = gcpByProjectId.get(ginfo.projectId);
-      return { cloud: "gcp", key: proj ? proj.id : `pid:${ginfo.projectId}`, region: ginfo.region };
+      return {
+        cloud: "gcp",
+        key: proj ? proj.id : `pid:${ginfo.projectId}`,
+        region: ginfo.region,
+      };
     }
     return { cloud: "aws", key: w.aws_account_id, region: w.region };
   }
@@ -122,7 +152,9 @@ export default function WorkspaceTree({
   }, [workspaces]);
 
   const latestByWs = useMemo(() => {
-    const sorted = runs.slice().sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
+    const sorted = runs
+      .slice()
+      .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
     sorted.reverse();
     const map = new Map<string, Run>();
     for (const r of sorted) {
@@ -136,9 +168,13 @@ export default function WorkspaceTree({
   }, [runs, wsById]);
 
   const filtered = useMemo(() => {
-    if (!filter.trim()) return workspaces;
+    // Tag filter first — it's exact and cheap, and narrowing before the string
+    // build means the text scan runs over fewer rows.
+    let pool = workspaces;
+    if (activeTag) pool = pool.filter((w) => matchesTag(w, activeTag));
+    if (!filter.trim()) return pool;
     const q = filter.trim().toLowerCase();
-    return workspaces.filter((w) => {
+    return pool.filter((w) => {
       const sub = w.azure_subscription_id
         ? azureByPk.get(w.azure_subscription_id)
         : azureByGuid.get(azureInfo(w)?.guid ?? "");
@@ -156,12 +192,24 @@ export default function WorkspaceTree({
         sub?.subscription_id ?? azureInfo(w)?.guid ?? "",
         proj?.name ?? "",
         proj?.project_id ?? gcpInfo(w)?.projectId ?? "",
+        // Tags join the fuzzy search as `key=value` pairs, so typing
+        // "payments" finds tagged workspaces without knowing the key.
+        tagsAsSearchText(w.tags),
       ]
         .join(" ")
         .toLowerCase()
         .includes(q);
     });
-  }, [workspaces, filter, accountNameById, azureByPk, azureByGuid, gcpByPk, gcpByProjectId]);
+  }, [
+    workspaces,
+    filter,
+    activeTag,
+    accountNameById,
+    azureByPk,
+    azureByGuid,
+    gcpByPk,
+    gcpByProjectId,
+  ]);
 
   // Group into AWS accounts, Azure subscriptions, and GCP projects; each →
   // region → workspaces[].
@@ -171,13 +219,15 @@ export default function WorkspaceTree({
     const gcp: Record<string, Record<string, Workspace[]>> = {};
     for (const w of filtered) {
       const c = classify(w);
-      const bucket = c.cloud === "azure" ? azure : c.cloud === "gcp" ? gcp : aws;
+      const bucket =
+        c.cloud === "azure" ? azure : c.cloud === "gcp" ? gcp : aws;
       const g = (bucket[c.key] ??= {});
       (g[c.region] ??= []).push(w);
     }
     for (const bucket of [aws, azure, gcp]) {
       for (const g of Object.values(bucket)) {
-        for (const region of Object.keys(g)) g[region].sort((a, b) => a.name.localeCompare(b.name));
+        for (const region of Object.keys(g))
+          g[region].sort((a, b) => a.name.localeCompare(b.name));
       }
     }
     return { awsGrouped: aws, azureGrouped: azure, gcpGrouped: gcp };
@@ -200,102 +250,150 @@ export default function WorkspaceTree({
   });
   const groupCount = accountIds.length + azureKeys.length + gcpKeys.length;
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by name, account, region, env…"
-          className="max-w-sm"
-        />
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-          <div className="inline-flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() =>
-                setExpandSignal((s) => ({ version: (s?.version ?? 0) + 1, expand: true }))
-              }
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              title="Expand every account, region, and folder"
-            >
-              Expand all
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setExpandSignal((s) => ({ version: (s?.version ?? 0) + 1, expand: false }))
-              }
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              title="Collapse every account, region, and folder"
-            >
-              Collapse all
-            </button>
-          </div>
-          <span>
-            {filtered.length} of {workspaces.length} workspace{workspaces.length === 1 ? "" : "s"}
-            {filter && (
-              <button onClick={() => setFilter("")} className="ml-2 underline-offset-2 hover:underline">
-                clear
-              </button>
-            )}
-          </span>
-        </div>
-      </div>
+  // Clicking the chip that is already filtering clears it, so the same gesture
+  // is both apply and undo — no hunting for an X.
+  const toggleTag = (key: string, value: string) =>
+    setActiveTag((cur) =>
+      cur && cur.key === key && cur.value === value ? null : { key, value },
+    );
 
-      {groupCount === 0 ? (
-        <Card className="px-6 py-10 text-center text-sm text-slate-500">
-          No workspaces match the current filter.
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {accountIds.map((accountId) => (
-            <AccountGroup
-              key={`aws:${accountId}`}
-              accountId={accountId}
-              accountName={accountNameById.get(accountId)}
-              byRegion={awsGrouped[accountId]}
-              latestByWs={latestByWs}
-              defaultOpen={false}
-              onChanged={onChanged}
-              expandSignal={expandSignal}
-              awsAccounts={awsAccounts}
-              azureSubscriptions={azureSubscriptions}
-              gcpProjects={gcpProjects}
+  return (
+    <TagFilterContext.Provider value={{ activeTag, onTagClick: toggleTag }}>
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter by name, account, region, env, tag…"
+              className="max-w-sm"
             />
-          ))}
-          {azureKeys.map((key) => (
-            <AzureSubscriptionGroup
-              key={`azure:${key}`}
-              sub={azureByPk.get(key)}
-              guid={key.startsWith("guid:") ? key.slice("guid:".length) : undefined}
-              byRegion={azureGrouped[key]}
-              latestByWs={latestByWs}
-              defaultOpen={false}
-              onChanged={onChanged}
-              expandSignal={expandSignal}
-              awsAccounts={awsAccounts}
-              azureSubscriptions={azureSubscriptions}
-              gcpProjects={gcpProjects}
-            />
-          ))}
-          {gcpKeys.map((key) => (
-            <GcpProjectGroup
-              key={`gcp:${key}`}
-              proj={gcpByPk.get(key)}
-              projectId={key.startsWith("pid:") ? key.slice("pid:".length) : undefined}
-              byRegion={gcpGrouped[key]}
-              latestByWs={latestByWs}
-              defaultOpen={false}
-              onChanged={onChanged}
-              expandSignal={expandSignal}
-              awsAccounts={awsAccounts}
-              azureSubscriptions={azureSubscriptions}
-              gcpProjects={gcpProjects}
-            />
-          ))}
+            {activeTag && (
+              // Shown outside the tree as well as highlighted in it: with a
+              // filter applied the matching rows may all be scrolled out of view,
+              // and an invisible filter is how you end up believing a workspace
+              // has vanished.
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                <span>tag</span>
+                <TagChip
+                  tagKey={activeTag.key}
+                  value={activeTag.value ?? ""}
+                  active
+                />
+                <button
+                  type="button"
+                  onClick={() => setActiveTag(null)}
+                  className="underline-offset-2 hover:underline"
+                >
+                  clear
+                </button>
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <div className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandSignal((s) => ({
+                    version: (s?.version ?? 0) + 1,
+                    expand: true,
+                  }))
+                }
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                title="Expand every account, region, and folder"
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandSignal((s) => ({
+                    version: (s?.version ?? 0) + 1,
+                    expand: false,
+                  }))
+                }
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                title="Collapse every account, region, and folder"
+              >
+                Collapse all
+              </button>
+            </div>
+            <span>
+              {filtered.length} of {workspaces.length} workspace
+              {workspaces.length === 1 ? "" : "s"}
+              {filter && (
+                <button
+                  onClick={() => setFilter("")}
+                  className="ml-2 underline-offset-2 hover:underline"
+                >
+                  clear
+                </button>
+              )}
+            </span>
+          </div>
         </div>
-      )}
-    </div>
+
+        {groupCount === 0 ? (
+          <Card className="px-6 py-10 text-center text-sm text-slate-500">
+            No workspaces match the current filter.
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {accountIds.map((accountId) => (
+              <AccountGroup
+                key={`aws:${accountId}`}
+                accountId={accountId}
+                accountName={accountNameById.get(accountId)}
+                byRegion={awsGrouped[accountId]}
+                latestByWs={latestByWs}
+                defaultOpen={false}
+                onChanged={onChanged}
+                expandSignal={expandSignal}
+                awsAccounts={awsAccounts}
+                azureSubscriptions={azureSubscriptions}
+                gcpProjects={gcpProjects}
+              />
+            ))}
+            {azureKeys.map((key) => (
+              <AzureSubscriptionGroup
+                key={`azure:${key}`}
+                sub={azureByPk.get(key)}
+                guid={
+                  key.startsWith("guid:")
+                    ? key.slice("guid:".length)
+                    : undefined
+                }
+                byRegion={azureGrouped[key]}
+                latestByWs={latestByWs}
+                defaultOpen={false}
+                onChanged={onChanged}
+                expandSignal={expandSignal}
+                awsAccounts={awsAccounts}
+                azureSubscriptions={azureSubscriptions}
+                gcpProjects={gcpProjects}
+              />
+            ))}
+            {gcpKeys.map((key) => (
+              <GcpProjectGroup
+                key={`gcp:${key}`}
+                proj={gcpByPk.get(key)}
+                projectId={
+                  key.startsWith("pid:") ? key.slice("pid:".length) : undefined
+                }
+                byRegion={gcpGrouped[key]}
+                latestByWs={latestByWs}
+                defaultOpen={false}
+                onChanged={onChanged}
+                expandSignal={expandSignal}
+                awsAccounts={awsAccounts}
+                azureSubscriptions={azureSubscriptions}
+                gcpProjects={gcpProjects}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </TagFilterContext.Provider>
   );
 }

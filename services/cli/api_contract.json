@@ -94,6 +94,16 @@
     },
     {
       "method": "GET",
+      "path": "/workspaces/tags",
+      "used_by": "tdt ws tags"
+    },
+    {
+      "method": "POST",
+      "path": "/workspaces/tags",
+      "used_by": "tdt ws tag"
+    },
+    {
+      "method": "GET",
       "path": "/runs",
       "used_by": "tdt run list, tdt context"
     },
