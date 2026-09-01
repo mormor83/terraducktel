@@ -5,7 +5,7 @@ import smtplib
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -160,9 +160,33 @@ async def trigger_run(
     return run
 
 
+_RUN_STATUS_VALUES = {s.value for s in RunStatus}
+
+
 @router.get("/api/v1/runs", response_model=list[RunResponse])
 async def list_runs(
     request: Request,
+    workspace_id: str | None = Query(
+        None, description="Only runs for this workspace id."
+    ),
+    status_filter: str | None = Query(
+        None,
+        alias="status",
+        description=(
+            "Comma-separated run statuses to include, e.g. "
+            "`failed,cancelled`. Unknown values are rejected with 400."
+        ),
+    ),
+    limit: int | None = Query(
+        None,
+        ge=1,
+        le=1000,
+        description=(
+            "Cap the number of runs returned (newest first). Omit for all "
+            "matching runs — the UI's Runs page buckets the full list "
+            "client-side, so there is deliberately no default cap."
+        ),
+    ),
     current_user: User = Depends(require_role(Role.viewer)),
     bu: BUScope = Depends(current_bu),
     db: AsyncSession = Depends(get_db),
@@ -172,6 +196,10 @@ async def list_runs(
     Superadmin with `X-Business-Unit: all` (or no header) sees every run
     across BUs. Otherwise only runs whose workspace belongs to the current BU.
     API keys are additionally narrowed to their workspace allowlist (if set).
+
+    `workspace_id`, `status` and `limit` narrow the result server-side so a CLI
+    can ask "the last 10 failed runs for this workspace" in one request instead
+    of pulling every run in the BU and filtering locally.
     """
     stmt = select(Run).order_by(Run.created_at.desc())
     if bu.bu_id is not None:
@@ -181,6 +209,29 @@ async def list_runs(
     allow = api_key_service.allowlist(request)
     if allow:
         stmt = stmt.where(Run.workspace_id.in_(allow))
+
+    if workspace_id is not None:
+        # An out-of-scope workspace_id simply yields no rows — the BU / allowlist
+        # predicates above still apply, so this can't be used to peek across BUs.
+        stmt = stmt.where(Run.workspace_id == workspace_id)
+
+    if status_filter is not None:
+        wanted = [v.strip() for v in status_filter.split(",") if v.strip()]
+        bad = [v for v in wanted if v not in _RUN_STATUS_VALUES]
+        if bad:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unknown run status: {', '.join(sorted(bad))}. "
+                    f"Valid: {', '.join(sorted(_RUN_STATUS_VALUES))}"
+                ),
+            )
+        if wanted:
+            stmt = stmt.where(Run.status.in_(wanted))
+
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -745,16 +796,40 @@ async def get_run_graph(
 async def list_run_steps(
     run_id: str,
     request: Request,
+    since: int = Query(
+        0,
+        ge=0,
+        description=(
+            "Only return steps with `position >= since`. A watcher tracks the "
+            "lowest position that is still non-terminal and passes it here, so "
+            "the already-finished prefix (which carries the large `output` "
+            "blobs) is not re-sent on every poll."
+        ),
+    ),
+    include_output: bool = Query(
+        True,
+        description=(
+            "Set false to omit each step's `output` — a cheap timeline poll. "
+            "Re-fetch with it true (plus `since`) for the step you care about."
+        ),
+    ),
     current_user: User = Depends(require_role(Role.viewer)),
     bu: BUScope = Depends(current_bu),
     db: AsyncSession = Depends(get_db),
 ):
-    """Per-step timeline for a run: status, started/completed, duration, output, summary."""
+    """Per-step timeline for a run: status, started/completed, duration, output, summary.
+
+    `since` + `include_output=false` are what make `tdt run watch` cheap: the
+    executor's terraform output can run to megabytes, and re-sending the whole
+    timeline every few seconds is the bulk of the traffic on a long apply.
+    """
     run = await scoped_run(run_id, bu, db)
     api_key_service.enforce(request, need="read", workspace_id=run.workspace_id)
     rows = await steps_svc.list_steps(db, run_id)
     out: list[RunStepResponse] = []
     for s in rows:
+        if s.position < since:
+            continue
         out.append(
             RunStepResponse(
                 id=s.id,
@@ -765,7 +840,7 @@ async def list_run_steps(
                 started_at=s.started_at.isoformat() if s.started_at else None,
                 completed_at=s.completed_at.isoformat() if s.completed_at else None,
                 duration_seconds=s.duration_seconds,
-                output=s.output,
+                output=s.output if include_output else None,
                 summary_json=s.summary_json,
             )
         )

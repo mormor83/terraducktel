@@ -1,0 +1,166 @@
+{
+  "_comment": [
+    "Every API endpoint the CLI depends on, and the command that uses it.",
+    "Two tests read this file and together stop the CLI from silently drifting",
+    "away from the API the way the hand-written SKILL.md did:",
+    "  services/api/tests/test_cli_api_contract.py  \u2014 every entry here must exist",
+    "      in the app's OpenAPI schema (catches a moved or renamed endpoint).",
+    "  services/cli/tests/test_contract_covers_source.py \u2014 every path the CLI",
+    "      source actually calls must be listed here (catches an undeclared call).",
+    "Paths are relative to the API base (`/api/v1`).",
+    "An entry with \"browser\": true is a URL the CLI hands to a browser rather than fetching itself (the --sso loopback flow). It is still a real dependency \u2014 the API-side test guards it \u2014 but the source-coverage test cannot see it as a call, so it is exempt from the dead-entry check."
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/auth/token",
+      "used_by": "tdt login --password"
+    },
+    {
+      "method": "GET",
+      "path": "/auth/config",
+      "used_by": "tdt login (provider discovery: sso vs password)"
+    },
+    {
+      "method": "GET",
+      "path": "/auth/oidc/login",
+      "used_by": "tdt login --sso (browser is sent here; CLI never fetches it)",
+      "browser": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/refresh",
+      "used_by": "automatic token refresh"
+    },
+    {
+      "method": "GET",
+      "path": "/workspaces",
+      "used_by": "tdt ws list, name resolution, whoami probe"
+    },
+    {
+      "method": "GET",
+      "path": "/workspaces/{workspace_id}",
+      "used_by": "tdt ws get"
+    },
+    {
+      "method": "POST",
+      "path": "/workspaces",
+      "used_by": "tdt ws create"
+    },
+    {
+      "method": "PUT",
+      "path": "/workspaces/{workspace_id}",
+      "used_by": "tdt ws set-ref, tdt run plan/apply --branch"
+    },
+    {
+      "method": "DELETE",
+      "path": "/workspaces/{workspace_id}",
+      "used_by": "tdt ws delete"
+    },
+    {
+      "method": "GET",
+      "path": "/workspaces/{workspace_id}/branches",
+      "used_by": "tdt ws branches"
+    },
+    {
+      "method": "POST",
+      "path": "/workspaces/discover",
+      "used_by": "tdt ws discover"
+    },
+    {
+      "method": "POST",
+      "path": "/workspaces/sync",
+      "used_by": "tdt ws sync (all)"
+    },
+    {
+      "method": "POST",
+      "path": "/workspaces/{workspace_id}/sync",
+      "used_by": "tdt ws sync <ws>"
+    },
+    {
+      "method": "GET",
+      "path": "/workspaces/{workspace_id}/state-lock",
+      "used_by": "tdt ws unlock"
+    },
+    {
+      "method": "DELETE",
+      "path": "/workspaces/{workspace_id}/state-lock",
+      "used_by": "tdt ws unlock"
+    },
+    {
+      "method": "POST",
+      "path": "/workspaces/{workspace_id}/runs",
+      "used_by": "tdt run plan, tdt run apply"
+    },
+    {
+      "method": "GET",
+      "path": "/runs",
+      "used_by": "tdt run list, tdt context"
+    },
+    {
+      "method": "GET",
+      "path": "/runs/{run_id}",
+      "used_by": "tdt run get, watch loop"
+    },
+    {
+      "method": "GET",
+      "path": "/runs/{run_id}/steps",
+      "used_by": "tdt run steps, watch loop"
+    },
+    {
+      "method": "GET",
+      "path": "/runs/{run_id}/graph",
+      "used_by": "tdt run graph, the approval gate"
+    },
+    {
+      "method": "GET",
+      "path": "/runs/{run_id}/plan",
+      "used_by": "tdt run plan-output"
+    },
+    {
+      "method": "POST",
+      "path": "/runs/{run_id}/approve",
+      "used_by": "tdt run approve, gated apply"
+    },
+    {
+      "method": "POST",
+      "path": "/runs/{run_id}/reject",
+      "used_by": "tdt run reject, gate refusal"
+    },
+    {
+      "method": "POST",
+      "path": "/runs/{run_id}/cancel",
+      "used_by": "tdt run cancel"
+    },
+    {
+      "method": "GET",
+      "path": "/drift/summary",
+      "used_by": "tdt drift summary, tdt context"
+    },
+    {
+      "method": "GET",
+      "path": "/drift/{workspace_id}",
+      "used_by": "tdt drift get"
+    },
+    {
+      "method": "POST",
+      "path": "/drift/{workspace_id}/scan",
+      "used_by": "tdt drift scan"
+    },
+    {
+      "method": "GET",
+      "path": "/business-units",
+      "used_by": "tdt show bus"
+    },
+    {
+      "method": "GET",
+      "path": "/aws-accounts",
+      "used_by": "tdt show accounts"
+    },
+    {
+      "method": "GET",
+      "path": "/clusters",
+      "used_by": "tdt show clusters"
+    }
+  ]
+}

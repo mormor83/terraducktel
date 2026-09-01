@@ -38,6 +38,10 @@ dev = [
     "pytest-cov",
     "httpx",
     "aiosqlite>=0.20",
+    # test_ci_pipeline_gating.py parses .github/workflows/ci-cd.yml to assert
+    # the deploy job stays gated behind the tests. Declared explicitly: without
+    # it the import fails in CI and the guard silently stops running.
+    "pyyaml",
 ]
 
 [tool.setuptools.packages.find]

@@ -1,0 +1,213 @@
+# One pipeline: test → release.
+#
+# This replaces two workflows (ci.yml, release.yml) that both fired on the same
+# push and ran *concurrently*, because `needs:` cannot cross workflow files.
+# Ordering them matters: the release job creates this commit's tag, and anything
+# downstream that reads `git tag -l` must run after it.
+#
+# It also adds `pull_request: dev`, which was missing: on a deployment where
+# `dev` is the default branch, every feature PR targets it — and those PRs ran
+# no checks at all.
+#
+# Job graph:
+#
+#   api-tests ┐
+#   cli-tests ├─► release
+#   ui        │
+#   next-ver  ┘
+#   trivy ..... advisory, deliberately not a dependency (see the job)
+#
+# Deploying the built images is intentionally not part of this file: how you
+# ship them is deployment-specific. `scripts/deploy-to-aws.sh` is a worked
+# example for an ECS target.
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Explicit release tag, e.g. v0.2.0. Empty = auto-compute."
+        required: false
+      bump:
+        description: "Bump level when auto-computing"
+        required: false
+        default: auto
+        type: choice
+        options: [auto, patch, minor, major]
+
+# Least privilege by default; the two jobs that need more widen it themselves.
+permissions:
+  contents: read
+
+# Per-ref serialization. PR runs cancel their own superseded runs; pushes to a
+# release branch never cancel, so two rapid merges cannot race on the tag. This
+# subsumes the old `group: release`.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+
+jobs:
+  # ── gate: everything below waits on these ──────────────────────────────────
+  # NOTE: the pytest suite's conftest OWNS the test secrets (JWT_SECRET_KEY /
+  # CREDENTIAL_ENCRYPTION_KEY / *_TOKEN) and refuses to run if they are set to
+  # non-test-prefixed values — so we deliberately do NOT set them here. The
+  # tests build an in-memory SQLite schema from the models.
+  api-tests:
+    name: API tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: services/api
+        run: pip install -e ".[dev]"
+      - name: Run tests
+        working-directory: services/api
+        run: python -m pytest tests/ -q --tb=short
+
+  cli-tests:
+    name: CLI tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: services/cli
+        run: pip install -e . pytest
+      - name: Run tests
+        working-directory: services/cli
+        run: python -m pytest tests/ -q --tb=short
+
+  ui:
+    name: UI (type-check, build, unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/ui/package-lock.json
+      - name: Install dependencies
+        working-directory: services/ui
+        run: npm ci
+      - name: Type-check + build
+        working-directory: services/ui
+        run: npm run build
+      - name: Unit tests
+        working-directory: services/ui
+        run: npm run test
+
+  release-version:
+    name: Release version logic
+    runs-on: ubuntu-latest
+    # Guards the semver bump the release job derives from conventional commits.
+    # Cheap (throwaway git repos in a temp dir, no deps) and worth it: a bug
+    # here silently mis-versions or skips a release.
+    steps:
+      - uses: actions/checkout@v4
+      - name: next-version regression tests
+        run: bash scripts/test-next-version.sh
+
+  security-scan:
+    name: Trivy IaC scan (informational)
+    runs-on: ubuntu-latest
+    # Deliberately NOT in any `needs:` list. It is `continue-on-error`, so a
+    # finding does not fail the workflow — but a *dependent* job would still be
+    # skipped on its failure, which would turn an advisory scan into a silent
+    # deploy blocker. Keep it parallel and advisory until someone decides it
+    # should gate, at which point drop continue-on-error and add it to `needs`.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy (pinned + checksum-verified)
+        run: |
+          set -euo pipefail
+          TRIVY_VERSION=0.70.0
+          TRIVY_TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          WORKDIR="$(mktemp -d)"
+          cd "$WORKDIR"
+          curl -sfLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_TARBALL}"
+          curl -sfLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
+          grep " ${TRIVY_TARBALL}\$" "trivy_${TRIVY_VERSION}_checksums.txt" | sha256sum -c -
+          tar -xzf "${TRIVY_TARBALL}" -C /usr/local/bin trivy
+          chmod +x /usr/local/bin/trivy
+          cd - >/dev/null
+          rm -rf "$WORKDIR"
+          trivy --version
+      - name: Trivy config scan
+        run: trivy config . --severity HIGH,CRITICAL
+
+  # ── release: cut the tag BEFORE the image tag is computed ──────────────────
+  release:
+    name: Create GitHub Release
+    needs: [api-tests, cli-tests, ui, release-version]
+    # Three ways in: a push to the repo's own default branch (auto-computed
+    # from conventional commits), an explicit `v*.*.*` tag push, or a manual
+    # dispatch. `branches: [main, dev]` above covers the public (`main`) and
+    # internal (`dev`) default branches so this file stays byte-identical in
+    # both repos; this guard means only the repo's own default branch
+    # auto-releases.
+    if: >-
+      github.event_name != 'pull_request' &&
+      (startsWith(github.ref, 'refs/tags/') ||
+       github.ref_name == github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # create the tag + the release
+    outputs:
+      released: ${{ steps.t.outputs.release }}
+      tag: ${{ steps.t.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history + tags: the bump is computed from them
+
+      # Bump rules + reasoning live in scripts/next-version.sh, regression-
+      # tested by scripts/test-next-version.sh above. It prints `key=value` on
+      # stdout and its log on stderr.
+      - name: Resolve tag
+        id: t
+        env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_BUMP: ${{ inputs.bump }}
+        run: bash scripts/next-version.sh >> "$GITHUB_OUTPUT"
+
+      # The tag is created and the release cut in the SAME step, deliberately:
+      # a tag pushed with GITHUB_TOKEN does not trigger other workflows, so a
+      # "push tag → react to tag" design would silently never fire.
+      - name: Create tag + release (auto-generated notes)
+        if: steps.t.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.t.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse "${TAG}" >/dev/null 2>&1; then
+            git tag "${TAG}"
+            git push origin "${TAG}"
+          fi
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists — nothing to do."
+          else
+            gh release create "${TAG}" --title "${TAG}" --generate-notes
+          fi
+          echo "### Released \`${TAG}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Summary (no release)
+        if: steps.t.outputs.release != 'true'
+        run: echo "No release cut for this event." >> "$GITHUB_STEP_SUMMARY"
