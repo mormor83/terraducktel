@@ -140,7 +140,7 @@ forward-only (`services/api/alembic/versions/NNN_*.py`).
 | `Config` / `ConfigHistory` | `config` / `config_history` | Generic key/value runtime config (see [§6](#6-encryption-model)); every write is versioned in `config_history`. |
 | `GlobalVariable` / `WorkspaceVariable` | `global_variables` / `workspace_variables` | Encrypted `TF_VAR_*` sources at BU-global and per-workspace scope. Merge order at executor launch: `global ← workspace ← run` (run-scope values live inline on `Run.variables_encrypted`, not here). |
 | `AuditLog` | `audit_logs` | Append-only, hash-chained audit trail (see [§10](#10-webhooks-notifications-audit-log)). |
-| `APIKey` | `api_keys` | Scoped automation credential (see [§5](#5-auth--rbac)). |
+| `APIKey` | `api_keys` | Scoped automation credential (see [§5](#5-auth-rbac)). |
 | `ChangelogEntry` | `changelog_entries` | TDT-owned changelog shown in Settings → Changelog; rows are `github` (synced from merged PRs) or `manual` (admin-authored). |
 
 ---

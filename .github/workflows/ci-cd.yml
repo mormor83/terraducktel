@@ -211,3 +211,75 @@ jobs:
       - name: Summary (no release)
         if: steps.t.outputs.release != 'true'
         run: echo "No release cut for this event." >> "$GITHUB_STEP_SUMMARY"
+
+  # ── docs site: publish docs/ to gh-pages under /docs/ ──────────────────────
+  docs:
+    name: Publish docs
+    needs: [api-tests, cli-tests, ui, release-version]
+    # Only from the repo's own default branch. A PR must still *build* the docs
+    # (the build step below runs on PRs via `mkdocs build --strict`), but only a
+    # merge publishes.
+    if: >-
+      github.event_name == 'push' &&
+      github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push the built site to gh-pages
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MkDocs
+        run: pip install mkdocs-material
+
+      - name: Build
+        run: mkdocs build --strict
+
+      - name: Publish to gh-pages/docs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The landing page is a hand-written index.html at the root of
+          # gh-pages. `mkdocs gh-deploy` would replace the whole branch and take
+          # it with it, so the site is spliced into the `docs/` subtree instead
+          # and everything else on the branch is left alone.
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          tmp="$(mktemp -d)"
+          git worktree add --quiet "$tmp" gh-pages
+
+          rm -rf "$tmp/docs"
+          mkdir -p "$tmp/docs"
+          cp -R site/. "$tmp/docs/"
+          # Jekyll would otherwise swallow MkDocs' _-prefixed asset dirs.
+          touch "$tmp/.nojekyll"
+
+          cd "$tmp"
+          git add -A docs .nojekyll
+          if git diff --cached --quiet; then
+            echo "Docs unchanged."
+          else
+            git commit -m "docs: rebuild from ${GITHUB_SHA::8}"
+            git push origin gh-pages
+            echo "Published https://mormor83.github.io/terraducktel/docs/"
+          fi
+
+  # ── docs build check on PRs (no publish) ───────────────────────────────────
+  docs-build:
+    name: Docs build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mkdocs-material
+      # --strict turns a broken internal link or a page missing from the nav
+      # into a failure, which is the only way docs stay correct.
+      - run: mkdocs build --strict

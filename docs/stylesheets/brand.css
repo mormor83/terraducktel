@@ -1,0 +1,33 @@
+/* Terraducktel palette, lifted from docs/branding/td/tokens/tokens.json so the
+   docs and the landing page are demonstrably the same colours rather than
+   approximately the same colours. */
+:root {
+  --td-brand-300: #56aaa3;
+  --td-brand-400: #2f8a85;
+  --td-brand-500: #1f6f6c;
+  --td-brand-700: #134847;
+  --td-accent-400: #5eb85a;
+}
+
+[data-md-color-primary="custom"] {
+  --md-primary-fg-color: var(--td-brand-500);
+  --md-primary-fg-color--light: var(--td-brand-400);
+  --md-primary-fg-color--dark: var(--td-brand-700);
+}
+
+[data-md-color-accent="custom"] {
+  --md-accent-fg-color: var(--td-brand-400);
+}
+
+/* In dark mode the 500 is too low-contrast against the slate surface for link
+   text, so links move up two steps. Material's own slate scheme does the same
+   for its defaults. */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: var(--td-brand-700);
+  --md-accent-fg-color: var(--td-brand-300);
+  --md-typeset-a-color: var(--td-brand-300);
+}
+
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: var(--td-brand-500);
+}

@@ -1,0 +1,101 @@
+# Docs site for https://mormor83.github.io/terraducktel/docs/
+#
+# The landing page is a hand-built index.html living at the root of the
+# gh-pages branch. This builds into `docs/` *underneath* it, so the two
+# coexist: `/` stays the marketing page, `/docs/` is the reference. The deploy
+# job in .github/workflows/ci-cd.yml only ever replaces the `docs/` subtree —
+# `mkdocs gh-deploy` is deliberately NOT used, because it wipes the branch.
+
+site_name: Terraducktel
+site_description: Self-hosted Terraform & Helm orchestration with a human approval gate.
+site_url: https://mormor83.github.io/terraducktel/docs/
+repo_url: https://github.com/mormor83/terraducktel
+repo_name: mormor83/terraducktel
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  logo: branding/td/brand/terraducktel-mark.svg
+  favicon: branding/td/brand/favicon.svg
+  font:
+    # Matches the landing page so moving between them doesn't feel like two
+    # different products.
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    # Follows the OS by default, with an explicit toggle — the same three-state
+    # behaviour the app itself has.
+    - media: "(prefers-color-scheme)"
+      # `primary`/`accent` must be repeated here, not only on the light and dark
+      # entries: the auto entry is the one Material renders first, and without
+      # them it stamps data-md-color-primary="indigo" and the brand palette
+      # never loads for anyone on the default (system) setting — i.e. most
+      # visitors.
+      primary: custom
+      accent: custom
+      toggle: { icon: material/brightness-auto, name: Follow system }
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle: { icon: material/brightness-7, name: Switch to dark }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle: { icon: material/brightness-4, name: Switch to light }
+
+extra_css:
+  - stylesheets/brand.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+
+plugins:
+  - search
+
+nav:
+  - Overview: index.md
+  - Getting started: ONBOARDING.md
+  - CLI (tdt): CLI.md
+  - Architecture: ARCHITECTURE.md
+  - API reference: API.md
+  - Operations:
+      - Disaster recovery: RUNBOOK-disaster-recovery.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mormor83/terraducktel
+
+# `docs/branding/**` is image and token assets, not pages. They still need to
+# ship (the theme logo points into them), so they are copied but kept out of
+# the nav rather than excluded outright.
+not_in_nav: |
+  branding/**

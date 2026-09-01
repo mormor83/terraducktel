@@ -20,3 +20,5 @@ services/api/.venv/
 services/cli/.venv/
 .coverage
 htmlcov/
+# MkDocs build output (see mkdocs.yml)
+site/
