@@ -186,7 +186,7 @@ policies in the BU. Every write requires a concrete `X-Business-Unit` — 400 if
 scoped to "all".
 
 Executor-facing: `GET /api/v1/runs/{run_id}/policies` (operator) returns the
-merged gate config + enabled policies for the run's BU — see [Runs](#runs--apiv1runs--apiv1workspacesidruns).
+merged gate config + enabled policies for the run's BU — see [Runs](#runs-apiv1runs-apiv1workspacesidruns).
 
 ---
 
