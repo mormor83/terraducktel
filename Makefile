@@ -1,4 +1,4 @@
-.PHONY: up down build test test-api test-ui test-integration lint scan onboard seed-db logs ps metrics
+.PHONY: up down build test test-api test-cli test-ui test-integration lint scan onboard seed-db logs ps metrics
 
 up:
 	docker compose up -d --wait
@@ -9,10 +9,13 @@ down:
 build:
 	docker compose build
 
-test: test-api
+test: test-api test-cli
 
 test-api:
 	cd services/api && python -m pytest tests/ -v
+
+test-cli:
+	cd services/cli && python -m pytest tests/ -q
 
 test-ui:
 	cd services/ui && npm run test:e2e

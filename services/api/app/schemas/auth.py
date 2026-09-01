@@ -7,6 +7,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RefreshRequest(BaseModel):
+    """Body for `POST /api/v1/auth/refresh` — redeem a refresh token."""
+    refresh_token: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

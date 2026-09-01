@@ -10,9 +10,13 @@ node_modules/
 dist/
 
 # Claude Code per-project session state (settings.local.json, scheduled_tasks.lock)
-.claude/
+# Ignore local Claude state, but DO track the project-scoped skill so a
+# fresh clone picks it up without anyone running `tdt skill install`.
+.claude/*
+!.claude/skills/
 
 # Local test venv
 services/api/.venv/
+services/cli/.venv/
 .coverage
 htmlcov/

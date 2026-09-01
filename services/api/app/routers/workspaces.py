@@ -787,7 +787,11 @@ async def delete_workspace(
     """
     from sqlalchemy import delete as sql_delete
 
+    from sqlalchemy import update as sql_update
+
+    from app.models.cloud_asset import CloudAsset
     from app.models.run import Run, RunArtifact
+    from app.models.run_job import RunJob
     from app.models.run_step import RunStep
     from app.models.drift_report import DriftReport
     from app.models.state_lock import StateLockEntry
@@ -832,9 +836,24 @@ async def delete_workspace(
     if run_ids:
         await db.execute(sql_delete(RunArtifact).where(RunArtifact.run_id.in_(run_ids)))
         await db.execute(sql_delete(RunStep).where(RunStep.run_id.in_(run_ids)))
+        # run_jobs is written by the queued worker (run_worker.create_job), so
+        # it is empty in a dev stack that launches the executor directly and
+        # populated anywhere the worker runs. Omitting it made every delete of a
+        # workspace that had really executed fail on the FK — a 500 that rolled
+        # the whole delete back. SQLite does not enforce FKs, which is why the
+        # tests never saw it.
+        await db.execute(sql_delete(RunJob).where(RunJob.run_id.in_(run_ids)))
         await db.execute(sql_delete(Run).where(Run.workspace_id == workspace_id))
     await db.execute(sql_delete(DriftReport).where(DriftReport.workspace_id == workspace_id))
     await db.execute(sql_delete(StateLockEntry).where(StateLockEntry.workspace_id == workspace_id))
+    # cloud_assets.workspace_id is nullable: unlink rather than delete. The
+    # resources still exist in the cloud, so their inventory history should
+    # outlive TDT's tracking row.
+    await db.execute(
+        sql_update(CloudAsset)
+        .where(CloudAsset.workspace_id == workspace_id)
+        .values(workspace_id=None)
+    )
 
     await db.delete(ws)
     await db.commit()
