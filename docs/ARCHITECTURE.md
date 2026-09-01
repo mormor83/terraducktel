@@ -32,6 +32,11 @@ is the single source of truth for both metadata and locking.
 
 ---
 
+Three clients speak the same HTTP API with no privileged back door between
+them: the React UI, the `tdt` CLI (terminals, CI, and AI agents — see
+[CLI](CLI.md)), and the executor, which is confined to run-scoped callback
+routes by a token type that cannot authenticate anywhere else.
+
 ## 2. Service topology
 
 ```
@@ -40,6 +45,7 @@ is the single source of truth for both metadata and locking.
                               └──────────────────┬───────────────────────┘
                                                   │
  browser ──────────────────► ui (nginx, :3001) ───┤
+ tdt CLI / CI / agent ────────────────────────────┤  (same HTTP API, no privileged path)
                                                   │
                                                   ▼
                                          api (FastAPI, :8001)
@@ -117,7 +123,7 @@ forward-only (`services/api/alembic/versions/NNN_*.py`).
 
 | Model | Table | What |
 |---|---|---|
-| `Workspace` | `workspaces` | One Terraform leaf module or one Helm chart. Canonical identity is `(business_unit_id, aws_account_id, region, environment, tf_working_dir)`. Carries `repo_url`/`repo_ref` (Git source), `kind` (`terraform` default or `helm`), `cluster_id` (helm target), `azure_subscription_id` / `gcp_project_id` (optional Azure/GCP targets), `state_backend` (`s3` default \| `azureblob` \| `gcs`), `drift_status`, `path_status` (`ok`/`orphaned`/`unknown` — tracks whether the leaf still exists at `repo_ref`), `webhook_enabled`. |
+| `Workspace` | `workspaces` | One Terraform leaf module or one Helm chart. Canonical identity is `(business_unit_id, aws_account_id, region, environment, tf_working_dir)`. Carries `repo_url`/`repo_ref` (Git source), `kind` (`terraform` default or `helm`), `cluster_id` (helm target), `azure_subscription_id` / `gcp_project_id` (optional Azure/GCP targets), `state_backend` (`s3` default \| `azureblob` \| `gcs`), `drift_status`, `path_status` (`ok`/`orphaned`/`unknown` — tracks whether the leaf still exists at `repo_ref`), `webhook_enabled`, `tags` (free-form key/value JSON; keys lowercased on write). Tags are a JSON column rather than a join table — at this fleet size a dict scan matches what an index would give, and it keeps tags atomic with the row so there is no orphan cleanup on delete. |
 | `Run` | `runs` | One plan/apply/destroy execution. FSM `status` (see [§4](#4-the-run-fsm)), captured `branch`, `plan_output`/`plan_json`, base64 `tfplan_b64` (the exact binary re-applied post-approval), encrypted `variables_encrypted` (per-run TF_VAR overrides), `policy_status`, `auto_approve_if_no_changes`/`auto_approve_skip_apply`. |
 | `RunStep` | `run_steps` | Per-step timeline row (Git Clone → Checkov → Plan → OPA → Cost → Awaiting Approval → Apply → …), kind-aware (Terraform vs. Helm step lists live in `run_step.py`). |
 | `RunArtifact` | `run_artifacts` | Blob output attached to a run (plan output, logs, checkov report). |
@@ -240,6 +246,14 @@ configurable JSON mapping, re-evaluated on every sign-in. Tested against a
 generic OIDC IdP — see `services/api/app/auth/oidc.py` for the group-mapping
 implementation.
 
+The same flow serves the CLI. `GET /auth/oidc/login?cli_port=&cli_nonce=`
+records the loopback port in the signed session cookie; the callback then hands
+the token pair to `http://127.0.0.1:<port>/callback` instead of the SPA. The
+IdP's registered `redirect_uri` never changes, and because the port rides the
+cookie rather than the URL, a crafted callback cannot retarget the hand-off —
+the host is hardcoded. `GET /auth/config` advertises `cli_loopback` so a client
+can detect support instead of hanging on a deployment that lacks it.
+
 ### Role hierarchy
 
 `viewer(0) < operator(1) < admin(2)`, defined in
@@ -302,8 +316,19 @@ mint/revoke keys, manage users, or create/update BUs. Those surfaces gate on
 the *owner's* `is_superadmin`, which an `admin` key would otherwise inherit
 as a privilege escalation if this guard didn't exist.
 
+**Rotation.** `POST /api-keys/{id}/regenerate` replaces a key's secret in place
+and the old one dies immediately — correct when a single consumer holds it.
+`POST /api-keys/{id}/rotate` instead mints a *successor* row and pulls the old
+key's `expires_at` in to `now + overlap_hours` (default 24, max 168), so both
+secrets authenticate during the window and consumers can be migrated one at a
+time. The overlap is enforced by the ordinary `expires_at` check in
+`api_key_service.is_active()` — no second auth path and no sweeper job. A
+rotation never *extends* a shorter expiry, and a key can only be rotated once
+(rotate its successor after that), so several live secrets can never hide behind
+one name. `rotated_at` and `superseded_by_id` record the link.
+
 Management: `POST/GET/DELETE /api/v1/api-keys`, `admin`-only, every
-create/revoke written to `AuditLog`. UI: Settings → **API keys** tab
+create/revoke/rotate written to `AuditLog`. UI: Settings → **API keys** tab
 (admin-only). Full detail in `docs/API.md` and `app/auth/rbac.py`.
 
 ---
@@ -615,6 +640,7 @@ Where to look when adding something new:
 | Adding... | Start here |
 |---|---|
 | A new API endpoint / resource type | `app/schemas/<domain>.py` → `app/services/<domain>_service.py` → `app/routers/<domain>.py` (thin, `require_role`-gated) → `tests/test_<domain>.py` → update `docs/API.md`. |
+| A new CLI command | `services/cli/tdt/commands/<group>_cmd.py`, then **add the endpoint to `services/cli/api_contract.json`** — two tests read that file to keep the CLI and the API from drifting apart, and one of them fails on an undeclared call. Update `docs/CLI.md` and the two copies of `SKILL.md` (a test enforces they stay identical). |
 | A new encrypted credential type | Copy the Fernet/HKDF pattern in `aws_account_service.py` / `cluster_service.py` — **derive a new domain-specific HKDF salt**, don't reuse an existing one or roll a new encryption scheme. See [§6](#6-encryption-model). |
 | A new cloud provider target (beyond AWS/Azure/K8s) | Model it like `AzureSubscription`/`K8sCluster`: its own table, its own encrypted-credential service, a `workspace.<provider>_id` FK, and executor_service branching analogous to the `kind=helm` path in `executor_service.py`. |
 | A new run step (scanner, gate, reporter) | `run_step.py`'s `DEFAULT_STEP_NAMES`/`HELM_STEP_NAMES` lists (order matters — it's display order) + the matching block in `services/executor/entrypoint.sh`, wired through `executor_service.py`'s env dict if it needs config. |
