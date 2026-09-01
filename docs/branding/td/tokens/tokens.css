@@ -1,0 +1,138 @@
+/* ============================================================
+   TERRADUCKTEL — Design Tokens
+   Drop-in CSS custom properties for the Terraform automation app.
+   Load on :root, then reference with var(--td-*).
+   ============================================================ */
+
+:root {
+  /* ---------- BRAND ---------- */
+  /* Primary teal — sampled from logo wordmark/body */
+  --td-brand-50:  #e8f4f3;
+  --td-brand-100: #c5e3df;
+  --td-brand-200: #8fc8c2;
+  --td-brand-300: #56aaa3;
+  --td-brand-400: #2f8a85;
+  --td-brand-500: #1f6f6c;   /* primary teal — wordmark */
+  --td-brand-600: #185a59;
+  --td-brand-700: #134847;
+  --td-brand-800: #0e3636;
+  --td-brand-900: #0a2424;
+
+  /* Accent — spring green from the wing highlights */
+  --td-accent-50:  #effaee;
+  --td-accent-100: #d4f2d2;
+  --td-accent-200: #a9e3a6;
+  --td-accent-300: #7ed078;
+  --td-accent-400: #5eb85a;   /* accent green */
+  --td-accent-500: #3f9b3e;
+  --td-accent-600: #2f7c34;
+  --td-accent-700: #245d2a;
+
+  /* ---------- NEUTRALS (warm) ---------- */
+  --td-bg:        #f6f7f4;   /* warm white — page background */
+  --td-surface:   #ffffff;   /* card surface */
+  --td-surface-2: #f0f2ee;   /* subtle inset */
+  --td-border:    #dfe3dc;
+  --td-border-strong: #b9bfb4;
+  --td-muted:     #6b7368;
+  --td-text:      #14201d;
+  --td-text-soft: #3a4641;
+
+  /* Dark inverted surface for code blocks, terminals, hero */
+  --td-ink:       #0e1f1d;
+  --td-ink-soft:  #16302d;
+
+  /* ---------- SEMANTIC (status) ---------- */
+  --td-success:   #2f9b56;
+  --td-success-bg:#e6f5ec;
+  --td-warning:   #c98a14;
+  --td-warning-bg:#fbf2dc;
+  --td-danger:    #c4452f;
+  --td-danger-bg: #fbe7e2;
+  --td-info:      #2a6f8e;
+  --td-info-bg:   #e2eef4;
+
+  /* Plan diff — Terraform-flavored */
+  --td-add:       #2f9b56;
+  --td-add-bg:    #e6f5ec;
+  --td-change:    #c98a14;
+  --td-change-bg: #fbf2dc;
+  --td-destroy:   #c4452f;
+  --td-destroy-bg:#fbe7e2;
+
+  /* ---------- TYPOGRAPHY ---------- */
+  --td-font-sans: "Inter", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  --td-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --td-font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --td-fs-xs:  12px;
+  --td-fs-sm:  13px;
+  --td-fs-md:  14px;
+  --td-fs-lg:  16px;
+  --td-fs-xl:  20px;
+  --td-fs-2xl: 24px;
+  --td-fs-3xl: 32px;
+  --td-fs-4xl: 44px;
+  --td-fs-5xl: 64px;
+
+  --td-fw-regular: 400;
+  --td-fw-medium:  500;
+  --td-fw-semibold:600;
+  --td-fw-bold:    700;
+
+  --td-lh-tight:  1.15;
+  --td-lh-normal: 1.45;
+  --td-lh-loose:  1.65;
+
+  /* ---------- SPACING (4px base) ---------- */
+  --td-space-1: 4px;
+  --td-space-2: 8px;
+  --td-space-3: 12px;
+  --td-space-4: 16px;
+  --td-space-5: 20px;
+  --td-space-6: 24px;
+  --td-space-8: 32px;
+  --td-space-10: 40px;
+  --td-space-12: 48px;
+  --td-space-16: 64px;
+
+  /* ---------- RADIUS ---------- */
+  --td-radius-xs: 4px;
+  --td-radius-sm: 6px;
+  --td-radius-md: 8px;
+  --td-radius-lg: 12px;
+  --td-radius-xl: 16px;
+  --td-radius-pill: 999px;
+
+  /* ---------- ELEVATION ---------- */
+  --td-shadow-sm: 0 1px 2px rgba(14, 31, 29, 0.06);
+  --td-shadow-md: 0 4px 12px rgba(14, 31, 29, 0.08), 0 1px 3px rgba(14, 31, 29, 0.04);
+  --td-shadow-lg: 0 12px 32px rgba(14, 31, 29, 0.12), 0 2px 6px rgba(14, 31, 29, 0.06);
+  --td-ring:      0 0 0 3px rgba(31, 111, 108, 0.25);
+
+  /* ---------- MOTION ---------- */
+  --td-ease-out: cubic-bezier(.2,.8,.2,1);
+  --td-dur-fast: 120ms;
+  --td-dur-base: 200ms;
+  --td-dur-slow: 360ms;
+
+  /* ---------- LAYOUT ---------- */
+  --td-container: 1200px;
+  --td-sidebar:   240px;
+  --td-topbar:    56px;
+}
+
+/* Dark theme — opt in via [data-theme="dark"] on <html> */
+[data-theme="dark"] {
+  --td-bg:        #0c1816;
+  --td-surface:   #122421;
+  --td-surface-2: #0e1f1d;
+  --td-border:    #1d3431;
+  --td-border-strong: #2c4a45;
+  --td-muted:     #8a9892;
+  --td-text:      #e9efea;
+  --td-text-soft: #b3bcb6;
+  --td-shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --td-shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  --td-shadow-lg: 0 12px 32px rgba(0,0,0,0.6);
+}

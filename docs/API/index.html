@@ -1,0 +1,3348 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted Terraform & Helm orchestration with a human approval gate.">
+      
+      
+      
+        <link rel="canonical" href="https://mormor83.github.io/terraducktel/docs/API/">
+      
+      
+        <link rel="prev" href="../ARCHITECTURE/">
+      
+      
+        <link rel="next" href="../RUNBOOK-disaster-recovery/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../branding/td/brand/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>API reference - Terraducktel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/brand.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#terraducktel-api-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Terraducktel" class="md-header__button md-logo" aria-label="Terraducktel" data-md-component="logo">
+      
+  <img src="../branding/td/brand/terraducktel-mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Terraducktel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              API reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mormor83/terraducktel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mormor83/terraducktel
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Terraducktel" class="md-nav__button md-logo" aria-label="Terraducktel" data-md-component="logo">
+      
+  <img src="../branding/td/brand/terraducktel-mark.svg" alt="logo">
+
+    </a>
+    Terraducktel
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mormor83/terraducktel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mormor83/terraducktel
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ONBOARDING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CLI/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI (tdt)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#auth-apiv1auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auth — /api/v1/auth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#users-apiv1users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Users — /api/v1/users
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-keys-apiv1api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Keys — /api/v1/api-keys
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#policies-apiv1policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policies — /api/v1/policies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#business-units-apiv1business-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Business Units — /api/v1/business-units
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aws-accounts-apiv1aws-accounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AWS Accounts — /api/v1/aws-accounts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#azure-subscriptions-apiv1azure-subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Azure Subscriptions — /api/v1/azure-subscriptions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gcp-projects-apiv1gcp-projects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GCP Projects — /api/v1/gcp-projects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kubernetes-clusters-apiv1clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kubernetes Clusters — /api/v1/clusters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspaces-apiv1workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspaces — /api/v1/workspaces
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Workspaces — /api/v1/workspaces">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#post-workspaces-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-workspacesdiscover-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces/discover — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-workspacesimport-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces/import — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-variables-apiv1workspacesidvariables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace variables — /api/v1/workspaces/{id}/variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#global-variables-apiv1variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global variables — /api/v1/variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runs-apiv1runs-apiv1workspacesidruns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runs — /api/v1/runs (+ /api/v1/workspaces/{id}/runs)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Runs — /api/v1/runs (+ /api/v1/workspaces/{id}/runs)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#post-workspacesidruns-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces/{id}/runs — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-status-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run status machine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#auto-approve-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auto-approve flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approvals-apiv1runsrun_id-approvereject" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approvals — /api/v1/runs/{run_id} (approve/reject)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#drift-apiv1drift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drift — /api/v1/drift
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inventory-apiv1inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inventory — /api/v1/inventory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#audit-apiv1audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit — /api/v1/audit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presence-apiv1presence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presence — /api/v1/presence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environments-apiv1environments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environments — /api/v1/environments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrations-apiv1integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integrations — /api/v1/integrations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Integrations — /api/v1/integrations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#github" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#github-webhook-per-bu-secret-org-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub webhook (per-BU secret + org binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#infracost-cost-estimation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Infracost (cost estimation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checkov-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checkov gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opa-policy-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OPA policy gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#terraform-modules-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terraform modules registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-infra-repo-git-import-prefill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default infra repo (Git-import prefill)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changelog-github-releases-merged-prs-feed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changelog (GitHub Releases / merged PRs feed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slack-bot-token-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slack (bot token + channel)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#webhooks-apiv1webhooks-public-hmac-authenticated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Webhooks — /api/v1/webhooks (public; HMAC-authenticated)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#internal-apiv1internal-state-token-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal — /api/v1/internal (state-token-auth)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-config-apiv1runtime-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime config — /api/v1/runtime-config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terraform-state-apiv1stateworkspace_id-state-token-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terraform state — /api/v1/state/{workspace_id} (state-token-auth)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-codes-used-everywhere" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status codes used everywhere
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#audit-actions-youll-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit actions you'll see
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RUNBOOK-disaster-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disaster recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#auth-apiv1auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auth — /api/v1/auth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#users-apiv1users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Users — /api/v1/users
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-keys-apiv1api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Keys — /api/v1/api-keys
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#policies-apiv1policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policies — /api/v1/policies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#business-units-apiv1business-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Business Units — /api/v1/business-units
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aws-accounts-apiv1aws-accounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AWS Accounts — /api/v1/aws-accounts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#azure-subscriptions-apiv1azure-subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Azure Subscriptions — /api/v1/azure-subscriptions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gcp-projects-apiv1gcp-projects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GCP Projects — /api/v1/gcp-projects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kubernetes-clusters-apiv1clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kubernetes Clusters — /api/v1/clusters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspaces-apiv1workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspaces — /api/v1/workspaces
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Workspaces — /api/v1/workspaces">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#post-workspaces-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-workspacesdiscover-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces/discover — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-workspacesimport-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces/import — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-variables-apiv1workspacesidvariables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace variables — /api/v1/workspaces/{id}/variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#global-variables-apiv1variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global variables — /api/v1/variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runs-apiv1runs-apiv1workspacesidruns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runs — /api/v1/runs (+ /api/v1/workspaces/{id}/runs)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Runs — /api/v1/runs (+ /api/v1/workspaces/{id}/runs)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#post-workspacesidruns-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces/{id}/runs — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-status-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run status machine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#auto-approve-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auto-approve flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approvals-apiv1runsrun_id-approvereject" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approvals — /api/v1/runs/{run_id} (approve/reject)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#drift-apiv1drift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drift — /api/v1/drift
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inventory-apiv1inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inventory — /api/v1/inventory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#audit-apiv1audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit — /api/v1/audit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presence-apiv1presence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presence — /api/v1/presence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environments-apiv1environments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environments — /api/v1/environments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrations-apiv1integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integrations — /api/v1/integrations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Integrations — /api/v1/integrations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#github" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#github-webhook-per-bu-secret-org-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub webhook (per-BU secret + org binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#infracost-cost-estimation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Infracost (cost estimation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checkov-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checkov gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opa-policy-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OPA policy gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#terraform-modules-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terraform modules registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-infra-repo-git-import-prefill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default infra repo (Git-import prefill)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changelog-github-releases-merged-prs-feed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changelog (GitHub Releases / merged PRs feed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slack-bot-token-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slack (bot token + channel)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#webhooks-apiv1webhooks-public-hmac-authenticated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Webhooks — /api/v1/webhooks (public; HMAC-authenticated)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#internal-apiv1internal-state-token-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal — /api/v1/internal (state-token-auth)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-config-apiv1runtime-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime config — /api/v1/runtime-config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terraform-state-apiv1stateworkspace_id-state-token-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terraform state — /api/v1/state/{workspace_id} (state-token-auth)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-codes-used-everywhere" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status codes used everywhere
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#audit-actions-youll-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit actions you'll see
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/mormor83/terraducktel/edit/main/docs/API.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="terraducktel-api-reference">Terraducktel API Reference<a class="headerlink" href="#terraducktel-api-reference" title="Permanent link">&para;</a></h1>
+<p>Complete endpoint catalog. Everything is HTTP/JSON over <code>/api/v1</code>.</p>
+<h2 id="conventions">Conventions<a class="headerlink" href="#conventions" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Base URL:</strong> <code>/api/v1</code> for user-facing endpoints, plus a handful of
+  state-token-authenticated <code>/api/v1/state/*</code>, <code>/api/v1/internal/*</code> and
+  <code>/api/v1/webhooks/*</code> paths used by the executor / drift detector /
+  webhook senders.</li>
+<li><strong>Auth:</strong> Every user-facing endpoint requires a JWT Bearer token
+  (<code>Authorization: Bearer …</code>) <strong>or an API key</strong> (<code>Authorization: Bearer tdt_…</code>,
+  see API Keys below). State + internal + webhook endpoints authenticate via the
+  <code>X-Terraducktel-State-Token</code> header or a webhook HMAC signature instead.</li>
+<li><strong>Business Unit scoping:</strong> Most user-facing list/write endpoints honor
+  <code>X-Business-Unit: &lt;slug&gt;</code>. Rules (see <code>app/auth/bu_context.py</code>):</li>
+<li>Superadmin, no header (or header <code>all</code>) → all BUs, no filter.</li>
+<li>Superadmin, header <code>&lt;slug&gt;</code> → that BU (404 if it doesn't exist).</li>
+<li>Member, no header → caller's first BU membership (alphabetical by slug).</li>
+<li>Member, header <code>&lt;slug&gt;</code> → that BU if the caller is a member (403 otherwise).</li>
+<li>Member, header <code>all</code> → 403 (only superadmins can view "all").</li>
+<li>An <strong>API key</strong> always forces its own bound BU — any <code>X-Business-Unit</code>
+    header sent alongside a key is ignored.</li>
+<li>Endpoints noted as <code>BU-scoped</code> filter by the resolved scope; endpoints
+    noted as <code>cross-BU</code> ignore it entirely.</li>
+<li><strong>Roles:</strong> <code>viewer &lt; operator &lt; admin</code>. Endpoints document the minimum
+  role required. A handful of routers (Users, API Keys, Business Units) are
+  <strong>interactive-only</strong> — they reject API-key callers outright regardless of
+  the key's capability tier, because they touch identity/tenancy rather than
+  workspace operations.</li>
+<li><strong>Secrets:</strong> GET endpoints for integrations and credentialed resources
+  (AWS accounts, Azure subscriptions, clusters, variables) never return
+  plaintext — only <code>{configured, masked_tail}</code> shapes and (for some) a
+  cached identity (Slack workspace name, GitHub login, etc.).</li>
+<li><strong>Pagination:</strong> Most list endpoints return the full result set (BU-scoped
+  collections are small by design). Two exceptions currently paginate
+  explicitly: <code>GET /inventory/assets</code> (<code>limit</code>/<code>offset</code> query params, default
+  <code>limit=200</code>, max <code>1000</code>) and API-key-authenticated automation is expected
+  to filter client-side otherwise.</li>
+</ul>
+<p>JWT format:
+- <strong>Access token:</strong> HS256, default 480min/8h expiry (tunable via
+  <code>auth.access_token_expire_minutes</code> in Runtime Config), claims: <code>sub</code> (user
+  id), <code>email</code>, <code>role</code>, <code>is_superadmin</code>, <code>name</code>, <code>type: "access"</code>.
+- <strong>Refresh token:</strong> HS256, default 24h expiry (tunable via
+  <code>auth.refresh_token_expire_hours</code>), claims: <code>sub</code>, <code>type: "refresh"</code>.</p>
+<hr />
+<h2 id="auth-apiv1auth">Auth — <code>/api/v1/auth</code><a class="headerlink" href="#auth-apiv1auth" title="Permanent link">&para;</a></h2>
+<p>Local email+password login is always available as a break-glass path, even
+when OIDC SSO is the primary provider. OIDC is gated by the <code>auth.provider</code>
+config key (<code>local</code> / <code>oidc</code> / <code>both</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Auth</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/auth/token</code></td>
+<td>Local email+password login. Returns access + refresh tokens.</td>
+<td>public</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/auth/config</code></td>
+<td>Public auth config: <code>{mode, oidc_enabled, oidc_issuer}</code>.</td>
+<td>public</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/auth/oidc/login</code></td>
+<td>Begin OIDC login redirect for the configured provider. 404 if OIDC isn't enabled; 503 if enabled but not configured.</td>
+<td>public</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/auth/oidc/callback</code></td>
+<td>OIDC callback target — exchanges the auth code for tokens, upserts the local user, redirects the browser to <code>/auth/oidc-finish?access_token=…&amp;refresh_token=…</code>.</td>
+<td>public</td>
+</tr>
+</tbody>
+</table>
+<p><strong>POST /auth/token</strong> body <code>{"email": "...", "password": "..."}</code> →
+<code>{"access_token", "refresh_token", "token_type": "bearer"}</code>. 401 on bad
+credentials.</p>
+<p>OIDC role mapping (tested against a generic OIDC-compliant IdP) reads a
+configurable claim (default group/role claim) and maps it to a TDT role +
+<code>is_superadmin</code>; see <code>services/api/app/auth/oidc.py</code> for the config-key contract.</p>
+<hr />
+<h2 id="users-apiv1users">Users — <code>/api/v1/users</code><a class="headerlink" href="#users-apiv1users" title="Permanent link">&para;</a></h2>
+<p>Lists users and edits superadmin status / per-Business-Unit memberships.
+<strong>Interactive-only</strong> — the whole router rejects API-key callers, even
+<code>admin</code>-tier ones, since identity management must never be automatable.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/users</code></td>
+<td>List all users with their per-BU memberships.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/users/eligible-reviewers</code></td>
+<td><em>Deprecated</em> — 4-eyes was removed. Always returns <code>[]</code>.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/users/{user_id}</code></td>
+<td>Update a user's <code>is_superadmin</code> flag and/or BU memberships.</td>
+<td>superadmin</td>
+</tr>
+</tbody>
+</table>
+<p><strong>PATCH /users/{user_id}</strong> body:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>{
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  "is_superadmin": true,                 // optional
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  "add_memberships": [                    // optional
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    {"business_unit_id": "&lt;bu-id&gt;", "role": "operator"}   // role: operator | viewer
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  ],
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  "remove_memberships": ["&lt;bu-id&gt;"]        // optional, list of business_unit_id
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>}
+</code></pre></div>
+Requires the caller to already be a superadmin (checked against
+<code>current_user.is_superadmin</code>, independent of the <code>admin</code> role on <code>/users</code>
+GET). Demoting the last remaining superadmin is rejected with 409. Adding a
+membership for a BU that doesn't exist is a 400; adding a membership that
+already exists just updates its role.</p>
+<p>Response (<code>UserResponse</code>): <code>{id, email, role, auth_provider, external_id,
+is_superadmin, memberships: [{business_unit_id, business_unit_slug,
+business_unit_name, role}]}</code>.</p>
+<hr />
+<h2 id="api-keys-apiv1api-keys">API Keys — <code>/api/v1/api-keys</code><a class="headerlink" href="#api-keys-apiv1api-keys" title="Permanent link">&para;</a></h2>
+<p>Long-lived, scoped credentials for automation. Admin-only to manage; the key
+itself authenticates as its owner but is capped at its capability tier and
+(optionally) a workspace allowlist, and is pinned to one BU. <strong>Interactive-only</strong>
+router — an API key can never mint, rotate, or revoke API keys, even at the
+<code>admin</code> tier (privilege-escalation guard).</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/api-keys</code></td>
+<td>List keys in the current BU (masked — <code>token_prefix</code>, never the token).</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api-keys</code></td>
+<td>Mint a key. Returns the plaintext <code>token</code> <strong>once</strong>.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api-keys/{id}/regenerate</code></td>
+<td>Rotate an active key's secret in place, keeping name/capability/allowlist/expiry. Returns the new plaintext <code>token</code> <strong>once</strong>.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api-keys/{id}</code></td>
+<td>Soft-revoke a key (immediate 401 for further use). Idempotent.</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p><strong>POST /api-keys</strong> body:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>{
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  "name": "ci-deploy-bot",
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  "capability": "plan",            // read | plan | apply | admin
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  "workspace_ids": ["&lt;ws-id&gt;"],    // optional allowlist; omit/null = whole BU
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  "expires_at": "2026-12-31T00:00:00Z"  // optional; omit = never
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>}
+</code></pre></div>
+→ <code>{ ...key, "token": "tdt_…" }</code> (the only response that carries the plaintext).
+Requires a concrete <code>X-Business-Unit</code> — 400 if scoped to "all". A non-empty
+<code>workspace_ids</code> is validated against the current BU; any id not in this BU
+→ 400. <code>expires_at</code> must be in the future or 400.</p>
+<p><strong>POST /api-keys/{id}/regenerate</strong> — mints a fresh secret for an existing key
+row, clears <code>last_used_at</code>, and keeps everything else (name, capability,
+workspace allowlist, expiry) unchanged. The old token stops working
+immediately. Rejects with <strong>409</strong> if the key is already revoked or has
+already expired — rotation only ever refreshes a <em>live</em> secret; create a new
+key instead of trying to revive a dead one.</p>
+<p><strong>DELETE /api-keys/{id}</strong> — sets <code>revoked_at</code>; calling it again on an
+already-revoked key is a no-op 200 (idempotent), not a 404/409.</p>
+<p><strong>Using a key:</strong> send <code>Authorization: Bearer tdt_…</code>. The key forces its own BU
+(any <code>X-Business-Unit</code> header is ignored). Capability gates:
+- <code>read</code> — viewer reads.
+- <code>plan</code> — trigger plan-only runs (+cancel).
+- <code>apply</code> — also trigger apply/destroy + approve/reject.
+- <code>admin</code> — full admin <strong>within the BU</strong>: everything <code>apply</code> can do <strong>plus</strong>
+  workspace create / discover / import / update / delete, AWS accounts, Azure
+  subscriptions, clusters, policies, drift, integrations, variables. Use this
+  for CLI-driven workspace discovery and onboarding. ⚠️ Powerful — treat the
+  token like an admin password.</p>
+<p><strong>Always interactive-only, even for an <code>admin</code> key:</strong> minting/rotating/revoking
+API keys, user management, and Business-Unit create/update. A key is bound to
+one BU and can never act across BUs. Requests outside the workspace allowlist
+→ 403; revoked/expired keys → 401.</p>
+<hr />
+<h2 id="policies-apiv1policies">Policies — <code>/api/v1/policies</code><a class="headerlink" href="#policies-apiv1policies" title="Permanent link">&para;</a></h2>
+<p>BU-scoped OPA/conftest rego rules. The executor enforces them (see the OPA
+policy gate in <code>/integrations/opa</code>); these endpoints author + test them. Every
+write snapshots into <code>policy_versions</code> and is audit-logged.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/policies</code></td>
+<td>List the BU's policies.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/policies</code></td>
+<td>Create (snapshots v1). Body: <code>{name, rego, description?, tests_rego?, severity?, enabled?}</code>.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/policies/test</code></td>
+<td>Dry-run vs a plan. Body: <code>{run_id\|plan_json, rego?, rego_name?, rego_severity?, policy_ids?}</code>. → <code>{ok, violations[], warnings[], engine_error?}</code>.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/policies/verify</code></td>
+<td>Run rego unit tests. Body: <code>{rego, tests_rego}</code>. → <code>{ok, passed, failures[], engine_error?}</code>.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/policies/{id}</code></td>
+<td>Policy detail (full rego).</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/policies/{id}</code></td>
+<td>Edit (bumps version). Body: any subset of the create fields.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/policies/{id}</code></td>
+<td>Delete the policy + its history.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/policies/{id}/versions</code></td>
+<td>Revision list (newest first).</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/policies/{id}/versions/{v}/restore</code></td>
+<td>Restore a revision into a new current version.</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p><code>severity</code> is <code>block</code> (fails the run under enforce mode) | <code>warn</code> | <code>info</code>.
+<code>POST /policies/test</code> requires exactly one plan source (<code>run_id</code> or <code>plan_json</code>);
+the policy set is the candidate <code>rego</code> and/or <code>policy_ids</code>, else all enabled
+policies in the BU. Every write requires a concrete <code>X-Business-Unit</code> — 400 if
+scoped to "all".</p>
+<p>Executor-facing: <code>GET /api/v1/runs/{run_id}/policies</code> (operator) returns the
+merged gate config + enabled policies for the run's BU — see <a href="#runs-apiv1runs-apiv1workspacesidruns">Runs</a>.</p>
+<hr />
+<h2 id="business-units-apiv1business-units">Business Units — <code>/api/v1/business-units</code><a class="headerlink" href="#business-units-apiv1business-units" title="Permanent link">&para;</a></h2>
+<p>Multi-tenancy root. <strong>Interactive-only</strong> router (API keys are bound to a
+single BU and can never touch this one, regardless of capability tier).</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/business-units</code></td>
+<td>List BUs the caller is a member of (superadmin sees all; an API-key caller sees only its own bound BU).</td>
+<td>any authenticated caller</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/business-units</code></td>
+<td>Create a BU. <code>{slug, name}</code>. 409 if the slug already exists.</td>
+<td>superadmin</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/business-units/{bu_id}</code></td>
+<td>Update a BU's <code>name</code> (slug is immutable post-create).</td>
+<td>superadmin</td>
+</tr>
+</tbody>
+</table>
+<p><code>slug</code> must match <code>^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$</code> (lowercase
+letters/digits/hyphens, 3-64 chars, no leading/trailing hyphen).</p>
+<hr />
+<h2 id="aws-accounts-apiv1aws-accounts">AWS Accounts — <code>/api/v1/aws-accounts</code><a class="headerlink" href="#aws-accounts-apiv1aws-accounts" title="Permanent link">&para;</a></h2>
+<p>Encrypted-at-rest AWS credentials, one row per account per BU.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+<th>BU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/aws-accounts</code></td>
+<td>List configured AWS accounts (masked).</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/aws-accounts</code></td>
+<td>Add an AWS account (creds stored encrypted).</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/aws-accounts/{account_pk}</code></td>
+<td>Update AWS account creds / display name.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/aws-accounts/{account_pk}</code></td>
+<td>Delete an AWS account row.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/aws-accounts/{account_pk}/test</code></td>
+<td>Probe creds via STS <code>GetCallerIdentity</code> + <code>s3:HeadBucket</code>.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/aws-accounts/{account_pk}/bucket</code></td>
+<td>Create the account's S3 state bucket if missing (idempotent).</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>POST /aws-accounts</strong> body: <code>{account_id (12-digit), name, description?,
+state_bucket, state_bucket_region?, default_region?, aws_profile_name?,
+access_key_id, secret_access_key}</code>. Requires a concrete <code>X-Business-Unit</code> —
+400 if scoped to "all". <code>account_id</code> is unique <strong>per BU</strong> (the same AWS
+account number may legitimately be registered in two different BUs) — a
+duplicate within the same BU is <strong>409</strong>.</p>
+<p><code>POST .../bucket</code> hardens a freshly created bucket with versioning, AES256
+default encryption, and a public-access block; response carries
+<code>already_existed</code> so callers can tell a no-op from a real creation.
+<code>{account_pk}</code> in the path is the TDT row id (not the 12-digit AWS account
+number).</p>
+<hr />
+<h2 id="azure-subscriptions-apiv1azure-subscriptions">Azure Subscriptions — <code>/api/v1/azure-subscriptions</code><a class="headerlink" href="#azure-subscriptions-apiv1azure-subscriptions" title="Permanent link">&para;</a></h2>
+<p>Encrypted-at-rest Azure Service Principal credentials, mirroring AWS Accounts.
+Workspaces that target <code>azurerm</code> link one of these; the executor exports
+<code>ARM_*</code> env vars from the decrypted SP secret at run time.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+<th>BU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/azure-subscriptions</code></td>
+<td>List configured subscriptions (masked).</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/azure-subscriptions</code></td>
+<td>Add a subscription (SP secret stored encrypted).</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/azure-subscriptions/{sub_pk}</code></td>
+<td>Update name/description/location or rotate the client secret.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/azure-subscriptions/{sub_pk}</code></td>
+<td>Delete a subscription row.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/azure-subscriptions/{sub_pk}/test</code></td>
+<td>Validate the SP creds via an ARM OAuth2 token; also probes the Blob state container when configured.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/azure-subscriptions/{sub_pk}/container</code></td>
+<td>Create (or verify) the Blob state container using the SP.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>POST /azure-subscriptions</strong> body: <code>{subscription_id, tenant_id, client_id
+(all UUIDs), client_secret, name, description?, default_location?,
+state_storage_account?, state_container?}</code>. Requires a concrete
+<code>X-Business-Unit</code>. <code>subscription_id</code> is unique per BU — duplicate → <strong>409</strong>.</p>
+<p><code>{sub_pk}</code> in the path is the TDT row id (not the Azure subscription GUID).
+Workspaces under a Git-synced repo at <code>azure/subscription-&lt;guid&gt;/&lt;region&gt;/&lt;stack&gt;</code>
+auto-link to the matching subscription by GUID on import — no manual picker
+needed if the subscription is already registered.</p>
+<p>Set <code>state_storage_account</code> + <code>state_container</code> to enable <strong>Azure Blob</strong> as a
+Terraform state backend for workspaces flagged <code>state_backend=azureblob</code> (state
+is written via the same SP over AAD — grant it <em>Storage Blob Data Contributor</em>).</p>
+<hr />
+<h2 id="gcp-projects-apiv1gcp-projects">GCP Projects — <code>/api/v1/gcp-projects</code><a class="headerlink" href="#gcp-projects-apiv1gcp-projects" title="Permanent link">&para;</a></h2>
+<p>Encrypted-at-rest GCP service-account keys, mirroring AWS Accounts / Azure
+Subscriptions. Workspaces that target the <code>google</code> provider link one of these;
+the executor writes the SA-key JSON to a 0600 file and exports
+<code>GOOGLE_APPLICATION_CREDENTIALS</code> / <code>GOOGLE_PROJECT</code> / <code>GOOGLE_REGION</code> at run time.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+<th>BU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/gcp-projects</code></td>
+<td>List configured projects (SA key never returned; email shown).</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/gcp-projects</code></td>
+<td>Add a project (SA-key JSON stored encrypted).</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/gcp-projects/{project_pk}</code></td>
+<td>Update name/description/region/state bucket or rotate the SA key.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/gcp-projects/{project_pk}</code></td>
+<td>Delete a project row.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/gcp-projects/{project_pk}/test</code></td>
+<td>Validate the SA key by minting an access token (google-auth).</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/gcp-projects/{project_pk}/bucket</code></td>
+<td>Create (or verify) the GCS state bucket using the SA key.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>POST /gcp-projects</strong> body: <code>{project_id, name, description?, default_region?,
+state_bucket?, state_prefix?, service_account_json}</code>. The JSON is validated
+structurally (must be a <code>service_account</code> key) and its embedded <code>project_id</code>
+must match — mismatch → <strong>422</strong>. <code>project_id</code> is unique per BU — duplicate → <strong>409</strong>.
+Set <code>state_bucket</code> to enable <strong>GCS</strong> as a Terraform state backend for workspaces
+flagged <code>state_backend=gcs</code>. Workspaces at <code>gcp/project-&lt;id&gt;/&lt;region&gt;/&lt;stack&gt;</code>
+auto-link to the matching project on import.</p>
+<hr />
+<h2 id="kubernetes-clusters-apiv1clusters">Kubernetes Clusters — <code>/api/v1/clusters</code><a class="headerlink" href="#kubernetes-clusters-apiv1clusters" title="Permanent link">&para;</a></h2>
+<p>Encrypted-at-rest kubeconfigs for Helm-kind workspaces
+(<code>workspace.kind=helm</code>). Mirrors AWS Accounts: BU-scoped CRUD +
+connectivity test. The kubeconfig is <strong>never</strong> returned or logged — responses
+carry only a masked tail.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+<th>BU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/clusters</code></td>
+<td>List clusters (masked).</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/clusters</code></td>
+<td>Register a cluster (kubeconfig stored encrypted).</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/clusters/{cluster_id}</code></td>
+<td>Update name/description/namespace, relink AWS account, or rotate the kubeconfig.</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/clusters/{cluster_id}</code></td>
+<td>Delete a cluster row.</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/clusters/{cluster_id}/test</code></td>
+<td>Validate connectivity via <code>kubectl version</code>.</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+</tbody>
+</table>
+<p><strong>POST /clusters</strong> body: <code>{name, description?, server_url?,
+default_namespace?, aws_account_id?, kubeconfig}</code>. <code>aws_account_id</code> is
+optional — set it for EKS clusters whose kubeconfig authenticates via the
+<code>aws eks get-token</code> exec plugin; the test/executor paths then export that
+account's decrypted creds (+ its <code>default_region</code>) into the subprocess
+environment. Leave null for non-EKS clusters.</p>
+<p><code>POST .../test</code> writes the decrypted kubeconfig to a private 0600 temp file,
+runs <code>kubectl version --request-timeout=8s</code>, and always deletes the temp file
+afterward — the kubeconfig itself is never echoed back in the result, only
+<code>{ok, detail?, context?}</code> (the resolved <code>kubectl config current-context</code>).</p>
+<hr />
+<h2 id="workspaces-apiv1workspaces">Workspaces — <code>/api/v1/workspaces</code><a class="headerlink" href="#workspaces-apiv1workspaces" title="Permanent link">&para;</a></h2>
+<p>A workspace is one Terraform state (or one Helm release) plus its Git-tracked
+source path. <code>kind</code> is <code>terraform</code> (default) or <code>helm</code> — Helm workspaces
+target a <code>cluster_id</code> instead of an <code>aws_account_id</code> and skip the S3/HTTP
+state backend entirely (Helm release state lives in-cluster).</p>
+<p><code>state_backend</code> (<code>s3</code> default | <code>azureblob</code> | <code>gcs</code>) selects where Terraform
+state is stored. <code>azureblob</code> requires a linked <code>azure_subscription_id</code> whose
+<code>state_storage_account</code>/<code>state_container</code> are set; <code>gcs</code> requires a linked
+<code>gcp_project_id</code> whose <code>state_bucket</code> is set — create/update <strong>422</strong> otherwise.
+<code>gcp_project_id</code> links the workspace to a GCP project (google provider), the
+mirror of <code>azure_subscription_id</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+<th>BU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/workspaces</code></td>
+<td>List workspaces.</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/workspaces/{id}</code></td>
+<td>Get a single workspace.</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/workspaces</code></td>
+<td>Create a workspace (manual).</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/workspaces/{id}</code></td>
+<td>Update workspace (branch override, drift settings, <code>state_aws_account_id</code>, <code>azure_subscription_id</code>, <code>gcp_project_id</code>, <code>state_backend</code>, …).</td>
+<td>admin-tier key or interactive operator+</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/workspaces/discover</code></td>
+<td>Enumerate importable paths in a Git repo or local mount.</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/workspaces/import</code></td>
+<td>Bulk-import workspaces from a discovery result.</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/workspaces/{id}/branches</code></td>
+<td>List GitHub branches for the workspace's repo (falls back to free text if no token / non-GitHub remote).</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/workspaces/{id}/sync</code></td>
+<td>Re-check a single workspace's path against its tracked ref now.</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/workspaces/sync</code></td>
+<td>Re-check every workspace's path in the current BU.</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/workspaces/{id}/state-lock</code></td>
+<td>Report whether a terraform state lock is currently held, and by which run.</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/workspaces/{id}/state-lock</code></td>
+<td>Force-release a stuck state lock. Audited (<code>workspace.force_unlock</code>).</td>
+<td>admin-tier key or interactive operator+</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/workspaces/{id}</code></td>
+<td>Delete a workspace. Rejects git-synced ones with 409 unless <code>?force=true</code>. With <code>?delete_state=true</code>, also removes the S3 tfstate (default: retain).</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+</tbody>
+</table>
+<p>Note on <code>PUT</code> and the state-lock <code>DELETE</code>: the route itself only requires
+<code>operator</code>+ for interactive JWT callers, but both are additionally gated via
+<code>api_key_service.enforce(..., need="admin", ...)</code>, which is a no-op for JWT
+callers and requires the <code>admin</code> capability tier for API-key callers. In
+practice: any interactive operator/admin can call them; an automation token
+needs the <code>admin</code> tier.</p>
+<h3 id="post-workspaces-body">POST /workspaces — body<a class="headerlink" href="#post-workspaces-body" title="Permanent link">&para;</a></h3>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>{
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  "name": "network-vpc",
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  "environment": "prod",
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  "aws_account_id": "111111111111",   // required unless kind="helm"
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  "region": "us-east-1",
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  "repo_url": "https://github.com/example-org/infra.git",  // optional; local:// or omit for manual
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  "tf_working_dir": ".",
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  "repo_ref": "main",
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  "webhook_enabled": false,
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  "kind": "terraform",                // "terraform" | "helm"
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>  "cluster_id": null,                 // required for kind="helm"
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>  "azure_subscription_id": null       // optional Azure link
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>}
+</code></pre></div>
+For <code>kind="helm"</code>, <code>cluster_id</code> must reference a cluster in the same BU (400
+otherwise) and <code>aws_account_id</code> defaults to the <code>"global"</code> sentinel if
+omitted. For <code>kind="terraform"</code>, <code>aws_account_id</code> is required and must
+reference an AWS account already registered in the same BU (400 otherwise).
+An optional <code>azure_subscription_id</code> must belong to the same BU if set (400
+otherwise).</p>
+<p>A workspace is unique per BU on <code>(aws_account_id, region, environment,
+tf_working_dir)</code> — violating that identity tuple on create or update returns
+a clean <strong>409</strong>, not a raw 500.</p>
+<h3 id="post-workspacesdiscover-body">POST /workspaces/discover — body<a class="headerlink" href="#post-workspacesdiscover-body" title="Permanent link">&para;</a></h3>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>{
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  "repo_url": "https://github.com/example-org/infra.git",  // or local_path (dev-only)
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>  "ref": "main",
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>  "username": "x-access-token",   // optional; falls back to configured GitHub PAT
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>  "token": "ghp_..."               // optional; falls back to Settings → GitHub
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>}
+</code></pre></div>
+Returns <code>{repo_url, ref, accounts: [{aws_account_id, regions: {&lt;region&gt;:
+[{path, name, aws_account_id, region, suggested_environment, has_tf, kind,
+already_imported}]}}], stack_count, errors}</code>. Each leaf folder containing
+<code>*.tf</code> (or a Helm <code>Chart.yaml</code>) becomes a candidate. <code>already_imported</code> flags
+paths that are already workspaces in the current BU so the UI can gray them
+out.</p>
+<h3 id="post-workspacesimport-body">POST /workspaces/import — body<a class="headerlink" href="#post-workspacesimport-body" title="Permanent link">&para;</a></h3>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>{
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  "repo_url": "https://github.com/example-org/infra.git",
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  "ref": "main",
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  "entries": [
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    {"path": "account-111111111111/us-east-1/network/prod", "name": "network",
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>     "aws_account_id": "111111111111", "region": "us-east-1", "environment": "prod",
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>     "kind": "terraform", "cluster_id": null}
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  ]
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>}
+</code></pre></div>
+→ <code>{created: [WorkspaceResponse, ...], skipped: [{path, reason}, ...]}</code>.
+Duplicates (same path within the BU) are skipped, not errored. Azure leaves
+at <code>azure/subscription-&lt;guid&gt;/…</code> auto-link to a matching subscription in the
+BU by GUID; an unmatched GUID just leaves the workspace unlinked.</p>
+<p><strong>Orphan handling</strong> — <code>WorkspaceResponse.path_status</code> is <code>ok</code> / <code>orphaned</code> /
+<code>unknown</code>. A background loop in the API process (default 10 min,
+configurable via <code>repo_sync.poll_seconds</code> in Runtime Config) shallow-clones
+each workspace's tracked ref and flips the status to <code>orphaned</code> when
+<code>tf_working_dir</code> is missing. The UI shows an amber badge and replaces
+Run/Destroy with a "Force delete" button on those rows. <code>?force=true</code> plus
+optional <code>?delete_state=true</code> on the DELETE is the path for cleaning up the
+TDT row when the source path was renamed/removed; the actual cloud resources
+are presumed to have been migrated to the new workspace (or destroyed by
+hand) — there is no fallback that runs a real terraform destroy on an orphan.
+A force-delete of a git-synced workspace is audited as
+<code>workspace.force_delete</code>.</p>
+<p><strong>State-backend cred override (<code>state_aws_account_id</code>)</strong> — optional column on
+<code>Workspace</code>. <code>aws_account_id</code> always means "the AWS account whose resources
+this workspace manages" and is what the dashboard groups by; it's also what
+the executor uses by default to look up per-account creds for
+<code>AWS_ACCESS_KEY_ID</code>. For non-AWS workspaces (<code>aws_account_id="global"</code>) whose
+terraform state nonetheless lives in an AWS S3 bucket owned by a different
+account, set <code>state_aws_account_id</code> to that account's id — the executor uses
+THAT account's per-account creds for the state backend while the workspace
+stays grouped under "global" in the tree. <code>PUT /workspaces/{id}</code> accepts the
+field; the new value (when non-empty) must be a registered AWS account in the
+workspace's BU or the call <strong>422</strong>s. Pass empty string to clear back to "same
+as aws_account_id".</p>
+<p><strong>PUT /workspaces/{id}</strong> — passing <code>{"repo_ref": "feat/x"}</code> changes the
+tracked branch atomically. Useful for the <code>branch_only</code> flow. <code>azure_subscription_id</code>
+follows the same empty-string-clears / value-relinks convention as
+<code>state_aws_account_id</code>.</p>
+<p><strong>State lock inspection/release</strong> — <code>GET .../state-lock</code> → <code>{held, run_id?,
+acquired_at?}</code>. <code>DELETE .../state-lock</code> force-releases a Postgres advisory
+lock stuck from a crashed executor; use only when certain no executor is
+actually running against the workspace, since releasing a live lock could let
+a second concurrent run race state.</p>
+<hr />
+<h2 id="workspace-variables-apiv1workspacesidvariables">Workspace variables — <code>/api/v1/workspaces/{id}/variables</code><a class="headerlink" href="#workspace-variables-apiv1workspacesidvariables" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>…/variables</code></td>
+<td>List workspace-scoped variables (secrets masked).</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>…/variables</code></td>
+<td>Create a workspace variable. 409 if the key already exists on this workspace.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>…/variables/{var_id}</code></td>
+<td>Update a workspace variable.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>…/variables/{var_id}</code></td>
+<td>Delete a workspace variable.</td>
+<td>operator</td>
+</tr>
+</tbody>
+</table>
+<h2 id="global-variables-apiv1variables">Global variables — <code>/api/v1/variables</code><a class="headerlink" href="#global-variables-apiv1variables" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/variables</code></td>
+<td>List global variables (BU-scoped; secrets masked).</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/variables</code></td>
+<td>Create a global variable. 409 if the key already exists.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/variables/{var_id}</code></td>
+<td>Update.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/variables/{var_id}</code></td>
+<td>Delete.</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p>Both routers share the same request/response shape (<code>VariableCreate</code> /
+<code>VariableUpdate</code> / <code>VariableResponse</code>):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>// create
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>{"key": "instance_type", "value": "t3.medium", "is_secret": false, "is_hcl": false, "description": "..."}
+</code></pre></div>
+<code>key</code> must match <code>^[A-Za-z_][A-Za-z0-9_]*$</code> (Terraform identifier rules) — a
+mismatch is a 422 before anything is encrypted or written. <code>key</code> is immutable
+after creation (delete + recreate to rename). Response: non-secret rows
+return the real <code>value</code>; secret rows always return <code>value: null</code> plus
+<code>masked_tail</code> (e.g. <code>…ab12</code>) so the UI can confirm which secret is configured
+without ever re-exposing it. <code>PATCH</code> with <code>value</code> omitted leaves the stored
+ciphertext untouched — use it to rotate <code>description</code>/<code>is_secret</code> without
+re-supplying the value.</p>
+<p>Variable precedence at run time: <code>global ← workspace ← run</code> (last wins
+per key).</p>
+<hr />
+<h2 id="runs-apiv1runs-apiv1workspacesidruns">Runs — <code>/api/v1/runs</code> (+ <code>/api/v1/workspaces/{id}/runs</code>)<a class="headerlink" href="#runs-apiv1runs-apiv1workspacesidruns" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/workspaces/{id}/runs</code></td>
+<td>Trigger a run (plan/apply/destroy).</td>
+<td>operator (+ <code>plan</code> or <code>apply</code> API-key tier)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runs</code></td>
+<td>List runs (BU-scoped; API-key callers additionally narrowed to their workspace allowlist).</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runs/{run_id}</code></td>
+<td>Get a run.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/runs/{run_id}</code></td>
+<td>Executor callbacks — status, plan output, plan_json, tfplan_b64, policy_status. Triggers notifications + auto-approve gate on <code>awaiting_approval</code>.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/runs/{run_id}/heartbeat</code></td>
+<td>Executor liveness ping (run_jobs.heartbeat_at). 204, or 404 if there's no picked job for this run.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/runs/{run_id}/cancel</code></td>
+<td>Cancel a run that hasn't reached <code>applying</code> yet.</td>
+<td>operator (+ <code>plan</code> API-key tier)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runs/{run_id}/plan</code></td>
+<td>Raw plan output: <code>{plan_output}</code>.</td>
+<td>viewer (+ <code>read</code> API-key tier)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runs/{run_id}/tfplan</code></td>
+<td>Base64-encoded <code>tfplan</code> binary (executor uses this on apply): <code>{tfplan_b64}</code>.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runs/{run_id}/graph</code></td>
+<td>Structured <code>{nodes, edges, summary}</code> parsed from plan_json.</td>
+<td>viewer (+ <code>read</code> API-key tier)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runs/{run_id}/steps</code></td>
+<td>Run timeline (Init / Checkov / Plan / etc).</td>
+<td>viewer (+ <code>read</code> API-key tier)</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/runs/{run_id}/steps/{step_id}</code></td>
+<td>Executor callback to update a single step.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runs/{run_id}/policies</code></td>
+<td>OPA policy bundle + gate config the executor should enforce for this run. BU is derived from the run's workspace.</td>
+<td>operator</td>
+</tr>
+</tbody>
+</table>
+<h3 id="post-workspacesidruns-body">POST /workspaces/{id}/runs — body<a class="headerlink" href="#post-workspacesidruns-body" title="Permanent link">&para;</a></h3>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>{
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  "command": "plan" | "apply" | "destroy",   // default "plan"
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  "variables": [{"key": "...", "value": "...", "is_secret": false, "is_hcl": false}],  // per-run additions, optional
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  "branch": "feat/x",                         // optional override, persisted to workspace.repo_ref
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  "auto_approve_if_no_changes": false,        // see auto-approve section
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  "auto_approve_skip_apply": false
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>}
+</code></pre></div>
+Response is a <code>RunResponse</code>: <code>{id, workspace_id, triggered_by, reviewer_id,
+command, status, branch, plan_output, error_output, policy_status,
+created_at, started_at, completed_at, auto_approve_if_no_changes,
+auto_approve_skip_apply}</code>.</p>
+<h3 id="run-status-machine">Run status machine<a class="headerlink" href="#run-status-machine" title="Permanent link">&para;</a></h3>
+<p><code>pending → planning → planned → awaiting_approval → applying → applied</code>, with
+<code>failed</code> / <code>cancelled</code> reachable from most non-terminal states. Notable
+guardrails enforced by <code>PATCH /runs/{run_id}</code>:
+- A PATCH cannot move a run directly into <code>applying</code> — only <code>POST
+  /runs/{id}/approve</code> may do that.
+- <code>applied</code> is only accepted immediately after <code>applying</code>.
+- A PATCH that repeats the run's current status is a no-op (idempotent — lets
+  a reconnecting executor retry a heartbeat-adjacent status write safely).
+- Cancellable source states: <code>pending</code>, <code>running</code>, <code>planning</code>, <code>planned</code>,
+  <code>awaiting_approval</code>. Once <code>applying</code>, a run must complete or fail — it can
+  no longer be cancelled (409 on <code>POST /cancel</code>).</p>
+<h3 id="auto-approve-flow">Auto-approve flow<a class="headerlink" href="#auto-approve-flow" title="Permanent link">&para;</a></h3>
+<p>When <code>auto_approve_if_no_changes</code> is <code>true</code> on an apply/destroy run AND
+the plan succeeds with <code>Checkov</code> + <code>Cost</code> gates green AND
+<code>plan_json.resource_changes</code> summary is 0/0/0, the API:</p>
+<ol>
+<li>Posts a synthetic system approval (audit <code>action="auto_approve"</code>,
+   <code>user_id=null</code>, details include the plan summary).</li>
+<li>If <code>auto_approve_skip_apply</code> is <code>true</code>, also writes
+   <code>action="auto_apply_skipped"</code> and transitions
+   <code>awaiting_approval → applying → applied</code> without spawning an executor.</li>
+<li>Otherwise enqueues an <code>apply</code> job exactly like a human approval would.</li>
+<li>Posts a Slack notification if the BU has Slack integration configured.</li>
+</ol>
+<p>The flag is silently ignored when <code>command="plan"</code> (no apply phase to
+approve). All four Slack notification kinds (auto-approved, awaiting
+approval, run failed, drift detected) require a configured Slack integration
+on the target workspace's BU — failures are best-effort and never roll back
+the run state machine.</p>
+<hr />
+<h2 id="approvals-apiv1runsrun_id-approvereject">Approvals — <code>/api/v1/runs/{run_id}</code> (approve/reject)<a class="headerlink" href="#approvals-apiv1runsrun_id-approvereject" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/runs/{run_id}/approve</code></td>
+<td>Approve a run awaiting approval; queues the apply phase.</td>
+<td>operator (+ <code>apply</code> API-key tier)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/runs/{run_id}/reject</code></td>
+<td>Reject a run awaiting approval; transitions to cancelled.</td>
+<td>operator (+ <code>apply</code> API-key tier)</td>
+</tr>
+</tbody>
+</table>
+<p>Body (optional): <code>{"comment": "...optional..."}</code>. 4-eyes approval was
+revoked — the triggering user may also approve their own run. Any operator+
+in the run's BU can approve or reject any run in that BU.</p>
+<hr />
+<h2 id="drift-apiv1drift">Drift — <code>/api/v1/drift</code><a class="headerlink" href="#drift-apiv1drift" title="Permanent link">&para;</a></h2>
+<p>Per-workspace and per-BU drift summaries, plus report ingestion from the
+drift-detector service.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/drift/summary</code></td>
+<td>Per-BU drift breakdown: latest report per workspace, aggregated.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/drift/{workspace_id}</code></td>
+<td>Latest drift report for one workspace, with per-resource detail.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/drift/{workspace_id}/scan</code></td>
+<td>Queue an on-demand drift scan; returns a placeholder report id immediately (the real detector runs async).</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/drift/{workspace_id}/report</code></td>
+<td>Submit drift scan results (detector or manual/test).</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p>Reports are also accepted at the internal, state-token-authenticated path
+<code>POST /api/v1/internal/drift/{workspace_id}/report</code> (used by the real
+drift-detector service) and trigger a Slack alert whenever <code>has_drift=true</code>.
+Either path additionally refreshes the cloud-asset Inventory when the report
+includes an <code>assets[]</code> payload.</p>
+<p><strong>POST /drift/{workspace_id}/report</strong> body (<code>DriftReportIn</code>):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>{
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>  "workspace_id": "&lt;id&gt;",
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>  "has_drift": true,
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>  "summary": "3 resources modified out of band",
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>  "plan_output": "...",
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>  "modified_count": 3, "untracked_count": 0, "deleted_count": 0, "mismatch_count": 0,
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>  "resources": [{"address": "aws_s3_bucket.logs", "type": "aws_s3_bucket", "provider": "aws", "drift_type": "modified", "summary": "..."}],
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>  "assets": []   // optional; see Inventory
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>}
+</code></pre></div>
+<code>drift_type</code> is one of <code>modified</code> | <code>untracked</code> | <code>deleted</code> | <code>mismatch</code>.
+Posting a report also updates <code>workspace.drift_status</code> to <code>drifted</code> or
+<code>clean</code>.</p>
+<hr />
+<h2 id="inventory-apiv1inventory">Inventory — <code>/api/v1/inventory</code><a class="headerlink" href="#inventory-apiv1inventory" title="Permanent link">&para;</a></h2>
+<p>Firefly-style cloud asset inventory: a read-side view of every discovered
+cloud resource and how well Infrastructure-as-Code tracks it. Backed by the
+<code>cloud_assets</code> table, which the drift-detector refreshes on every scan via
+the <code>assets[]</code> field of a drift report.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/inventory/summary</code></td>
+<td>Headline KPIs: codification %, per-<code>iac_status</code> counts, filter facets.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/inventory/assets</code></td>
+<td>Filterable, paginated asset list.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/inventory/ignore-rules</code></td>
+<td>List the current BU's ignore rules.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/inventory/ignore-rules</code></td>
+<td>Add an ignore rule; immediately reclassifies matching assets to <code>ignored</code>.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/inventory/ignore-rules/{rule_id}</code></td>
+<td>Delete an ignore rule (suppressed assets revert on the next scan).</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p><code>iac_status</code> is one of <code>codified</code> | <code>drifted</code> | <code>ghost</code> | <code>unmanaged</code> |
+<code>ignored</code> | <code>undetermined</code>. Codification % = tracked-by-IaC ÷ (total minus
+<code>ignored</code>/<code>service_managed</code>), rounded to the nearest integer.</p>
+<p><strong>GET /inventory/summary</strong> query params (all optional, apply to the
+counts/codification but not to the facets, which stay BU-global so filter
+dropdowns never empty out): <code>provider</code>, <code>region</code>, <code>account_id</code>, <code>search</code>
+(substring match on asset id/address).</p>
+<p><strong>GET /inventory/assets</strong> — same scope filters plus <code>iac_status</code>,
+<code>asset_type</code>, and pagination: <code>limit</code> (default 200, max 1000), <code>offset</code>
+(default 0). Returns <code>{total, items: [...]}</code>.</p>
+<p><strong>POST /inventory/ignore-rules</strong> body: <code>{match_type: "arn_glob" |
+"asset_type", pattern, note?}</code>. Requires a concrete <code>X-Business-Unit</code> — 400
+if scoped to "all".</p>
+<hr />
+<h2 id="audit-apiv1audit">Audit — <code>/api/v1/audit</code><a class="headerlink" href="#audit-apiv1audit" title="Permanent link">&para;</a></h2>
+<p>Tamper-evident hash-chained log of every write in the system.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/audit/verify</code></td>
+<td>Re-walk the audit hash chain and report integrity.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/audit</code></td>
+<td>List audit entries, optionally filtered by <code>run_id</code> and/or <code>workspace_id</code>.</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p><strong>GET /audit/verify</strong> query: <code>limit</code> (optional, 1-100000). Returns <code>{ok:
+true, total: N, broken_at: []}</code> on a clean chain, or the first few offending
+row ids if a stored hash fails to reproduce — that's the breakpoint for
+forensic review.</p>
+<p><strong>GET /audit</strong> — cross-BU (no <code>X-Business-Unit</code> filtering is applied); the
+only supported filters today are <code>run_id</code> and <code>workspace_id</code> query params.
+Response: <code>{items: [{id, user_id, action, resource_type, resource_id,
+workspace_id, details, created_at}, ...]}</code>.</p>
+<hr />
+<h2 id="presence-apiv1presence">Presence — <code>/api/v1/presence</code><a class="headerlink" href="#presence-apiv1presence" title="Permanent link">&para;</a></h2>
+<p>Cross-BU "who's online" indicator for the top bar. The UI pings every ~30s
+with the BU slug it currently has selected; the read side returns everyone
+seen in the last 60 seconds, deliberately <strong>across every BU</strong> — the entire
+point is letting an operator in one BU notice someone deploying in another
+and avoid a concurrent-change collision. Only identity (email, display name,
+selected BU slug) is exposed — never page contents or run state.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Auth</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/presence</code></td>
+<td>Upsert the caller's presence row. Body: <code>{bu_slug?}</code>. 204.</td>
+<td>any authenticated user</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/presence</code></td>
+<td>List users active in the last 60s, across all BUs.</td>
+<td>any authenticated user</td>
+</tr>
+</tbody>
+</table>
+<p>Presence rows older than ~10× the window are lazily garbage-collected on each
+GET.</p>
+<hr />
+<h2 id="environments-apiv1environments">Environments — <code>/api/v1/environments</code><a class="headerlink" href="#environments-apiv1environments" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/environments</code></td>
+<td>List every workspace grouped by environment stage (<code>dev</code>/<code>staging</code>/<code>prod</code>), plus the promotion order. Cross-BU — no <code>X-Business-Unit</code> filtering.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/environments/{workspace_id}/promote</code></td>
+<td>Promote a workspace's config to the next environment stage and trigger a plan run there.</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p>Promotion chain is fixed: <code>dev → staging → prod</code>. 400 if the source
+workspace's environment isn't in the chain; 409 if it's already at <code>prod</code>
+(the final stage). Promoting creates (or reuses, if already present) a
+sibling workspace with the same name in the next stage, copying <code>repo_url</code>,
+<code>repo_ref</code>, <code>tf_working_dir</code>, <code>kind</code>, <code>cluster_id</code>, <code>azure_subscription_id</code>,
+and <code>state_aws_account_id</code> — but deliberately <strong>not</strong> <code>state_key</code>,
+<code>webhook_enabled</code>, or any drift/path status, so the new environment gets its
+own state path and starts with webhooks off and no scan history.</p>
+<hr />
+<h2 id="integrations-apiv1integrations">Integrations — <code>/api/v1/integrations</code><a class="headerlink" href="#integrations-apiv1integrations" title="Permanent link">&para;</a></h2>
+<p>Per-BU third-party credentials and pipeline-gate configuration, stored in the
+encrypted <code>config</code> table. All admin-write / viewer-or-admin-read, BU-scoped
+via <code>X-Business-Unit</code> (every route 400s without a concrete BU). Most
+sub-resources fall back to a legacy global (non-BU) config key for one
+release if the BU hasn't saved its own value yet — the response's <code>inherited</code>
+flag tells the UI which case it's in.</p>
+<h3 id="github">GitHub<a class="headerlink" href="#github" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/github</code></td>
+<td><code>{configured, token_tail, overridden_by_env, inherited}</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/github</code></td>
+<td>Set GitHub PAT. Body: <code>{"token": "ghp_…"}</code>.</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/integrations/github</code></td>
+<td>Remove the BU's saved token.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/integrations/github/test</code></td>
+<td>Probe the token against <code>/user</code>; returns <code>{ok, login, scopes}</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="github-webhook-per-bu-secret-org-binding">GitHub webhook (per-BU secret + org binding)<a class="headerlink" href="#github-webhook-per-bu-secret-org-binding" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/webhook</code></td>
+<td><code>{bu_slug, configured, secret_tail, github_org, webhook_path}</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/webhook</code></td>
+<td>Body: <code>{secret?, github_org?}</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infracost-cost-estimation">Infracost (cost estimation)<a class="headerlink" href="#infracost-cost-estimation" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/infracost</code></td>
+<td><code>{configured, api_key_tail, currency, overridden_by_env, inherited}</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/infracost</code></td>
+<td>Body: <code>{api_key?, currency?}</code>. Empty-string <code>api_key</code> removes it.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/integrations/infracost/test</code></td>
+<td>Pings the Infracost pricing GraphQL endpoint; returns <code>{ok, detail?, organization?}</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="checkov-gate">Checkov gate<a class="headerlink" href="#checkov-gate" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/checkov</code></td>
+<td><code>{mode: "fail"\|"warn", inherited}</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/checkov</code></td>
+<td>Body: <code>{mode}</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="opa-policy-gate">OPA policy gate<a class="headerlink" href="#opa-policy-gate" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/opa</code></td>
+<td><code>{mode: "enforce"\|"warn"\|"off", use_bundled, bundled_severity, git_severity, repo_url, repo_ref, repo_dir, inherited}</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/opa</code></td>
+<td>Body: same shape (admin). <code>mode</code> defaults to <code>off</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="terraform-modules-registry">Terraform modules registry<a class="headerlink" href="#terraform-modules-registry" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/modules</code></td>
+<td><code>{mode: "github"\|"local", upstream_url, local_host_dir, inherited}</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/modules</code></td>
+<td>Body: same shape. <code>local</code> mode requires non-empty <code>local_host_dir</code> (422 otherwise).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="default-infra-repo-git-import-prefill">Default infra repo (Git-import prefill)<a class="headerlink" href="#default-infra-repo-git-import-prefill" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/infra-repo</code></td>
+<td><code>{repo_url, inherited}</code> — not a secret, just a UI convenience default for the Discover form.</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/infra-repo</code></td>
+<td>Body: <code>{repo_url}</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="changelog-github-releases-merged-prs-feed">Changelog (GitHub Releases / merged PRs feed)<a class="headerlink" href="#changelog-github-releases-merged-prs-feed" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/changelog</code></td>
+<td><code>{repo, configured, inherited}</code> — the <code>owner/repo</code> the Changelog tab reads from.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/changelog</code></td>
+<td>Body: <code>{repo}</code> in <code>owner/repo</code> form (422 on a malformed value).</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/integrations/changelog/entries</code></td>
+<td>Stored changelog entries for the current BU, newest first. Reads only TDT's own DB — never hits GitHub.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/integrations/changelog/sync</code></td>
+<td>Pull merged PRs from the configured repo, upserting by PR number. 404 if no repo configured; 502 on a GitHub-side failure.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/integrations/changelog/entries</code></td>
+<td>Add a manual changelog entry. Body: <code>{title, body?, url?, entry_date?}</code>.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/integrations/changelog/entries/{entry_id}</code></td>
+<td>Delete one entry (manual or synced).</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p>Synced entries have <code>source="github"</code> and <code>ref=&lt;PR number&gt;</code>; manual entries
+have <code>source="manual"</code> and <code>ref=null</code>.</p>
+<h3 id="slack-bot-token-channel">Slack (bot token + channel)<a class="headerlink" href="#slack-bot-token-channel" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/integrations/slack</code></td>
+<td><code>{configured, token_tail, team_name, channel_id, channel_name}</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/slack</code></td>
+<td>Body: <code>{token?, channel_id?, channel_name?}</code>. Verifies the token via Slack <code>auth.test</code> before persisting; 422 if no token is saved yet and none is supplied.</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/integrations/slack</code></td>
+<td>Remove the bot token + channel.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/integrations/slack/test</code></td>
+<td>Re-verify the saved bot token. Returns <code>{ok, team, bot_user_id, url}</code>.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/integrations/slack/channels</code></td>
+<td>List the channels the bot can see (<code>conversations.list</code>). Each row has an <code>is_private</code> flag so the Settings UI can render a lock badge.</td>
+</tr>
+</tbody>
+</table>
+<p>The bot needs <code>chat:write</code>, plus <code>channels:read</code> to surface public
+channels and <code>groups:read</code> to surface private ones. The bot must be
+invited to the target channel before posts will land.</p>
+<p>Notifications post on:</p>
+<ul>
+<li><strong>Auto-approve fired</strong> (run was auto-approved on a 0/0/0 plan).</li>
+<li><strong>Run awaiting approval</strong> (plan paused for human review).</li>
+<li><strong>Run failed</strong> (plan / checkov / apply terminal failure).</li>
+<li><strong>Drift detected</strong> (drift report transitioned a workspace to <code>drifted</code>).</li>
+</ul>
+<hr />
+<h2 id="webhooks-apiv1webhooks-public-hmac-authenticated">Webhooks — <code>/api/v1/webhooks</code> (public; HMAC-authenticated)<a class="headerlink" href="#webhooks-apiv1webhooks-public-hmac-authenticated" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/webhooks/forgejo</code></td>
+<td>Forgejo push hook. HMAC-SHA256 via <code>X-Gitea-Signature</code>, validated against the legacy global <code>webhook.secret</code>. Maps branch → environment (<code>main</code>/<code>master</code>/<code>production</code>→<code>prod</code>, <code>staging</code>/<code>stage</code>→<code>staging</code>, else <code>dev</code>) to disambiguate same-named workspaces across environments, then triggers a plan run if <code>webhook_enabled</code> and the branch matches the workspace's tracked ref.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/webhooks/github</code></td>
+<td>Legacy global GitHub push hook (back-compat). HMAC-SHA256 via <code>X-Hub-Signature-256</code>. Matches every workspace whose <code>repo_url</code> references the pushed repo, filters by <code>webhook_enabled</code> + branch match + (if the payload lists changed files) whether the push touched that workspace's <code>tf_working_dir</code>, and triggers one plan run per remaining match.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/webhooks/github/{bu_slug}</code></td>
+<td>Per-BU GitHub push hook. Preferred over the legacy path — validates against <code>bu.&lt;slug&gt;.webhook.secret</code> (falling back to the legacy global secret for one release) and only matches workspaces belonging to that BU, so a repo-name collision across BUs can't cross-trigger.</td>
+</tr>
+</tbody>
+</table>
+<p>All three always return <code>202</code> with a JSON body describing what happened
+(<code>{status: "accepted"|"ignored", ...}</code>) — a webhook sender never sees a 4xx
+for "no matching workspace", only for a bad/missing signature (403) or
+malformed JSON (400). Webhooks only ever create <code>plan</code> runs; applying still
+requires a human (or auto-approve) approval.</p>
+<hr />
+<h2 id="internal-apiv1internal-state-token-auth">Internal — <code>/api/v1/internal</code> (state-token-auth)<a class="headerlink" href="#internal-apiv1internal-state-token-auth" title="Permanent link">&para;</a></h2>
+<p>Used by background services (drift-detector, liveness-detector) that run on
+the same private network as the API and authenticate with the
+<code>X-Terraducktel-State-Token</code> header instead of a JWT.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/internal/workspaces</code></td>
+<td>List every workspace, cross-BU.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/internal/drift/{workspace_id}/report</code></td>
+<td>Drift report submission — identical body/behavior to the user-facing <code>POST /drift/{workspace_id}/report</code>, including the Slack drift alert and Inventory refresh.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/internal/workspaces/{workspace_id}/aws-credentials</code></td>
+<td>Decrypted AWS creds for a workspace: <code>{access_key_id, secret_access_key, account_id, region}</code>. Honors the <code>state_aws_account_id</code> override, falling back to <code>aws_account_id</code>. Empty strings if the account has no stored credentials.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/internal/github-token</code></td>
+<td>Plaintext GitHub token for in-network crons that can't decrypt the config table themselves: <code>{token, source: "env"\|"config"\|"none"}</code>.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/internal/workspaces/{workspace_id}/auto-delete</code></td>
+<td>Cleanup hook used by the liveness detector when a workspace's repo path disappears upstream. Body: <code>{reason}</code>. Deletes the workspace + its runs/drift reports/state locks and audits as <code>auto_delete_orphan</code>. Idempotent (204) on an already-missing workspace.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="runtime-config-apiv1runtime-config">Runtime config — <code>/api/v1/runtime-config</code><a class="headerlink" href="#runtime-config-apiv1runtime-config" title="Permanent link">&para;</a></h2>
+<p>Admin-tunable worker timings and poll intervals (JWT auth = a superadmin
+concept in practice, since it's admin+ everywhere and cross-cutting rather
+than BU-scoped).</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/runtime-config</code></td>
+<td>Every tunable with its <code>{value, default}</code>.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/runtime-config/{key}</code></td>
+<td>Update one tunable. Body: <code>{"value": &lt;number&gt;}</code>. 404 for an unknown key, 422 if the value fails validation (e.g. not <code>&gt; 0</code>).</td>
+<td>admin</td>
+</tr>
+</tbody>
+</table>
+<p>Workers pick up a new value within ~60s (the same <code>ConfigService</code> TTL cache
+used everywhere else) without a container restart. Known tunables include
+<code>repo_sync.poll_seconds</code>, <code>auth.access_token_expire_minutes</code>,
+<code>auth.refresh_token_expire_hours</code> — see <code>app/services/runtime_settings.py</code>
+for the authoritative catalog and defaults.</p>
+<hr />
+<h2 id="terraform-state-apiv1stateworkspace_id-state-token-auth">Terraform state — <code>/api/v1/state/{workspace_id}</code> (state-token-auth)<a class="headerlink" href="#terraform-state-apiv1stateworkspace_id-state-token-auth" title="Permanent link">&para;</a></h2>
+<p>Implements Terraform's HTTP state backend protocol. Not meant to be called
+directly — Terraform itself talks to this via the executor's generated
+backend config.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/state/{workspace_id}</code></td>
+<td>Fetch the tfstate body for a workspace. <strong>404</strong> (not 200 + empty JSON) when no state has ever been written — matches the HTTP backend spec's "create on first write" semantics and avoids Terraform misreading an empty body as a corrupted state file. <strong>503</strong> on a real S3/connectivity failure (never silently treated as "no state", which would let <code>apply</code> recreate every existing resource).</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/state/{workspace_id}</code></td>
+<td>Upload an updated tfstate body. Runs a secret scanner over the JSON first; a suspected leaked secret is rejected with <strong>422</strong>.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/state/{workspace_id}/lock</code></td>
+<td>Acquire a Postgres advisory lock for this workspace (TF HTTP backend lock protocol). <strong>409</strong> with Terraform-shaped lock-info JSON if already held.</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/state/{workspace_id}/lock</code></td>
+<td>Release the advisory lock. Idempotent — releasing an already-unlocked workspace is <strong>200</strong>, not an error; only a genuine holder-id mismatch is <strong>409</strong>.</td>
+</tr>
+</tbody>
+</table>
+<p>State lives in S3 (LocalStack in dev) at
+<code>{tf_working_dir}/terraform.tfstate</code> inside the bucket owned by the
+workspace's (or its <code>state_aws_account_id</code> override's) AWS account. Locking
+is <code>pg_try_advisory_lock</code>-based, not DynamoDB.</p>
+<hr />
+<h2 id="status-codes-used-everywhere">Status codes used everywhere<a class="headerlink" href="#status-codes-used-everywhere" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>200 / 201 / 204</code> — success.</li>
+<li><code>202</code> — accepted for async processing (webhooks, drift scan trigger).</li>
+<li><code>400</code> — bad input (e.g. invalid Slack token, channel id missing, BU scoped to "all" where a concrete BU is required).</li>
+<li><code>401</code> — JWT or API key missing/expired/revoked.</li>
+<li><code>403</code> — role or API-key capability insufficient, or an API key stepping outside its workspace allowlist, or an identity endpoint rejecting an API key outright.</li>
+<li><code>404</code> — resource not found (including cross-BU access, which 404s rather than 403s to avoid leaking another tenant's resource existence).</li>
+<li><code>409</code> — state-machine conflict (e.g. approving/cancelling a run in the wrong state, deleting a git-synced workspace, duplicate account/subscription/workspace identity tuple, regenerating a revoked/expired API key).</li>
+<li><code>422</code> — schema validation failed (including business-rule validation like an out-of-BU account reference).</li>
+<li><code>502</code> — upstream integration unreachable (GitHub, Slack, Infracost).</li>
+<li><code>503</code> — state backend (S3) unavailable.</li>
+</ul>
+<h2 id="audit-actions-youll-see">Audit actions you'll see<a class="headerlink" href="#audit-actions-youll-see" title="Permanent link">&para;</a></h2>
+<p><code>login</code>, <code>workspace.create</code>, <code>workspace.update</code>, <code>workspace.delete</code>,
+<code>workspace.force_delete</code>, <code>workspace.force_unlock</code>, <code>auto_delete_orphan</code>,
+<code>run.trigger</code>, <code>approve</code>, <code>auto_approve</code>, <code>auto_apply_skipped</code>, <code>reject</code>,
+<code>aws_account.create</code>, <code>aws_account.update</code>, <code>integration.github.set</code>,
+<code>integration.slack.set</code>, <code>api_key.create</code>, <code>api_key.regenerate</code>,
+<code>api_key.revoke</code>, …</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mormor83/terraducktel" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.tracking", "content.code.copy", "content.action.edit", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

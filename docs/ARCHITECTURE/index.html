@@ -1,0 +1,2327 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted Terraform & Helm orchestration with a human approval gate.">
+      
+      
+      
+        <link rel="canonical" href="https://mormor83.github.io/terraducktel/docs/ARCHITECTURE/">
+      
+      
+        <link rel="prev" href="../CLI/">
+      
+      
+        <link rel="next" href="../API/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../branding/td/brand/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture - Terraducktel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/brand.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Terraducktel" class="md-header__button md-logo" aria-label="Terraducktel" data-md-component="logo">
+      
+  <img src="../branding/td/brand/terraducktel-mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Terraducktel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mormor83/terraducktel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mormor83/terraducktel
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Terraducktel" class="md-nav__button md-logo" aria-label="Terraducktel" data-md-component="logo">
+      
+  <img src="../branding/td/brand/terraducktel-mark.svg" alt="logo">
+
+    </a>
+    Terraducktel
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mormor83/terraducktel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mormor83/terraducktel
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ONBOARDING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CLI/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI (tdt)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-what-terraducktel-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. What Terraducktel is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-service-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Service topology
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Service topology">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#docker-compose-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose services
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-data-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Data model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Data model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#identity-tenancy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity &amp; tenancy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cloud-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cloud targets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workspaces-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspaces &amp; runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#policy-drift-inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy, drift &amp; inventory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#config-variables-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config, variables &amp; audit
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-the-run-fsm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. The Run FSM
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. The Run FSM">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#4-eyes-approval-revoked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4-eyes approval — revoked
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#who-can-trigger-approve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can trigger / approve
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-auth-rbac" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Auth &amp; RBAC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Auth &amp; RBAC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#jwt-interactive-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JWT (interactive sessions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oidc-sso" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OIDC / SSO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#role-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#superadmin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Superadmin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#business-units-multi-tenancy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Business Units (multi-tenancy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-keys-automation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API keys (automation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-encryption-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Encryption model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-state-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. State backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-executor-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Executor lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Executor lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terraform-workspaces-kindterraform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terraform workspaces (kind=terraform)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#helm-workspaces-kindhelm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Helm workspaces (kind=helm)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-drift-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Drift detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-webhooks-notifications-audit-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Webhooks, notifications, audit log
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Webhooks, notifications, audit log">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#webhooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Webhooks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notifications
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audit-log-hash-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit log + hash chain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-deployment-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Deployment topology
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Deployment topology">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-dev-docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local dev (docker compose)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aws-ecs-production-path-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AWS ECS production path (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-extension-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Extension points
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RUNBOOK-disaster-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disaster recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-what-terraducktel-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. What Terraducktel is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-service-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Service topology
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Service topology">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#docker-compose-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose services
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-data-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Data model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Data model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#identity-tenancy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity &amp; tenancy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cloud-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cloud targets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workspaces-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspaces &amp; runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#policy-drift-inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy, drift &amp; inventory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#config-variables-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config, variables &amp; audit
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-the-run-fsm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. The Run FSM
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. The Run FSM">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#4-eyes-approval-revoked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4-eyes approval — revoked
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#who-can-trigger-approve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can trigger / approve
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-auth-rbac" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Auth &amp; RBAC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Auth &amp; RBAC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#jwt-interactive-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JWT (interactive sessions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oidc-sso" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OIDC / SSO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#role-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#superadmin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Superadmin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#business-units-multi-tenancy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Business Units (multi-tenancy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-keys-automation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API keys (automation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-encryption-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Encryption model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-state-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. State backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-executor-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Executor lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Executor lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terraform-workspaces-kindterraform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terraform workspaces (kind=terraform)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#helm-workspaces-kindhelm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Helm workspaces (kind=helm)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-drift-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Drift detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-webhooks-notifications-audit-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Webhooks, notifications, audit log
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Webhooks, notifications, audit log">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#webhooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Webhooks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notifications
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audit-log-hash-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit log + hash chain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-deployment-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Deployment topology
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Deployment topology">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-dev-docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local dev (docker compose)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aws-ecs-production-path-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AWS ECS production path (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-extension-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Extension points
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/mormor83/terraducktel/edit/main/docs/ARCHITECTURE.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
+<p>This is the map of Terraducktel (TDT): what runs, what it stores, and how a
+change moves from a Git push to a live cloud resource. It is meant to be
+read start-to-finish by a new contributor, or grepped section-by-section by
+an AI coding agent that needs to know where a concept lives before touching
+it.</p>
+<p>For the wire-level endpoint catalog, see <a href="../API/"><code>docs/API.md</code></a>. This
+document is the single authoritative reference for everything else.</p>
+<hr />
+<h2 id="1-what-terraducktel-is">1. What Terraducktel is<a class="headerlink" href="#1-what-terraducktel-is" title="Permanent link">&para;</a></h2>
+<p>Terraducktel is a <strong>self-hosted Terraform (and Helm) orchestration
+platform</strong>. It exists as a zero-license-cost, run-it-yourself alternative to
+a paid Terraform-orchestration SaaS: it imports Terraform modules (and Helm
+charts) from a Git repository, runs each change through a gated
+<code>plan → policy scan → cost estimate → human approval → apply</code> pipeline
+against real AWS accounts, Azure subscriptions, or Kubernetes clusters, and
+continuously checks the live cloud for drift from what's codified. Every
+tenant ("Business Unit") gets its own cloud accounts, Git integration, and
+workspace tree, all running on a single <code>docker compose</code> stack with no SaaS
+dependency and no per-seat billing.</p>
+<p>The core design bet is a <strong>thin custom orchestrator</strong> rather than adopting
+an existing heavyweight CI/CD platform: a FastAPI backend owns all
+state/approval logic, a purpose-built executor container does the actual
+<code>terraform</code>/<code>helm</code> work, and Postgres — not a hosted state-locking service —
+is the single source of truth for both metadata and locking.</p>
+<hr />
+<h2 id="2-service-topology">2. Service topology<a class="headerlink" href="#2-service-topology" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                              ┌─ traefik (80 / 443 / dashboard :18080) ─┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                              │        (reverse proxy + auto TLS)       │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                              └──────────────────┬───────────────────────┘
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>                                                  │
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a> browser ──────────────────► ui (nginx, :3001) ───┤
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>                                                  │
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                                                  ▼
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>                                         api (FastAPI, :8001)
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>                                                  │
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                    ┌─────────────────────────────┼──────────────────────────────┐
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>                    ▼                              ▼                              ▼
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>             postgres (:5432,               localstack S3 (:4566,          docker socket
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>             internal only)                  dev tfstate backend;          (launches executor
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>             metadata, config,                AWS S3 in prod)               containers)
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>             audit, state locks
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>                    ▲                                                             │
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>                    │                                                             ▼
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>             drift-detector  ──── reads state + AWS creds via api/internal ── executor / executor-helm
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>             liveness-detector ── health pings → Slack                       (terraform plan/apply OR
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>             pg-backup ────────── periodic pg_dump → volume                   helm diff/upgrade)
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>                                                                                    │
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>                                                                    S3 (tfstate) + Postgres (locks)
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>                                                                    + target AWS account / Azure sub /
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>                                                                      Kubernetes cluster
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a> forgejo (:3002, self-hosted Git + Actions-compatible CI) ── act_runner (executes Forgejo workflows)
+</code></pre></div>
+<p>Everything above runs from one <code>docker-compose.yml</code>. In production the same
+API/UI/executor images can instead run on AWS ECS (see
+<a href="#11-deployment-topology">§11 Deployment topology</a>); the architecture is
+identical, only the container launcher and the state bucket change.</p>
+<h3 id="docker-compose-services">Docker Compose services<a class="headerlink" href="#docker-compose-services" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Image / build</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>postgres</code></td>
+<td><code>postgres:16-alpine</code></td>
+<td>App metadata, encrypted config, audit log, Terraform state locks.</td>
+</tr>
+<tr>
+<td><code>localstack</code></td>
+<td><code>localstack/localstack:3</code></td>
+<td>S3-compatible Terraform state backend for local dev (no AWS account needed).</td>
+</tr>
+<tr>
+<td><code>forgejo</code></td>
+<td><code>codeberg.org/forgejo/forgejo:7</code></td>
+<td>Self-hosted Git hosting + GitHub Actions-compatible CI, for repos that don't live on github.com.</td>
+</tr>
+<tr>
+<td><code>act_runner</code></td>
+<td><code>gitea/act_runner:0.2.11</code></td>
+<td>Executes Forgejo Actions workflows.</td>
+</tr>
+<tr>
+<td><code>api</code></td>
+<td>build <code>services/api</code></td>
+<td>FastAPI orchestrator: auth, RBAC, workspaces, runs, approvals, drift, policies, audit. The only service that talks to Postgres directly.</td>
+</tr>
+<tr>
+<td><code>ui</code></td>
+<td>build <code>services/ui</code> (served by nginx)</td>
+<td>React + Vite management UI.</td>
+</tr>
+<tr>
+<td><code>traefik</code></td>
+<td><code>traefik:v3.0</code></td>
+<td>Reverse proxy + automatic TLS (Let's Encrypt) in prod-like deployments.</td>
+</tr>
+<tr>
+<td><code>drift-detector</code></td>
+<td>build <code>services/drift-detector</code></td>
+<td>Periodic loop: reconciles live cloud resources against Terraform state via the API (does not run <code>terraform</code> itself).</td>
+</tr>
+<tr>
+<td><code>liveness-detector</code></td>
+<td>build <code>services/liveness-detector</code></td>
+<td>Simple health watchdog; posts to Slack on prolonged downtime.</td>
+</tr>
+<tr>
+<td><code>pg-backup</code></td>
+<td>build <code>services/pg-backup</code></td>
+<td>Periodic <code>pg_dump</code> of Postgres to a volume.</td>
+</tr>
+<tr>
+<td><code>executor</code></td>
+<td>build <code>services/executor</code> (<code>Dockerfile</code>)</td>
+<td>On-demand: one container launched per Terraform run (<code>kind=terraform</code>). Bundles Terraform CLI + Checkov + conftest.</td>
+</tr>
+<tr>
+<td><code>executor-helm</code></td>
+<td>build <code>services/executor</code> (<code>Dockerfile.helm</code>)</td>
+<td>On-demand: launched per Helm run (<code>kind=helm</code>). Adds <code>helm</code>, <code>kubectl</code>, <code>helm-diff</code>, <code>kubeconform</code>, AWS CLI. Build with <code>docker compose --profile executor build executor-helm</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>See <code>docker-compose.yml</code> for ports and the <code>Makefile</code> for day-to-day commands.</p>
+<hr />
+<h2 id="3-data-model">3. Data model<a class="headerlink" href="#3-data-model" title="Permanent link">&para;</a></h2>
+<p>All models live under <code>services/api/app/models/</code>, one file (mostly) per
+table, SQLAlchemy 2.0 declarative, async everywhere. Alembic migrations are
+forward-only (<code>services/api/alembic/versions/NNN_*.py</code>).</p>
+<h3 id="identity-tenancy">Identity &amp; tenancy<a class="headerlink" href="#identity-tenancy" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Table</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>User</code></td>
+<td><code>users</code></td>
+<td>Email + bcrypt hash, legacy global <code>role</code> (admin/operator/viewer, kept as a fallback), <code>is_superadmin</code> (cross-BU bypass flag), <code>auth_provider</code> (local/oidc), <code>external_id</code>, <code>display_name</code>.</td>
+</tr>
+<tr>
+<td><code>BusinessUnit</code></td>
+<td><code>business_units</code></td>
+<td>A tenant container: <code>slug</code> (immutable, used in config keys/URLs) + <code>name</code>. Every workspace and cloud account belongs to exactly one BU.</td>
+</tr>
+<tr>
+<td><code>UserBusinessUnit</code></td>
+<td><code>user_business_units</code></td>
+<td>Membership: <code>(user_id, business_unit_id, role)</code> where <code>role</code> is <code>operator</code> or <code>viewer</code>. Superadmins don't need rows here — they bypass BU scoping entirely.</td>
+</tr>
+<tr>
+<td><code>UserPresence</code></td>
+<td><code>user_presence</code></td>
+<td>Ephemeral per-user "last seen" ping + selected BU slug, upserted every 30s by the UI for the top-bar avatar stack.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cloud-targets">Cloud targets<a class="headerlink" href="#cloud-targets" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Table</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AwsAccount</code></td>
+<td><code>aws_accounts</code></td>
+<td>One row per AWS account onboarded to TDT: 12-digit <code>account_id</code>, a dedicated <code>state_bucket</code>, and Fernet-encrypted access key/secret. Unique per <code>(business_unit_id, account_id)</code>.</td>
+</tr>
+<tr>
+<td><code>AzureSubscription</code></td>
+<td><code>azure_subscriptions</code></td>
+<td>Mirrors <code>AwsAccount</code> for Azure: <code>subscription_id</code>, <code>tenant_id</code>, <code>client_id</code> + encrypted service-principal secret. Optional <code>state_storage_account</code>/<code>state_container</code> enable an <strong>Azure Blob</strong> state backend (state written via the same SP over AAD) — otherwise Azure workspaces keep their state in S3.</td>
+</tr>
+<tr>
+<td><code>GcpProject</code></td>
+<td><code>gcp_projects</code></td>
+<td>Mirrors <code>AwsAccount</code> for GCP: <code>project_id</code>, <code>client_email</code> + Fernet-encrypted service-account key JSON. Optional <code>state_bucket</code>/<code>state_prefix</code> enable a <strong>GCS</strong> state backend. Unique per <code>(business_unit_id, project_id)</code>.</td>
+</tr>
+<tr>
+<td><code>K8sCluster</code></td>
+<td><code>k8s_clusters</code></td>
+<td>One row per Kubernetes cluster for Helm workspaces: <code>name</code>, optional <code>server_url</code>, <code>default_namespace</code>, encrypted <code>kubeconfig</code>, optional <code>aws_account_id</code> (for EKS clusters whose kubeconfig auths via <code>aws eks get-token</code>).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="workspaces-runs">Workspaces &amp; runs<a class="headerlink" href="#workspaces-runs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Table</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Workspace</code></td>
+<td><code>workspaces</code></td>
+<td>One Terraform leaf module or one Helm chart. Canonical identity is <code>(business_unit_id, aws_account_id, region, environment, tf_working_dir)</code>. Carries <code>repo_url</code>/<code>repo_ref</code> (Git source), <code>kind</code> (<code>terraform</code> default or <code>helm</code>), <code>cluster_id</code> (helm target), <code>azure_subscription_id</code> / <code>gcp_project_id</code> (optional Azure/GCP targets), <code>state_backend</code> (<code>s3</code> default | <code>azureblob</code> | <code>gcs</code>), <code>drift_status</code>, <code>path_status</code> (<code>ok</code>/<code>orphaned</code>/<code>unknown</code> — tracks whether the leaf still exists at <code>repo_ref</code>), <code>webhook_enabled</code>.</td>
+</tr>
+<tr>
+<td><code>Run</code></td>
+<td><code>runs</code></td>
+<td>One plan/apply/destroy execution. FSM <code>status</code> (see <a href="#4-the-run-fsm">§4</a>), captured <code>branch</code>, <code>plan_output</code>/<code>plan_json</code>, base64 <code>tfplan_b64</code> (the exact binary re-applied post-approval), encrypted <code>variables_encrypted</code> (per-run TF_VAR overrides), <code>policy_status</code>, <code>auto_approve_if_no_changes</code>/<code>auto_approve_skip_apply</code>.</td>
+</tr>
+<tr>
+<td><code>RunStep</code></td>
+<td><code>run_steps</code></td>
+<td>Per-step timeline row (Git Clone → Checkov → Plan → OPA → Cost → Awaiting Approval → Apply → …), kind-aware (Terraform vs. Helm step lists live in <code>run_step.py</code>).</td>
+</tr>
+<tr>
+<td><code>RunArtifact</code></td>
+<td><code>run_artifacts</code></td>
+<td>Blob output attached to a run (plan output, logs, checkov report).</td>
+</tr>
+<tr>
+<td><code>RunJob</code></td>
+<td><code>run_jobs</code></td>
+<td>The worker's queue: one row per executor launch attempt, states <code>queued → picked → done|failed</code>, with heartbeats so a reaper can detect and recover a dead launch. Decouples "a run was triggered" from "an executor container is actually running."</td>
+</tr>
+<tr>
+<td><code>StateLockEntry</code></td>
+<td><code>state_lock_entry</code></td>
+<td>Backing row for the Postgres advisory lock held while a workspace's Terraform state is checked out (see <a href="#7-state-backend">§7</a>).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="policy-drift-inventory">Policy, drift &amp; inventory<a class="headerlink" href="#policy-drift-inventory" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Table</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Policy</code> / <code>PolicyVersion</code></td>
+<td><code>policies</code> / (version history table)</td>
+<td>BU-scoped OPA/conftest rego rule authored in the UI, with append-only version snapshots on every edit and a <code>severity</code> (<code>block</code>/<code>warn</code>/<code>info</code>).</td>
+</tr>
+<tr>
+<td><code>DriftReport</code></td>
+<td><code>drift_reports</code></td>
+<td>Latest drift snapshot per workspace: <code>has_drift</code> + a 4-way breakdown (<code>modified_count</code>, <code>untracked_count</code>, <code>deleted_count</code>, <code>mismatch_count</code>) + a <code>resources[]</code> JSON drill-down.</td>
+</tr>
+<tr>
+<td><code>CloudAsset</code></td>
+<td><code>cloud_assets</code></td>
+<td>One row per discovered cloud resource, classified into an IaC state (<code>codified</code>, <code>drifted</code>, <code>ghost</code>, <code>unmanaged</code>, <code>service_managed</code>, <code>ignored</code>, <code>undetermined</code>). Feeds the Inventory dashboard's codification percentage.</td>
+</tr>
+<tr>
+<td><code>InventoryIgnoreRule</code></td>
+<td><code>inventory_ignore_rules</code></td>
+<td>Per-BU glob/type rules that reclassify noisy live resources to <code>ignored</code> so they don't count against codification coverage.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="config-variables-audit">Config, variables &amp; audit<a class="headerlink" href="#config-variables-audit" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Table</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Config</code> / <code>ConfigHistory</code></td>
+<td><code>config</code> / <code>config_history</code></td>
+<td>Generic key/value runtime config (see <a href="#6-encryption-model">§6</a>); every write is versioned in <code>config_history</code>.</td>
+</tr>
+<tr>
+<td><code>GlobalVariable</code> / <code>WorkspaceVariable</code></td>
+<td><code>global_variables</code> / <code>workspace_variables</code></td>
+<td>Encrypted <code>TF_VAR_*</code> sources at BU-global and per-workspace scope. Merge order at executor launch: <code>global ← workspace ← run</code> (run-scope values live inline on <code>Run.variables_encrypted</code>, not here).</td>
+</tr>
+<tr>
+<td><code>AuditLog</code></td>
+<td><code>audit_logs</code></td>
+<td>Append-only, hash-chained audit trail (see <a href="#10-webhooks-notifications-audit-log">§10</a>).</td>
+</tr>
+<tr>
+<td><code>APIKey</code></td>
+<td><code>api_keys</code></td>
+<td>Scoped automation credential (see <a href="#5-auth-rbac">§5</a>).</td>
+</tr>
+<tr>
+<td><code>ChangelogEntry</code></td>
+<td><code>changelog_entries</code></td>
+<td>TDT-owned changelog shown in Settings → Changelog; rows are <code>github</code> (synced from merged PRs) or <code>manual</code> (admin-authored).</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-the-run-fsm">4. The Run FSM<a class="headerlink" href="#4-the-run-fsm" title="Permanent link">&para;</a></h2>
+<p>A <code>Run</code> represents one <code>plan</code>, <code>apply</code>, or <code>destroy</code> execution against a
+workspace. <code>Run.status</code> moves through a strict state machine
+(<code>app/models/run.py: RunStatus</code> + <code>_VALID_TRANSITIONS</code>); invalid transitions
+raise, so the executor and API can never desync the visible status from
+what actually happened.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>PENDING ──► RUNNING ──┬─► PLANNING ──┬─► PLANNED ──► AWAITING_APPROVAL ──► APPLYING ──► APPLIED
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                       │              └─► AWAITING_APPROVAL ────────────────┘
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>                       └─► PLANNED ────────┘
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>                       └─► AWAITING_APPROVAL  (unified plan→apply: plan runs inline, no PLANNED hop)
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>any non-terminal state ──► FAILED     (executor can report a fatal error from anywhere)
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>PENDING / RUNNING / PLANNING / PLANNED / AWAITING_APPROVAL ──► CANCELLED
+</code></pre></div>
+<ul>
+<li><strong>PENDING → RUNNING</strong>: <code>POST /api/v1/runs</code> creates the row and enqueues a
+  <code>RunJob</code>; the worker picks it up and launches an executor container.</li>
+<li><strong>RUNNING → PLANNING/PLANNED → AWAITING_APPROVAL</strong>: the executor clones
+  the repo, runs Checkov, <code>terraform init</code>/<code>plan</code> (or <code>helm diff</code> for Helm
+  workspaces), runs the OPA policy gate, runs cost estimation, and PATCHes
+  the plan JSON + <code>tfplan</code> binary back to the API. The run then pauses.</li>
+<li><strong>AWAITING_APPROVAL → APPLYING → APPLIED</strong>: a second executor container is
+  launched against the <strong>exact same <code>tfplan</code> binary</strong> captured at plan time
+  — no drift can sneak in between review and apply.</li>
+<li><strong>APPLIED / FAILED / CANCELLED</strong> are terminal — no further transitions.</li>
+</ul>
+<p><code>APPLYING</code> from <code>AWAITING_APPROVAL</code> is a manual approval, an
+auto-approval, or a rejection:</p>
+<ul>
+<li><strong>Manual approve/reject</strong>: <code>POST /api/v1/approvals/{run_id}/approve</code> or
+  <code>/reject</code>, handled by <code>app/services/approval_service.py</code>.</li>
+<li><strong>Auto-approve</strong>: if the run was created with
+  <code>auto_approve_if_no_changes=True</code> and the plan comes back with a clean
+  0-add/0-change/0-destroy summary and all gates green, <code>system_auto_approve</code>
+  stamps an audit entry attributed to <code>user_id=None</code> ("system") and either
+  proceeds to a real apply or (if <code>auto_approve_skip_apply=True</code>)
+  short-circuits straight to <code>APPLIED</code> with no executor spawned.</li>
+</ul>
+<h3 id="4-eyes-approval-revoked">4-eyes approval — <strong>revoked</strong><a class="headerlink" href="#4-eyes-approval-revoked" title="Permanent link">&para;</a></h3>
+<p>An earlier design required the approver to differ from the triggering user
+("4-eyes"). <strong>This rule has been removed.</strong> Any user with <code>operator</code> role or
+higher may approve or reject <strong>any</strong> run in their Business Unit, including
+one they triggered themselves. The <code>runs.reviewer_id</code> column and the
+<code>GET /users/eligible-reviewers</code> endpoint are kept only for backward
+compatibility with pre-removal rows/clients and do no enforcement.</p>
+<blockquote>
+<p>Do not reintroduce a 4-eyes check without explicit approval — see
+<code>CLAUDE.md</code> at the repo root.</p>
+</blockquote>
+<h3 id="who-can-trigger-approve">Who can trigger / approve<a class="headerlink" href="#who-can-trigger-approve" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Minimum role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Trigger plan / apply / destroy</td>
+<td><code>operator</code></td>
+</tr>
+<tr>
+<td>Approve / reject a run</td>
+<td><code>operator</code> (any operator+, including the triggerer)</td>
+</tr>
+<tr>
+<td>Cancel a run</td>
+<td><code>operator</code></td>
+</tr>
+<tr>
+<td>Read runs / drift / audit</td>
+<td><code>viewer</code></td>
+</tr>
+</tbody>
+</table>
+<p>Full lifecycle detail (executor env wiring, step lists, Helm mapping,
+cancellation, logs) lives in <code>services/api/app/services/executor_service.py</code>
+and <code>services/executor/entrypoint.sh</code>.</p>
+<hr />
+<h2 id="5-auth-rbac">5. Auth &amp; RBAC<a class="headerlink" href="#5-auth-rbac" title="Permanent link">&para;</a></h2>
+<h3 id="jwt-interactive-sessions">JWT (interactive sessions)<a class="headerlink" href="#jwt-interactive-sessions" title="Permanent link">&para;</a></h3>
+<ul>
+<li>HS256, secret from the <code>config</code> table (<code>JWT_SECRET</code>, bootstrap value from
+  an env var read once at first boot).</li>
+<li><strong>Access token</strong>: default 480min/8h (<code>auth.access_token_expire_minutes</code>,
+  admin-tunable via Runtime Config), claims <code>sub</code>, <code>email</code>, <code>role</code>,
+  <code>is_superadmin</code>, <code>name</code>, <code>type: "access"</code>. <code>is_superadmin</code> is a top-level
+  claim so the UI can render superadmin affordances without an extra <code>/me</code>
+  round trip.</li>
+<li><strong>Refresh token</strong>: 24h, claims <code>sub</code>, <code>type: "refresh"</code>.</li>
+<li>Issued by <code>POST /api/v1/auth/token</code> (local email+password), refreshed via
+  the refresh endpoint. Password hashing is bcrypt; no plaintext at rest.</li>
+<li>Code: <code>services/api/app/auth/jwt.py</code>.</li>
+</ul>
+<h3 id="oidc-sso">OIDC / SSO<a class="headerlink" href="#oidc-sso" title="Permanent link">&para;</a></h3>
+<p>A pluggable auth-mode switch (<code>local</code> / <code>oidc</code> / <code>both</code>), config read from
+env vars first with a <code>config</code>-table fallback (<code>app/auth/oidc.py</code>). Local
+docker-compose dev has none of the <code>AUTH_OIDC_*</code> vars set and stays on
+<code>local</code> with zero configuration. In an OIDC deployment, groups in the
+identity token map to TDT roles (including a <code>superadmin</code> target) via a
+configurable JSON mapping, re-evaluated on every sign-in. Tested against a
+generic OIDC IdP — see <code>services/api/app/auth/oidc.py</code> for the group-mapping
+implementation.</p>
+<h3 id="role-hierarchy">Role hierarchy<a class="headerlink" href="#role-hierarchy" title="Permanent link">&para;</a></h3>
+<p><code>viewer(0) &lt; operator(1) &lt; admin(2)</code>, defined in
+<code>services/api/app/auth/rbac.py</code>. <code>require_role(Role.x)</code> is a FastAPI
+dependency enforcing a <strong>minimum</strong> role; a higher role can do everything a
+lower one can.</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Read workspaces / runs / drift / audit</td>
+<td><code>viewer</code></td>
+</tr>
+<tr>
+<td>Trigger plan/apply/destroy, approve/reject a run</td>
+<td><code>operator</code></td>
+</tr>
+<tr>
+<td>Configure integrations (Git PAT, Slack, Checkov mode…), toggle per-workspace webhook</td>
+<td><code>operator</code></td>
+</tr>
+<tr>
+<td>User CRUD, AWS/Azure account CRUD, cluster CRUD, workspace delete, API key management, policy CRUD</td>
+<td><code>admin</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="superadmin">Superadmin<a class="headerlink" href="#superadmin" title="Permanent link">&para;</a></h3>
+<p><code>users.is_superadmin</code> is a <strong>cross-BU flag</strong>, not a fourth role value on
+<code>users.role</code>. A superadmin sees every Business Unit, every workspace, every
+cloud account, bypassing the per-BU membership filter entirely. It's
+intended for break-glass/ops use. See <code>app/auth/bu_context.py</code> for the
+<code>X-Business-Unit</code> header resolution logic and <code>PATCH /users/{id}</code> in
+<code>docs/API.md</code> for the promotion/demotion contract.</p>
+<h3 id="business-units-multi-tenancy">Business Units (multi-tenancy)<a class="headerlink" href="#business-units-multi-tenancy" title="Permanent link">&para;</a></h3>
+<p>Every <code>workspace</code>, <code>aws_account</code>, <code>azure_subscription</code>, and <code>k8s_cluster</code>
+belongs to exactly one BU via a NOT NULL <code>business_unit_id</code>. The UI sends
+<code>X-Business-Unit: &lt;slug&gt;</code> on every request; the backend resolves scope via
+<code>app/auth/bu_context.py::current_bu</code> (superadmin + no header → all BUs;
+member + no header → their first BU; <code>all</code> → all BUs for superadmins only,
+403 for members; <code>&lt;slug&gt;</code> → that BU if the caller is a member/superadmin).
+Non-superadmins join one or more BUs through <code>user_business_units</code> with a
+per-BU role (<code>operator</code> | <code>viewer</code>); the legacy <code>users.role</code> column is kept
+for one release as a fallback for code paths that haven't migrated to
+per-BU resolution.</p>
+<h3 id="api-keys-automation">API keys (automation)<a class="headerlink" href="#api-keys-automation" title="Permanent link">&para;</a></h3>
+<p>Long-lived bearer credentials for non-interactive use, additive to the JWT
+path. Token format <code>tdt_&lt;urlsafe&gt;</code>, shown once at creation, stored only as a
+SHA-256 hash (<code>api_keys.token_hash</code>) plus a display prefix.</p>
+<p>Each key is pinned to <strong>one Business Unit</strong> (forced regardless of any
+<code>X-Business-Unit</code> header the caller sends), optionally restricted to a
+<strong>workspace allowlist</strong>, and capped by a <strong>capability tier</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Equivalent to</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>read</code></td>
+<td><code>viewer</code></td>
+<td>Read-only.</td>
+</tr>
+<tr>
+<td><code>plan</code></td>
+<td><code>operator</code> (plan-only)</td>
+<td>Can trigger plans, not applies.</td>
+</tr>
+<tr>
+<td><code>apply</code></td>
+<td><code>operator</code> (full)</td>
+<td>Can trigger + approve/apply.</td>
+</tr>
+<tr>
+<td><code>admin</code></td>
+<td><code>admin</code>, minus identity</td>
+<td>Everything <code>apply</code> can do <strong>plus</strong> workspace create/discover/import/update/delete, AWS/Azure accounts, clusters, policies, drift, integrations, variables — the full admin surface <strong>except</strong> identity management.</td>
+</tr>
+</tbody>
+</table>
+<p>The effective role for a key request is <code>min(owner's real role, capability
+ceiling)</code> — a key can never exceed what its owner could already do.
+<strong>Identity endpoints are interactive-only, even for <code>admin</code>-tier keys</strong>: the
+API-keys and users routers, plus the Business-Unit superadmin gate, carry a
+blanket <code>forbid_api_keys</code> dependency, so no key — however powerful — can
+mint/revoke keys, manage users, or create/update BUs. Those surfaces gate on
+the <em>owner's</em> <code>is_superadmin</code>, which an <code>admin</code> key would otherwise inherit
+as a privilege escalation if this guard didn't exist.</p>
+<p>Management: <code>POST/GET/DELETE /api/v1/api-keys</code>, <code>admin</code>-only, every
+create/revoke written to <code>AuditLog</code>. UI: Settings → <strong>API keys</strong> tab
+(admin-only). Full detail in <code>docs/API.md</code> and <code>app/auth/rbac.py</code>.</p>
+<hr />
+<h2 id="6-encryption-model">6. Encryption model<a class="headerlink" href="#6-encryption-model" title="Permanent link">&para;</a></h2>
+<p><strong>Invariant:</strong> exactly one secret, <code>CREDENTIAL_ENCRYPTION_KEY</code>, seeds every
+encrypted value in the system. If it's lost, every encrypted row
+(credentials, kubeconfigs, secret config values, secret variables) becomes
+permanently unreadable — there is no recovery path other than re-entering
+the plaintext. If it's ever rotated, everything encrypted under the old key
+must be re-encrypted first. There is no fallback/default key in code —
+<code>app/auth/encryption_key.py::get_credential_encryption_key()</code> raises at
+import time if the env var is unset, by design, so a misconfigured
+deployment fails loudly instead of silently using a predictable key.</p>
+<p><strong>Derivation:</strong> each domain (AWS credentials, Azure credentials, GCP
+credentials, Kubernetes kubeconfigs, generic <code>config</code> secrets,
+workspace/global variables) derives its <strong>own</strong> Fernet key from the same root
+key via HKDF-SHA256 with a <strong>distinct, hardcoded salt</strong> per domain (e.g.
+<code>b"terraducktel-aws-credentials-v1"</code>, <code>b"terraducktel-config-v1"</code>,
+<code>b"terraducktel-azure-credentials-v1"</code>, <code>b"terraducktel-gcp-credentials-v1"</code>,
+<code>b"terraducktel-variables-v1"</code>). This means a ciphertext leaked from one
+domain can't be replayed or confused with another, and each domain can rotate
+its salt independently in a future migration without touching the root key.
+The pattern is identical everywhere it appears — <code>aws_account_service.py</code>,
+<code>azure_subscription_service.py</code>, <code>gcp_project_service.py</code>, <code>cluster_service.py</code>,
+<code>config_service.py</code>, <code>variable_service.py</code> — new encrypted domains should copy
+it rather than invent a new scheme.</p>
+<p><strong>What's encrypted:</strong>
+- AWS access key / secret access key (<code>aws_accounts</code>).
+- Azure service-principal secret (<code>azure_subscriptions</code>).
+- GCP service-account key JSON (<code>gcp_projects</code>).
+- Kubernetes kubeconfig (<code>k8s_clusters</code>).
+- Any <code>config</code> row with <code>is_secret=True</code> (GitHub PAT, Slack bot token,
+  Infracost API key, webhook secrets, <code>JWT_SECRET</code> itself once persisted).
+- Global and per-workspace Terraform variables marked secret
+  (<code>global_variables</code> / <code>workspace_variables</code>).
+- Per-run variable overrides (<code>runs.variables_encrypted</code>) — encrypted as one
+  JSON blob so the apply phase can replay exactly what the plan phase saw.</p>
+<p><strong>What's never returned in plaintext once saved:</strong> every GET for a secret
+resource returns <code>{configured: bool, masked_tail: "...ab12"}</code>, never the
+value. This is enforced at the service layer, not just the router, so a
+future endpoint can't accidentally leak it.</p>
+<hr />
+<h2 id="7-state-backend">7. State backend<a class="headerlink" href="#7-state-backend" title="Permanent link">&para;</a></h2>
+<p>Terraform state is served by a custom <strong>Terraform HTTP state backend</strong>
+implemented in the API itself (<code>app/routers/state.py</code> +
+<code>app/services/state_service.py</code> + the pluggable object stores below), not by
+pointing <code>terraform init</code> directly at S3. The executor's backend config points
+at <code>{API_URL}/api/v1/state/{workspace_id}</code>, authenticated with the shared
+<code>TERRADUCKTEL_STATE_TOKEN</code> secret — it never learns which object store sits
+behind the API.</p>
+<ul>
+<li><strong>Pluggable backends</strong>: <code>workspace.state_backend</code> (<code>s3</code> default |
+  <code>azureblob</code> | <code>gcs</code>) selects the object store. <code>_service_for</code> builds a
+  <code>StateStore</code> (<code>app/services/state_store.py</code>, a Protocol with
+  <code>get_state_at</code>/<code>put_state_at</code>/<code>delete_state_at</code>) — <code>S3StateService</code>,
+  <code>AzureBlobStateService</code> (reuses the linked Azure SP over AAD), or
+  <code>GcsStateService</code> (reuses the linked GCP SA key). The HTTP interface, the
+  404-vs-503 error mapping, and locking are identical across all three.</li>
+<li><strong>S3 persistence</strong>: bytes live in S3 — LocalStack in dev, real AWS S3 in
+  production. <strong>Per-account bucket isolation</strong>: each onboarded <code>AwsAccount</code>
+  owns its own dedicated <code>state_bucket</code>, so one account's state is never
+  physically co-located with another's. Non-<code>s3</code> workspaces resolve to the
+  linked Azure subscription's container / GCP project's bucket instead. (The
+  <code>state_aws_account_id</code> override still applies to the executor's own AWS
+  cred lookup, unchanged.)</li>
+<li><strong>Key scheme</strong>: <code>{tf_working_dir}/terraform.tfstate</code> — the S3 key mirrors
+  the workspace's git path exactly (<code>app/routers/state.py::_service_for</code>).
+  Isolation between workspaces comes from the per-account dedicated bucket,
+  not a key prefix, so two same-named leaves under different account
+  directories never collide. (<code>Workspace.state_path</code>/<code>state_key</code>, which build
+  a <code>tfstate/{account}/{region}/{env}/...</code> key, are legacy and unused by the
+  live state backend.)</li>
+<li><strong>Locking</strong>: <code>pg_try_advisory_lock</code> on a numeric key derived from the
+  workspace, backed by the <code>state_lock_entry</code> table for bookkeeping —
+  <strong>deliberately not DynamoDB</strong>. This keeps the whole state story inside
+  Postgres, which the platform already depends on, with no second AWS
+  service to provision, pay for, or lose availability to. Terraform ≥1.10
+  additionally supports native S3 <code>use_lockfile = true</code>, but TDT's own
+  advisory-lock scheme is what actually gates concurrent runs against the
+  same workspace at the API layer, independent of what the backend config
+  says.</li>
+<li>Helm workspaces have <strong>no external state backend at all</strong> — Helm release
+  state lives in-cluster, so the executor skips the AWS-state-token and
+  S3/HTTP backend wiring entirely for <code>kind=helm</code> runs.</li>
+</ul>
+<hr />
+<h2 id="8-executor-lifecycle">8. Executor lifecycle<a class="headerlink" href="#8-executor-lifecycle" title="Permanent link">&para;</a></h2>
+<p>The executor is a short-lived container launched <strong>once per phase</strong> (plan,
+then — after approval — apply) by <code>app/services/executor_service.py</code>. Two
+image variants share one <code>entrypoint.sh</code>, branching on a <code>WORKSPACE_KIND</code>
+env var:</p>
+<ul>
+<li><code>services/executor/Dockerfile</code> — Terraform CLI (bundles Terraform 1.10,
+  the floor version because it's the first release supporting
+  <code>use_lockfile = true</code>), Checkov, conftest.</li>
+<li><code>services/executor/Dockerfile.helm</code> — adds <code>helm</code>, <code>kubectl</code>,
+  <code>helm-diff</code>, <code>kubeconform</code>, the AWS CLI (for EKS <code>aws eks get-token</code>
+  auth), reusing the same entrypoint.</li>
+</ul>
+<h3 id="terraform-workspaces-kindterraform">Terraform workspaces (<code>kind=terraform</code>)<a class="headerlink" href="#terraform-workspaces-kindterraform" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Clone the repo at the workspace's <code>repo_ref</code> (shallow).</li>
+<li>Load any per-workspace <code>terraducktel.yaml</code> override (Terraform version
+   pin, Helm chart config for helm workspaces).</li>
+<li>Load merged variables (<code>global ← workspace ← run</code>), decrypted once.</li>
+<li><strong>Checkov</strong> scan against the source HCL — a hard gate, configurable via
+   Settings → Checkov mode. Runs <em>before</em> <code>terraform init</code>.</li>
+<li><code>terraform init</code> against the HTTP state backend, then
+   <code>terraform plan -out tfplan.bin</code> + <code>terraform show -json tfplan.bin</code>.</li>
+<li><strong>OPA policy check</strong> (<code>conftest</code>) against the <em>plan JSON</em> — this runs
+   <strong>after</strong> plan, unlike Checkov, because it needs the resolved plan, not
+   just source HCL. Policy sources merge three ways at run time: bundled
+   defaults baked into the image (from the repo's <code>policies/*.rego</code>), the
+   BU's DB-authored <code>Policy</code> rows, and an optional external git policy
+   repo. <code>conftest</code> runs once per policy so each finding carries its own
+   severity. The per-BU <code>opa.mode</code> config (<code>off</code> default / <code>warn</code> /
+   <code>enforce</code>) is the master switch — only <code>enforce</code> + a <code>block</code>-severity
+   violation actually fails the run, and it fails <strong>before</strong> the approval
+   step is reached.</li>
+<li><strong>Cost estimation</strong> via Infracost, if a key is configured — best-effort,
+   never fails the run.</li>
+<li>PATCH the plan JSON + <code>tfplan</code> blob back to the API →
+   <code>status = "awaiting_approval"</code>. The container exits; the plan binary is
+   now sitting in <code>runs.tfplan_b64</code>.</li>
+<li>On approval, a <strong>second</strong> executor container launches with the apply
+   phase, reads back the same <code>tfplan.bin</code>, runs <code>terraform apply
+   tfplan.bin</code>, and PATCHes the final status.</li>
+</ol>
+<h3 id="helm-workspaces-kindhelm">Helm workspaces (<code>kind=helm</code>)<a class="headerlink" href="#helm-workspaces-kindhelm" title="Permanent link">&para;</a></h3>
+<p>Same gated pipeline, same approval boundary, same run timeline — only the
+command vocabulary changes:</p>
+<table>
+<thead>
+<tr>
+<th>TDT command</th>
+<th>Terraform</th>
+<th>Helm</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>plan</code></td>
+<td><code>terraform plan</code></td>
+<td><code>helm diff upgrade</code></td>
+</tr>
+<tr>
+<td><code>apply</code></td>
+<td><code>terraform apply tfplan.bin</code></td>
+<td><code>helm upgrade --install</code></td>
+</tr>
+<tr>
+<td><code>destroy</code></td>
+<td><code>terraform destroy</code></td>
+<td><code>helm uninstall</code></td>
+</tr>
+<tr>
+<td>lint</td>
+<td>(Checkov)</td>
+<td><code>helm lint</code> + <code>kubeconform</code></td>
+</tr>
+</tbody>
+</table>
+<p>The launcher injects <code>WORKSPACE_KIND=helm</code>, selects the <code>executor-helm</code>
+image, writes the target cluster's decrypted kubeconfig into the container,
+and skips all AWS-state-token / S3 backend wiring — there's no <code>terraform
+init</code> step and no state lock to take. Chart config comes from a
+<code>terraducktel.yaml</code> <code>helm:</code> block (<code>release_name</code>, <code>namespace</code>, <code>chart</code>,
+<code>repo</code>, <code>values[]</code>). There is no OPA step for Helm in this version (Checkov
+and OPA both currently target Terraform plan JSON / HCL only).</p>
+<p>Full detail, env var list, and the Helm cluster/EKS credential story live in
+<code>services/api/app/services/executor_service.py</code> and
+<code>services/api/app/services/cluster_service.py</code>.</p>
+<hr />
+<h2 id="9-drift-detection">9. Drift detection<a class="headerlink" href="#9-drift-detection" title="Permanent link">&para;</a></h2>
+<p><code>services/drift-detector/</code> is a long-running Python loop (also functioning
+as the cloud asset inventory collector), on its own container, polling
+every <code>DRIFT_INTERVAL_SEC</code> (default 300s locally, 1800s in prod). It
+<strong>does not clone repos or run <code>terraform</code></strong> — it reuses state the API
+already holds:</p>
+<ol>
+<li>Fetch every workspace via <code>GET /api/v1/internal/workspaces</code>
+   (state-token authenticated).</li>
+<li>For each workspace, fetch its Terraform state from the HTTP state
+   backend and classify every <code>mode == "managed"</code> resource as <strong>codified</strong>.</li>
+<li>Fetch the workspace's AWS credentials via
+   <code>GET /api/v1/internal/workspaces/{id}/aws-credentials</code> and enumerate
+   live resources via the AWS Resource Groups Tagging API. Any live ARN
+   absent from every workspace's state → <strong>unmanaged</strong>.</li>
+<li>POST the classified asset set back to
+   <code>.../internal/drift/{id}/report</code>; the API upserts <code>cloud_assets</code>.</li>
+</ol>
+<p>This gives cheap, frequent coverage of "what exists but isn't codified"
+without the cost of a real <code>terraform plan</code> per cycle. <strong>Attribute-level</strong>
+drift (a resource that's both codified <em>and</em> changed) and state↔config
+<code>mismatch</code> still require an actual plan and are a separate, plan-based
+concern — they don't come from this collector.</p>
+<p><code>workspaces.drift_status</code> is <code>clean</code> / <code>drifted</code> / <code>unknown</code> (not yet
+scanned, scan errored, or no <code>repo_url</code>). Surfaced on the Dashboard, the
+per-workspace drift badge, and a dedicated Drift page with a 4-category
+breakdown. Full detail lives in <code>services/drift-detector/detector.py</code>.</p>
+<p><code>liveness-detector</code> is a separate, simpler container that just pings core
+services and Slack-alerts on prolonged downtime — not part of the drift
+pipeline.</p>
+<hr />
+<h2 id="10-webhooks-notifications-audit-log">10. Webhooks, notifications, audit log<a class="headerlink" href="#10-webhooks-notifications-audit-log" title="Permanent link">&para;</a></h2>
+<h3 id="webhooks">Webhooks<a class="headerlink" href="#webhooks" title="Permanent link">&para;</a></h3>
+<p>Per-workspace opt-in (<code>workspace.webhook_enabled</code>, default <code>false</code>). When
+enabled, a push to the workspace's <code>repo_ref</code> on GitHub or Forgejo triggers
+a Run automatically. Both providers land at HMAC-verified
+<code>POST /api/v1/webhooks/...</code> endpoints. A per-BU webhook path
+(<code>/webhooks/github/{bu_slug}</code>) validates against a BU-namespaced secret and
+only matches workspaces in that BU; a legacy unscoped path
+(<code>/webhooks/github</code>) is kept for backward compatibility and matches across
+all BUs by repo-URL substring.</p>
+<h3 id="notifications">Notifications<a class="headerlink" href="#notifications" title="Permanent link">&para;</a></h3>
+<p><code>app/services/notification_service.py</code> fires on run and drift events:</p>
+<ul>
+<li><strong>Slack</strong> — two mechanisms coexist: a simple incoming-webhook path
+  (<code>slack.webhook_url</code> in config) for plan/approval/drift alerts, and a
+  richer Slack <strong>bot</strong> path (per-BU bot token + channel, <code>slack.py</code>) used
+  for the run-lifecycle messages (auto-approved, awaiting approval, failed,
+  drift detected) — these show the workspace's display name + leaf path,
+  not just its environment tag, and include deep links back into the UI.</li>
+<li><strong>SMTP</strong> — best-effort email via <code>smtplib</code>, configured through
+  <code>smtp.host</code>/<code>smtp.port</code>/<code>smtp.from</code>/<code>smtp.to</code> (+ optional
+  <code>smtp.username</code>/<code>smtp.password</code>) in the <code>config</code> table. Silently skipped
+  if <code>smtp.host</code> isn't set.</li>
+</ul>
+<p>All notification sends are best-effort — a Slack or SMTP failure never
+fails the underlying run.</p>
+<h3 id="audit-log-hash-chain">Audit log + hash chain<a class="headerlink" href="#audit-log-hash-chain" title="Permanent link">&para;</a></h3>
+<p>Every privileged action (login, run trigger/approve/reject, workspace
+create/delete, integration config writes, account create/delete, API key
+create/revoke, policy edits) writes an <code>AuditLog</code> row. The log is
+<strong>append-only and tamper-evident</strong>: each row carries <code>prev_hash</code> and
+<code>entry_hash</code>, where</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>entry_hash = sha256(prev_hash || canonical_row_json)
+</code></pre></div>
+<p>computed in Python <em>before</em> insert, and a database trigger re-derives and
+checks it on every <code>INSERT</code>, rejecting the write if the Python-computed
+hash doesn't match — and rejecting <code>UPDATE</code>/<code>DELETE</code> outright at the row
+level. This means a chain break (a row that doesn't reproduce its stored
+hash from its predecessor) is detectable by walking the table, which is
+exactly what the audit-log verifier endpoint does. <code>resource_type</code>,
+<code>resource_id</code>, <code>action</code>, and an optional <code>details</code> JSON blob describe what
+happened; <code>user_id=None</code> marks system-initiated entries (e.g.
+auto-approval).</p>
+<hr />
+<h2 id="11-deployment-topology">11. Deployment topology<a class="headerlink" href="#11-deployment-topology" title="Permanent link">&para;</a></h2>
+<h3 id="local-dev-docker-compose">Local dev (docker compose)<a class="headerlink" href="#local-dev-docker-compose" title="Permanent link">&para;</a></h3>
+<p><code>make up</code> brings up every service in <a href="#2-service-topology">§2</a>. No AWS
+account is required — LocalStack stands in for S3, Forgejo stands in for
+GitHub, and <code>local</code> auth mode needs zero configuration. <code>make seed-db</code>
+inserts three dev users (<code>admin@test.com</code> / <code>operator@test.com</code> /
+<code>viewer@test.com</code>, all password <code>password123</code>). See the <code>Makefile</code> for the
+full command list.</p>
+<h3 id="aws-ecs-production-path-optional">AWS ECS production path (optional)<a class="headerlink" href="#aws-ecs-production-path-optional" title="Permanent link">&para;</a></h3>
+<p>TDT can run the same five core images (<code>api</code>, <code>ui</code>, <code>drift-detector</code>,
+<code>liveness-detector</code>, <code>executor</code> — plus <code>executor-helm</code> if Helm workspaces
+are in use) on <strong>AWS ECS</strong>, fronted by an ALB, with RDS Postgres and real
+S3 replacing the compose <code>postgres</code>/<code>localstack</code> services. This path is
+driven by two things that are kept in lockstep on purpose:</p>
+<ul>
+<li><strong><code>.github/workflows/deploy-dev.yml</code></strong> — runs on every push to <code>dev</code>
+  (i.e., every merged PR once <code>dev</code> is branch-protected). Builds all 5
+  service images in a matrix, pushes them to ECR tagged
+  <code>v0.1.0-&lt;short-sha&gt;</code>, checks out a <strong>separate, private</strong>
+  <code>terraform-infra</code> repo containing the actual ECS/RDS/ALB stack
+  definitions (not part of this repo — infrastructure-as-code for the
+  platform's <em>own</em> hosting is deliberately decoupled from the app repo),
+  and runs <code>terraform apply</code> to roll the ECS services onto the new tag.</li>
+<li><strong><code>scripts/deploy-to-aws.sh</code></strong> — the same build-and-push logic, runnable
+  locally for ad-hoc deploys. It intentionally does <strong>not</strong> run
+  <code>terraform apply</code> itself; a human runs that from the infra repo
+  afterward. The two paths are documented as required to stay in sync.</li>
+</ul>
+<p><strong>CI auth is OIDC — no long-lived AWS keys stored in GitHub.</strong> The workflow
+assumes an IAM role (<code>github-actions-terraducktel-deploy</code>) via
+<code>aws-actions/configure-aws-credentials</code>, using GitHub's OIDC token
+(<code>https://token.actions.githubusercontent.com</code>, audience <code>sts.amazonaws.com</code>).
+The role's trust policy restricts <code>sub</code> to <code>repo:&lt;your-org&gt;/terraducktel:ref:refs/heads/dev</code>,
+so only workflows running on <code>dev</code> in this specific repo can assume it. Six
+Terraform stack inputs with no defaults (domain name, ACM cert ARN, DB
+password, credential encryption key, JWT secret, state token) are injected
+as <code>TF_VAR_*</code> from GitHub Actions secrets — set once, treated as immutable
+after first apply, since rotating any of them invalidates live sessions or
+makes existing encrypted data unreadable.</p>
+<p>Example account id used throughout these docs and scripts: <code>111111111111</code>
+(a placeholder — substitute your own 12-digit AWS account id).</p>
+<hr />
+<h2 id="12-extension-points">12. Extension points<a class="headerlink" href="#12-extension-points" title="Permanent link">&para;</a></h2>
+<p>Where to look when adding something new:</p>
+<table>
+<thead>
+<tr>
+<th>Adding...</th>
+<th>Start here</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A new API endpoint / resource type</td>
+<td><code>app/schemas/&lt;domain&gt;.py</code> → <code>app/services/&lt;domain&gt;_service.py</code> → <code>app/routers/&lt;domain&gt;.py</code> (thin, <code>require_role</code>-gated) → <code>tests/test_&lt;domain&gt;.py</code> → update <code>docs/API.md</code>.</td>
+</tr>
+<tr>
+<td>A new encrypted credential type</td>
+<td>Copy the Fernet/HKDF pattern in <code>aws_account_service.py</code> / <code>cluster_service.py</code> — <strong>derive a new domain-specific HKDF salt</strong>, don't reuse an existing one or roll a new encryption scheme. See <a href="#6-encryption-model">§6</a>.</td>
+</tr>
+<tr>
+<td>A new cloud provider target (beyond AWS/Azure/K8s)</td>
+<td>Model it like <code>AzureSubscription</code>/<code>K8sCluster</code>: its own table, its own encrypted-credential service, a <code>workspace.&lt;provider&gt;_id</code> FK, and executor_service branching analogous to the <code>kind=helm</code> path in <code>executor_service.py</code>.</td>
+</tr>
+<tr>
+<td>A new run step (scanner, gate, reporter)</td>
+<td><code>run_step.py</code>'s <code>DEFAULT_STEP_NAMES</code>/<code>HELM_STEP_NAMES</code> lists (order matters — it's display order) + the matching block in <code>services/executor/entrypoint.sh</code>, wired through <code>executor_service.py</code>'s env dict if it needs config.</td>
+</tr>
+<tr>
+<td>A new policy engine or gate</td>
+<td>Follow the OPA/conftest pattern in <code>policy_service.py</code> + the <code>run_opa_policy_check</code> block in <code>entrypoint.sh</code> — a gate should be config-switchable per BU (<code>off</code>/<code>warn</code>/<code>enforce</code>-style), never hard-blocking by default.</td>
+</tr>
+<tr>
+<td>A new notification channel</td>
+<td><code>notification_service.py</code> — keep sends best-effort (never fail the run) and read config through <code>ConfigService</code>, not a new env var.</td>
+</tr>
+<tr>
+<td>A new DB table/column</td>
+<td>New Alembic revision (<code>NNN_&lt;slug&gt;.py</code>), never edit a merged one.</td>
+</tr>
+<tr>
+<td>A new UI page/component</td>
+<td>Follow the existing token/Button/primitive conventions in <code>services/ui/src/components/ui.tsx</code> — no new inline hex colors, no new Tailwind color names.</td>
+</tr>
+<tr>
+<td>Anything touching Business Unit scoping</td>
+<td>Always thread <code>business_unit_id</code> through creates and filter reads via <code>current_bu</code>. The FK is NOT NULL; there is no "unscoped" row.</td>
+</tr>
+</tbody>
+</table>
+<p>Cross-reference: <a href="../API/"><code>docs/API.md</code></a> for the full endpoint catalog.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mormor83/terraducktel" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.tracking", "content.code.copy", "content.action.edit", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

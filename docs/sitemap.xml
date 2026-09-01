@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://mormor83.github.io/terraducktel/docs/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
+         <loc>https://mormor83.github.io/terraducktel/docs/API/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
+         <loc>https://mormor83.github.io/terraducktel/docs/ARCHITECTURE/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
+         <loc>https://mormor83.github.io/terraducktel/docs/CLI/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
+         <loc>https://mormor83.github.io/terraducktel/docs/ONBOARDING/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
+         <loc>https://mormor83.github.io/terraducktel/docs/RUNBOOK-disaster-recovery/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+</urlset>
