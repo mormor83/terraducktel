@@ -227,6 +227,15 @@ jobs:
       contents: write   # push the built site to gh-pages
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The publish step splices into the EXISTING `gh-pages` branch, so
+          # that ref has to be present locally. The default checkout is a
+          # shallow, single-branch clone of the pushed ref only, so
+          # `git worktree add … gh-pages` died with
+          # "fatal: invalid reference: gh-pages" and the site silently stopped
+          # updating. fetch-depth: 0 fetches every branch — and unshallows the
+          # clone, without which the push back to gh-pages is rejected.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -251,7 +260,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           tmp="$(mktemp -d)"
-          git worktree add --quiet "$tmp" gh-pages
+          git worktree add --quiet "$tmp" -B gh-pages origin/gh-pages
 
           rm -rf "$tmp/docs"
           mkdir -p "$tmp/docs"
