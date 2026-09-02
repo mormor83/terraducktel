@@ -1421,33 +1421,38 @@ state/approval logic, a purpose-built executor container does the actual
 <code>terraform</code>/<code>helm</code> work, and Postgres — not a hosted state-locking service —
 is the single source of truth for both metadata and locking.</p>
 <hr />
+<p>Three clients speak the same HTTP API with no privileged back door between
+them: the React UI, the <code>tdt</code> CLI (terminals, CI, and AI agents — see
+<a href="../CLI/">CLI</a>), and the executor, which is confined to run-scoped callback
+routes by a token type that cannot authenticate anywhere else.</p>
 <h2 id="2-service-topology">2. Service topology<a class="headerlink" href="#2-service-topology" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                              ┌─ traefik (80 / 443 / dashboard :18080) ─┐
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                              │        (reverse proxy + auto TLS)       │
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                              └──────────────────┬───────────────────────┘
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>                                                  │
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a> browser ──────────────────► ui (nginx, :3001) ───┤
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>                                                  │
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                                                  ▼
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>                                         api (FastAPI, :8001)
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>                                                  │
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                    ┌─────────────────────────────┼──────────────────────────────┐
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>                    ▼                              ▼                              ▼
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>             postgres (:5432,               localstack S3 (:4566,          docker socket
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>             internal only)                  dev tfstate backend;          (launches executor
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>             metadata, config,                AWS S3 in prod)               containers)
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>             audit, state locks
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>                    ▲                                                             │
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>                    │                                                             ▼
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>             drift-detector  ──── reads state + AWS creds via api/internal ── executor / executor-helm
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>             liveness-detector ── health pings → Slack                       (terraform plan/apply OR
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>             pg-backup ────────── periodic pg_dump → volume                   helm diff/upgrade)
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>                                                                                    │
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>                                                                    S3 (tfstate) + Postgres (locks)
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>                                                                    + target AWS account / Azure sub /
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>                                                                      Kubernetes cluster
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a> forgejo (:3002, self-hosted Git + Actions-compatible CI) ── act_runner (executes Forgejo workflows)
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a> tdt CLI / CI / agent ────────────────────────────┤  (same HTTP API, no privileged path)
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                                                  │
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>                                                  ▼
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>                                         api (FastAPI, :8001)
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                                                  │
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>                    ┌─────────────────────────────┼──────────────────────────────┐
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>                    ▼                              ▼                              ▼
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>             postgres (:5432,               localstack S3 (:4566,          docker socket
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>             internal only)                  dev tfstate backend;          (launches executor
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>             metadata, config,                AWS S3 in prod)               containers)
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>             audit, state locks
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>                    ▲                                                             │
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>                    │                                                             ▼
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>             drift-detector  ──── reads state + AWS creds via api/internal ── executor / executor-helm
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>             liveness-detector ── health pings → Slack                       (terraform plan/apply OR
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>             pg-backup ────────── periodic pg_dump → volume                   helm diff/upgrade)
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>                                                                                    │
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>                                                                    S3 (tfstate) + Postgres (locks)
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>                                                                    + target AWS account / Azure sub /
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>                                                                      Kubernetes cluster
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a> forgejo (:3002, self-hosted Git + Actions-compatible CI) ── act_runner (executes Forgejo workflows)
 </code></pre></div>
 <p>Everything above runs from one <code>docker-compose.yml</code>. In production the same
 API/UI/executor images can instead run on AWS ECS (see
@@ -1608,7 +1613,7 @@ forward-only (<code>services/api/alembic/versions/NNN_*.py</code>).</p>
 <tr>
 <td><code>Workspace</code></td>
 <td><code>workspaces</code></td>
-<td>One Terraform leaf module or one Helm chart. Canonical identity is <code>(business_unit_id, aws_account_id, region, environment, tf_working_dir)</code>. Carries <code>repo_url</code>/<code>repo_ref</code> (Git source), <code>kind</code> (<code>terraform</code> default or <code>helm</code>), <code>cluster_id</code> (helm target), <code>azure_subscription_id</code> / <code>gcp_project_id</code> (optional Azure/GCP targets), <code>state_backend</code> (<code>s3</code> default | <code>azureblob</code> | <code>gcs</code>), <code>drift_status</code>, <code>path_status</code> (<code>ok</code>/<code>orphaned</code>/<code>unknown</code> — tracks whether the leaf still exists at <code>repo_ref</code>), <code>webhook_enabled</code>.</td>
+<td>One Terraform leaf module or one Helm chart. Canonical identity is <code>(business_unit_id, aws_account_id, region, environment, tf_working_dir)</code>. Carries <code>repo_url</code>/<code>repo_ref</code> (Git source), <code>kind</code> (<code>terraform</code> default or <code>helm</code>), <code>cluster_id</code> (helm target), <code>azure_subscription_id</code> / <code>gcp_project_id</code> (optional Azure/GCP targets), <code>state_backend</code> (<code>s3</code> default | <code>azureblob</code> | <code>gcs</code>), <code>drift_status</code>, <code>path_status</code> (<code>ok</code>/<code>orphaned</code>/<code>unknown</code> — tracks whether the leaf still exists at <code>repo_ref</code>), <code>webhook_enabled</code>, <code>tags</code> (free-form key/value JSON; keys lowercased on write). Tags are a JSON column rather than a join table — at this fleet size a dict scan matches what an index would give, and it keeps tags atomic with the row so there is no orphan cleanup on delete.</td>
 </tr>
 <tr>
 <td><code>Run</code></td>
@@ -1811,6 +1816,13 @@ identity token map to TDT roles (including a <code>superadmin</code> target) via
 configurable JSON mapping, re-evaluated on every sign-in. Tested against a
 generic OIDC IdP — see <code>services/api/app/auth/oidc.py</code> for the group-mapping
 implementation.</p>
+<p>The same flow serves the CLI. <code>GET /auth/oidc/login?cli_port=&amp;cli_nonce=</code>
+records the loopback port in the signed session cookie; the callback then hands
+the token pair to <code>http://127.0.0.1:&lt;port&gt;/callback</code> instead of the SPA. The
+IdP's registered <code>redirect_uri</code> never changes, and because the port rides the
+cookie rather than the URL, a crafted callback cannot retarget the hand-off —
+the host is hardcoded. <code>GET /auth/config</code> advertises <code>cli_loopback</code> so a client
+can detect support instead of hanging on a deployment that lacks it.</p>
 <h3 id="role-hierarchy">Role hierarchy<a class="headerlink" href="#role-hierarchy" title="Permanent link">&para;</a></h3>
 <p><code>viewer(0) &lt; operator(1) &lt; admin(2)</code>, defined in
 <code>services/api/app/auth/rbac.py</code>. <code>require_role(Role.x)</code> is a FastAPI
@@ -1906,8 +1918,18 @@ blanket <code>forbid_api_keys</code> dependency, so no key — however powerful 
 mint/revoke keys, manage users, or create/update BUs. Those surfaces gate on
 the <em>owner's</em> <code>is_superadmin</code>, which an <code>admin</code> key would otherwise inherit
 as a privilege escalation if this guard didn't exist.</p>
+<p><strong>Rotation.</strong> <code>POST /api-keys/{id}/regenerate</code> replaces a key's secret in place
+and the old one dies immediately — correct when a single consumer holds it.
+<code>POST /api-keys/{id}/rotate</code> instead mints a <em>successor</em> row and pulls the old
+key's <code>expires_at</code> in to <code>now + overlap_hours</code> (default 24, max 168), so both
+secrets authenticate during the window and consumers can be migrated one at a
+time. The overlap is enforced by the ordinary <code>expires_at</code> check in
+<code>api_key_service.is_active()</code> — no second auth path and no sweeper job. A
+rotation never <em>extends</em> a shorter expiry, and a key can only be rotated once
+(rotate its successor after that), so several live secrets can never hide behind
+one name. <code>rotated_at</code> and <code>superseded_by_id</code> record the link.</p>
 <p>Management: <code>POST/GET/DELETE /api/v1/api-keys</code>, <code>admin</code>-only, every
-create/revoke written to <code>AuditLog</code>. UI: Settings → <strong>API keys</strong> tab
+create/revoke/rotate written to <code>AuditLog</code>. UI: Settings → <strong>API keys</strong> tab
 (admin-only). Full detail in <code>docs/API.md</code> and <code>app/auth/rbac.py</code>.</p>
 <hr />
 <h2 id="6-encryption-model">6. Encryption model<a class="headerlink" href="#6-encryption-model" title="Permanent link">&para;</a></h2>
@@ -2210,6 +2232,10 @@ makes existing encrypted data unreadable.</p>
 <tr>
 <td>A new API endpoint / resource type</td>
 <td><code>app/schemas/&lt;domain&gt;.py</code> → <code>app/services/&lt;domain&gt;_service.py</code> → <code>app/routers/&lt;domain&gt;.py</code> (thin, <code>require_role</code>-gated) → <code>tests/test_&lt;domain&gt;.py</code> → update <code>docs/API.md</code>.</td>
+</tr>
+<tr>
+<td>A new CLI command</td>
+<td><code>services/cli/tdt/commands/&lt;group&gt;_cmd.py</code>, then <strong>add the endpoint to <code>services/cli/api_contract.json</code></strong> — two tests read that file to keep the CLI and the API from drifting apart, and one of them fails on an undeclared call. Update <code>docs/CLI.md</code> and the two copies of <code>SKILL.md</code> (a test enforces they stay identical).</td>
 </tr>
 <tr>
 <td>A new encrypted credential type</td>

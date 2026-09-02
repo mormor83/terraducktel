@@ -594,6 +594,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#post-workspacestags-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces/tags — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get-workspacestags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GET /workspaces/tags
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -891,6 +913,17 @@
     <span class="md-ellipsis">
       
         Terraform state — /api/v1/state/{workspace_id} (state-token-auth)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operational-endpoints-unversioned-no-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operational endpoints (unversioned, no auth)
       
     </span>
   </a>
@@ -1195,6 +1228,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#post-workspacestags-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST /workspaces/tags — body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get-workspacestags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GET /workspaces/tags
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1499,6 +1554,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#operational-endpoints-unversioned-no-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operational endpoints (unversioned, no auth)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#status-codes-used-everywhere" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1611,15 +1677,21 @@ config key (<code>local</code> / <code>oidc</code> / <code>both</code>).</p>
 <td>public</td>
 </tr>
 <tr>
+<td>POST</td>
+<td><code>/auth/refresh</code></td>
+<td>Redeem a refresh token for a fresh access+refresh pair. Rejects access tokens, run-scoped executor tokens and <code>tdt_</code> API keys.</td>
+<td>public (bearer not required — the body carries the token)</td>
+</tr>
+<tr>
 <td>GET</td>
 <td><code>/auth/config</code></td>
-<td>Public auth config: <code>{mode, oidc_enabled, oidc_issuer}</code>.</td>
+<td>Public auth config: <code>{mode, oidc_enabled, oidc_issuer, cli_loopback}</code>.</td>
 <td>public</td>
 </tr>
 <tr>
 <td>GET</td>
 <td><code>/auth/oidc/login</code></td>
-<td>Begin OIDC login redirect for the configured provider. 404 if OIDC isn't enabled; 503 if enabled but not configured.</td>
+<td>Begin OIDC login redirect for the configured provider. 404 if OIDC isn't enabled; 503 if enabled but not configured. Optional <code>cli_port</code> + <code>cli_nonce</code> query params switch the callback to the CLI loopback hand-off (see below).</td>
 <td>public</td>
 </tr>
 <tr>
@@ -1637,6 +1709,25 @@ credentials.</p>
 configurable claim (default group/role claim) and maps it to a TDT role +
 <code>is_superadmin</code>; see <code>services/api/app/auth/oidc.py</code> for the config-key contract.</p>
 <hr />
+<p><strong>POST /auth/refresh</strong> body <code>{"refresh_token": "..."}</code> → a new
+<code>{access_token, refresh_token, token_type}</code>.</p>
+<p>Both <code>/auth/token</code> and the OIDC callback have always <em>minted</em> a refresh token;
+this is what redeems one. A new refresh token comes back each time, so an
+actively-used client slides forward indefinitely and never re-authenticates.</p>
+<p>Tokens are stateless — there is no server-side revocation list — so a leaked
+refresh token stays usable until it expires
+(<code>auth.refresh_token_expire_hours</code>, default 24). Keep that TTL short, and
+revoke access by deleting the user. Claims are re-read from the user row on
+every refresh, so a demotion takes effect on the next one rather than
+persisting for the life of the token.</p>
+<p><strong>CLI loopback sign-in.</strong> <code>GET /auth/oidc/login?cli_port=&lt;1024-65535&gt;&amp;cli_nonce=&lt;16-128 url-safe chars&gt;</code>
+makes the callback hand the token pair to a listener on <code>http://127.0.0.1:&lt;cli_port&gt;/callback</code>
+instead of redirecting to the SPA. The IdP's registered <code>redirect_uri</code> is
+unchanged — it still points at this API's own callback — and <code>cli_port</code> travels
+in the signed session cookie rather than the callback URL, so a crafted callback
+cannot retarget the hand-off. The redirect host is hardcoded to <code>127.0.0.1</code>.
+<code>GET /auth/config</code> advertises <code>cli_loopback: true</code> so a client can tell whether
+a deployment supports this before trying.</p>
 <h2 id="users-apiv1users">Users — <code>/api/v1/users</code><a class="headerlink" href="#users-apiv1users" title="Permanent link">&para;</a></h2>
 <p>Lists users and edits superadmin status / per-Business-Unit memberships.
 <strong>Interactive-only</strong> — the whole router rejects API-key callers, even
@@ -1724,6 +1815,12 @@ router — an API key can never mint, rotate, or revoke API keys, even at the
 <td>admin</td>
 </tr>
 <tr>
+<td>POST</td>
+<td><code>/api-keys/{id}/rotate</code></td>
+<td>Mint a <strong>successor</strong> key and keep the old secret usable for an overlap window. Returns the new plaintext <code>token</code> <strong>once</strong>, plus <code>predecessor_id</code> and <code>predecessor_expires_at</code>.</td>
+<td>admin</td>
+</tr>
+<tr>
 <td>DELETE</td>
 <td><code>/api-keys/{id}</code></td>
 <td>Soft-revoke a key (immediate 401 for further use). Idempotent.</td>
@@ -1749,6 +1846,52 @@ workspace allowlist, expiry) unchanged. The old token stops working
 immediately. Rejects with <strong>409</strong> if the key is already revoked or has
 already expired — rotation only ever refreshes a <em>live</em> secret; create a new
 key instead of trying to revive a dead one.</p>
+<p><strong>POST /api-keys/{id}/rotate</strong> body <code>{"overlap_hours": 24}</code> (0–168, default 24)
+— the option to reach for when more than one consumer holds the key.</p>
+<p><code>regenerate</code> swaps a secret in place and the old one dies that instant, which
+is fine for a single consumer and unusable when the same key sits in a CI
+secret store, a laptop keychain and a cron job: those cannot be updated
+atomically. Rotation creates a <strong>second key</strong> so both secrets work at once, and
+you move consumers over one at a time.</p>
+<p>Two rows are involved, because an overlap needs two usable secrets and
+<code>token_hash</code> is unique per row:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>old key</td>
+<td><code>expires_at</code> pulled in to <code>now + overlap_hours</code>, <code>rotated_at</code> set, <code>superseded_by_id</code> → the successor. Nothing else changes, so it keeps authenticating until the window closes.</td>
+</tr>
+<tr>
+<td>new key</td>
+<td>same name, capability, workspace allowlist, owner and BU; fresh secret, clean <code>last_used_at</code>.</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>{ ...successorKey,
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  "token": "tdt_…",                                  // once, as on create
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  "predecessor_id": "…",
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  "predecessor_expires_at": "2026-09-02T14:45:01Z" } // deadline for the swap
+</code></pre></div>
+<p>The window rides the ordinary <code>expires_at</code> check, so the old key stops on its
+own — there is nothing to call afterwards and no cleanup job. <code>overlap_hours: 0</code>
+is an immediate cutover.</p>
+<p>Constraints:</p>
+<ul>
+<li>A rotation <strong>never extends</strong> a credential's life. If the old key already
+  expires sooner than the requested window, the earlier deadline wins.</li>
+<li>A key can be rotated <strong>once</strong>. Chaining would leave several live secrets
+  behind one name; <strong>409</strong> names the successor to rotate instead.</li>
+<li>Revoked or expired keys are refused with <strong>409</strong>, as with <code>regenerate</code>.</li>
+</ul>
+<p><code>rotated_at</code> and <code>superseded_by_id</code> appear on every key in <code>GET /api-keys</code>, so a
+client can tell "expiring because an admin said so" from "retiring because it
+was rotated".</p>
 <p><strong>DELETE /api-keys/{id}</strong> — sets <code>revoked_at</code>; calling it again on an
 already-revoked key is a no-op 200 (idempotent), not a 404/409.</p>
 <p><strong>Using a key:</strong> send <code>Authorization: Bearer tdt_…</code>. The key forces its own BU
@@ -2163,6 +2306,11 @@ state is stored. <code>azureblob</code> requires a linked <code>azure_subscripti
 <code>gcp_project_id</code> whose <code>state_bucket</code> is set — create/update <strong>422</strong> otherwise.
 <code>gcp_project_id</code> links the workspace to a GCP project (google provider), the
 mirror of <code>azure_subscription_id</code>.</p>
+<p><code>tags</code> is a free-form key/value map (<code>{"team": "payments", "tier": "prod"}</code>).
+Keys are lowercased on write — <code>Team</code> and <code>team</code> are the same tag — while values
+keep their case. A workspace carries at most 32; keys are 1–64 chars matching
+<code>[a-z0-9][a-z0-9._-]*[a-z0-9]</code>, values up to 255. Responses always return an
+object, never <code>null</code>.</p>
 <table>
 <thead>
 <tr>
@@ -2177,8 +2325,22 @@ mirror of <code>azure_subscription_id</code>.</p>
 <tr>
 <td>GET</td>
 <td><code>/workspaces</code></td>
-<td>List workspaces.</td>
+<td>List workspaces. <code>?tag=team=payments</code> filters by tag — repeatable and AND-ed; a bare <code>?tag=owner</code> matches any value.</td>
 <td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/workspaces/tags</code></td>
+<td>Every tag key in the BU with its values and usage counts.</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/workspaces/tags</code></td>
+<td>Bulk set/unset tags across many workspaces.</td>
+<td>operator</td>
 <td>BU-scoped</td>
 </tr>
 <tr>
@@ -2267,19 +2429,19 @@ callers and requires the <code>admin</code> capability tier for API-key callers.
 practice: any interactive operator/admin can call them; an automation token
 needs the <code>admin</code> tier.</p>
 <h3 id="post-workspaces-body">POST /workspaces — body<a class="headerlink" href="#post-workspaces-body" title="Permanent link">&para;</a></h3>
-<p><div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>{
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  "name": "network-vpc",
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  "environment": "prod",
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  "aws_account_id": "111111111111",   // required unless kind="helm"
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  "region": "us-east-1",
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  "repo_url": "https://github.com/example-org/infra.git",  // optional; local:// or omit for manual
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  "tf_working_dir": ".",
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  "repo_ref": "main",
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  "webhook_enabled": false,
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  "kind": "terraform",                // "terraform" | "helm"
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>  "cluster_id": null,                 // required for kind="helm"
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>  "azure_subscription_id": null       // optional Azure link
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>}
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>{
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  "name": "network-vpc",
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>  "environment": "prod",
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>  "aws_account_id": "111111111111",   // required unless kind="helm"
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>  "region": "us-east-1",
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>  "repo_url": "https://github.com/example-org/infra.git",  // optional; local:// or omit for manual
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>  "tf_working_dir": ".",
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>  "repo_ref": "main",
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>  "webhook_enabled": false,
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>  "kind": "terraform",                // "terraform" | "helm"
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>  "cluster_id": null,                 // required for kind="helm"
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>  "azure_subscription_id": null       // optional Azure link
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>}
 </code></pre></div>
 For <code>kind="helm"</code>, <code>cluster_id</code> must reference a cluster in the same BU (400
 otherwise) and <code>aws_account_id</code> defaults to the <code>"global"</code> sentinel if
@@ -2291,12 +2453,12 @@ otherwise).</p>
 tf_working_dir)</code> — violating that identity tuple on create or update returns
 a clean <strong>409</strong>, not a raw 500.</p>
 <h3 id="post-workspacesdiscover-body">POST /workspaces/discover — body<a class="headerlink" href="#post-workspacesdiscover-body" title="Permanent link">&para;</a></h3>
-<p><div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>{
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  "repo_url": "https://github.com/example-org/infra.git",  // or local_path (dev-only)
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>  "ref": "main",
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>  "username": "x-access-token",   // optional; falls back to configured GitHub PAT
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>  "token": "ghp_..."               // optional; falls back to Settings → GitHub
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>}
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>{
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  "repo_url": "https://github.com/example-org/infra.git",  // or local_path (dev-only)
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  "ref": "main",
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  "username": "x-access-token",   // optional; falls back to configured GitHub PAT
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  "token": "ghp_..."               // optional; falls back to Settings → GitHub
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>}
 </code></pre></div>
 Returns <code>{repo_url, ref, accounts: [{aws_account_id, regions: {&lt;region&gt;:
 [{path, name, aws_account_id, region, suggested_environment, has_tf, kind,
@@ -2305,15 +2467,15 @@ already_imported}]}}], stack_count, errors}</code>. Each leaf folder containing
 paths that are already workspaces in the current BU so the UI can gray them
 out.</p>
 <h3 id="post-workspacesimport-body">POST /workspaces/import — body<a class="headerlink" href="#post-workspacesimport-body" title="Permanent link">&para;</a></h3>
-<p><div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>{
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  "repo_url": "https://github.com/example-org/infra.git",
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  "ref": "main",
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  "entries": [
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    {"path": "account-111111111111/us-east-1/network/prod", "name": "network",
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>     "aws_account_id": "111111111111", "region": "us-east-1", "environment": "prod",
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>     "kind": "terraform", "cluster_id": null}
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  ]
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>}
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>{
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  "repo_url": "https://github.com/example-org/infra.git",
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  "ref": "main",
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>  "entries": [
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    {"path": "account-111111111111/us-east-1/network/prod", "name": "network",
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>     "aws_account_id": "111111111111", "region": "us-east-1", "environment": "prod",
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>     "kind": "terraform", "cluster_id": null}
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>  ]
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>}
 </code></pre></div>
 → <code>{created: [WorkspaceResponse, ...], skipped: [{path, reason}, ...]}</code>.
 Duplicates (same path within the BU) are skipped, not errored. Azure leaves
@@ -2353,6 +2515,29 @@ lock stuck from a crashed executor; use only when certain no executor is
 actually running against the workspace, since releasing a live lock could let
 a second concurrent run race state.</p>
 <hr />
+<h3 id="post-workspacestags-body">POST /workspaces/tags — body<a class="headerlink" href="#post-workspacestags-body" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>{
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  "workspace_ids": ["&lt;ws-id&gt;", "&lt;ws-id&gt;"],
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  "set":   { "team": "payments", "tier": "prod" },  // merged per key
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  "unset": ["deprecated"]                           // removed if present
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>}
+</code></pre></div>
+<p>→ <code>{ "updated": 2, "workspaces": [ …full workspace objects… ] }</code></p>
+<p><code>set</code> <strong>merges</strong> rather than replacing the map, so retagging twenty workspaces'
+<code>team</code> cannot wipe the <code>owner</code> tag one of them happens to carry. To replace a
+single workspace's tags wholesale, <code>PUT /workspaces/{id}</code> with a <code>tags</code> object.</p>
+<p>The batch is <strong>all-or-nothing</strong>: any id outside the current BU fails the whole
+request with 404 rather than tagging a subset, because a partially-applied bulk
+edit leaves you unable to tell which half landed. 400 if neither <code>set</code> nor
+<code>unset</code> is given, or if a key or value fails validation.</p>
+<p>Each affected workspace gets its own <code>AuditLog</code> row (<code>workspace.tags_bulk_edit</code>),
+so "what happened to workspace X?" stays answerable.</p>
+<h3 id="get-workspacestags">GET /workspaces/tags<a class="headerlink" href="#get-workspacestags" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>[ { "key": "team", "count": 3,
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    "values": [ {"value": "payments", "count": 2}, {"value": "ops", "count": 1} ] } ]
+</code></pre></div>
+<p>Keys sorted alphabetically, values by descending usage. Feeds filter
+autocomplete, and makes it obvious when two keys have drifted apart.</p>
 <h2 id="workspace-variables-apiv1workspacesidvariables">Workspace variables — <code>/api/v1/workspaces/{id}/variables</code><a class="headerlink" href="#workspace-variables-apiv1workspacesidvariables" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2429,8 +2614,8 @@ a second concurrent run race state.</p>
 </table>
 <p>Both routers share the same request/response shape (<code>VariableCreate</code> /
 <code>VariableUpdate</code> / <code>VariableResponse</code>):
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>// create
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>{"key": "instance_type", "value": "t3.medium", "is_secret": false, "is_hcl": false, "description": "..."}
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>// create
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>{"key": "instance_type", "value": "t3.medium", "is_secret": false, "is_hcl": false, "description": "..."}
 </code></pre></div>
 <code>key</code> must match <code>^[A-Za-z_][A-Za-z0-9_]*$</code> (Terraform identifier rules) — a
 mismatch is a 422 before anything is encrypted or written. <code>key</code> is immutable
@@ -2463,7 +2648,7 @@ per key).</p>
 <tr>
 <td>GET</td>
 <td><code>/runs</code></td>
-<td>List runs (BU-scoped; API-key callers additionally narrowed to their workspace allowlist).</td>
+<td>List runs, newest first (BU-scoped; API-key callers additionally narrowed to their workspace allowlist). Filters: <code>?workspace_id=</code>, <code>?status=</code> (comma-separated, e.g. <code>failed,cancelled</code>; an unknown value is a <strong>400</strong> listing the valid ones), <code>?limit=</code> (1–1000). No default cap — the UI fetches the full list and buckets it client-side.</td>
 <td>viewer</td>
 </tr>
 <tr>
@@ -2511,7 +2696,7 @@ per key).</p>
 <tr>
 <td>GET</td>
 <td><code>/runs/{run_id}/steps</code></td>
-<td>Run timeline (Init / Checkov / Plan / etc).</td>
+<td>Run timeline (Init / Checkov / Plan / etc). <code>?since=&lt;position&gt;</code> returns only steps at or after that index, and <code>?include_output=false</code> omits each step's log blob — together they make polling a long apply cheap, since the finished prefix carries the bulk of the bytes.</td>
 <td>viewer (+ <code>read</code> API-key tier)</td>
 </tr>
 <tr>
@@ -2529,13 +2714,13 @@ per key).</p>
 </tbody>
 </table>
 <h3 id="post-workspacesidruns-body">POST /workspaces/{id}/runs — body<a class="headerlink" href="#post-workspacesidruns-body" title="Permanent link">&para;</a></h3>
-<p><div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>{
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  "command": "plan" | "apply" | "destroy",   // default "plan"
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  "variables": [{"key": "...", "value": "...", "is_secret": false, "is_hcl": false}],  // per-run additions, optional
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  "branch": "feat/x",                         // optional override, persisted to workspace.repo_ref
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  "auto_approve_if_no_changes": false,        // see auto-approve section
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  "auto_approve_skip_apply": false
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>}
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>{
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  "command": "plan" | "apply" | "destroy",   // default "plan"
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>  "variables": [{"key": "...", "value": "...", "is_secret": false, "is_hcl": false}],  // per-run additions, optional
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>  "branch": "feat/x",                         // optional override, persisted to workspace.repo_ref
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  "auto_approve_if_no_changes": false,        // see auto-approve section
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>  "auto_approve_skip_apply": false
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>}
 </code></pre></div>
 Response is a <code>RunResponse</code>: <code>{id, workspace_id, triggered_by, reviewer_id,
 command, status, branch, plan_output, error_output, policy_status,
@@ -2552,7 +2737,7 @@ guardrails enforced by <code>PATCH /runs/{run_id}</code>:
   a reconnecting executor retry a heartbeat-adjacent status write safely).
 - Cancellable source states: <code>pending</code>, <code>running</code>, <code>planning</code>, <code>planned</code>,
   <code>awaiting_approval</code>. Once <code>applying</code>, a run must complete or fail — it can
-  no longer be cancelled (409 on <code>POST /cancel</code>).</p>
+  no longer be cancelled (409 on <code>POST /runs/{run_id}/cancel</code>).</p>
 <h3 id="auto-approve-flow">Auto-approve flow<a class="headerlink" href="#auto-approve-flow" title="Permanent link">&para;</a></h3>
 <p>When <code>auto_approve_if_no_changes</code> is <code>true</code> on an apply/destroy run AND
 the plan succeeds with <code>Checkov</code> + <code>Cost</code> gates green AND
@@ -2646,15 +2831,15 @@ drift-detector service) and trigger a Slack alert whenever <code>has_drift=true<
 Either path additionally refreshes the cloud-asset Inventory when the report
 includes an <code>assets[]</code> payload.</p>
 <p><strong>POST /drift/{workspace_id}/report</strong> body (<code>DriftReportIn</code>):
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>{
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>  "workspace_id": "&lt;id&gt;",
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>  "has_drift": true,
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>  "summary": "3 resources modified out of band",
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>  "plan_output": "...",
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>  "modified_count": 3, "untracked_count": 0, "deleted_count": 0, "mismatch_count": 0,
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>  "resources": [{"address": "aws_s3_bucket.logs", "type": "aws_s3_bucket", "provider": "aws", "drift_type": "modified", "summary": "..."}],
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>  "assets": []   // optional; see Inventory
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>}
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>{
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>  "workspace_id": "&lt;id&gt;",
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>  "has_drift": true,
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>  "summary": "3 resources modified out of band",
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>  "plan_output": "...",
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>  "modified_count": 3, "untracked_count": 0, "deleted_count": 0, "mismatch_count": 0,
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>  "resources": [{"address": "aws_s3_bucket.logs", "type": "aws_s3_bucket", "provider": "aws", "drift_type": "modified", "summary": "..."}],
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>  "assets": []   // optional; see Inventory
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>}
 </code></pre></div>
 <code>drift_type</code> is one of <code>modified</code> | <code>untracked</code> | <code>deleted</code> | <code>mismatch</code>.
 Posting a report also updates <code>workspace.drift_status</code> to <code>drifted</code> or
@@ -3247,6 +3432,37 @@ backend config.</p>
 workspace's (or its <code>state_aws_account_id</code> override's) AWS account. Locking
 is <code>pg_try_advisory_lock</code>-based, not DynamoDB.</p>
 <hr />
+<h2 id="operational-endpoints-unversioned-no-auth">Operational endpoints (unversioned, no auth)<a class="headerlink" href="#operational-endpoints-unversioned-no-auth" title="Permanent link">&para;</a></h2>
+<p>These sit outside <code>/api/v1</code> and are for probes and scrapers, not clients.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/health</code></td>
+<td>Liveness/readiness probe. Used by the compose healthcheck and the ECS target group.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/metrics</code></td>
+<td>Prometheus text-format counters (request counts and latency sums).</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/server-info</code></td>
+<td>Build/version identification.</td>
+</tr>
+</tbody>
+</table>
+<p>They are deliberately unauthenticated so a load balancer can reach them before
+any credential exists. Do not expose <code>/metrics</code> publicly without a proxy in
+front of it.</p>
 <h2 id="status-codes-used-everywhere">Status codes used everywhere<a class="headerlink" href="#status-codes-used-everywhere" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>200 / 201 / 204</code> — success.</li>
@@ -3262,11 +3478,14 @@ is <code>pg_try_advisory_lock</code>-based, not DynamoDB.</p>
 </ul>
 <h2 id="audit-actions-youll-see">Audit actions you'll see<a class="headerlink" href="#audit-actions-youll-see" title="Permanent link">&para;</a></h2>
 <p><code>login</code>, <code>workspace.create</code>, <code>workspace.update</code>, <code>workspace.delete</code>,
-<code>workspace.force_delete</code>, <code>workspace.force_unlock</code>, <code>auto_delete_orphan</code>,
-<code>run.trigger</code>, <code>approve</code>, <code>auto_approve</code>, <code>auto_apply_skipped</code>, <code>reject</code>,
-<code>aws_account.create</code>, <code>aws_account.update</code>, <code>integration.github.set</code>,
-<code>integration.slack.set</code>, <code>api_key.create</code>, <code>api_key.regenerate</code>,
-<code>api_key.revoke</code>, …</p>
+<code>workspace.force_delete</code>, <code>workspace.force_unlock</code>, <code>workspace.tags_bulk_edit</code>,
+<code>auto_delete_orphan</code>, <code>run.trigger</code>, <code>approve</code>, <code>auto_approve</code>,
+<code>auto_apply_skipped</code>, <code>reject</code>, <code>aws_account.create</code>, <code>aws_account.update</code>,
+<code>integration.github.set</code>, <code>integration.slack.set</code>, <code>api_key.create</code>,
+<code>api_key.regenerate</code>, <code>api_key.rotate</code>, <code>api_key.revoke</code>, …</p>
+<p><code>workspace.tags_bulk_edit</code> writes <strong>one row per affected workspace</strong> rather than
+one per batch, so a workspace's own audit trail shows every tag change that ever
+touched it.</p>
 
 
 
