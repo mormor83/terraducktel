@@ -28,15 +28,22 @@
   --td-accent-600: #2f7c34;
   --td-accent-700: #245d2a;
 
-  /* ---------- NEUTRALS (warm) ---------- */
-  --td-bg:        #f6f7f4;   /* warm white — page background */
+  /* ---------- NEUTRALS (light "day" theme) ----------
+     v2: the light theme is the day counterpart of the dark fantasy-tech
+     palette — same teal+green identity, inverted in value. Hairlines are
+     teal-tinted rather than grey. Kept in lockstep with the :root block in
+     services/ui/src/index.css (which also carries the accent/status flip
+     vars the runtime bundle needs). */
+  --td-bg:        #f4f7f0;   /* warm green-white — page background */
   --td-surface:   #ffffff;   /* card surface */
-  --td-surface-2: #f0f2ee;   /* subtle inset */
-  --td-border:    #dfe3dc;
-  --td-border-strong: #b9bfb4;
-  --td-muted:     #6b7368;
-  --td-text:      #14201d;
-  --td-text-soft: #3a4641;
+  --td-surface-2: #eaf0e4;   /* subtle inset */
+  --td-raise:     #dfe8d8;   /* hover / raised strata above surface-2 */
+  --td-border:    rgba(31, 111, 108, 0.16);
+  --td-border-strong: rgba(31, 111, 108, 0.28);
+  --td-muted:     #667a6e;
+  --td-text:      #0f1f1c;
+  --td-text-soft: #3c4f47;
+  --td-lime:      #b6ff4b;   /* arcane-lime FILL — same in both themes */
 
   /* Dark inverted surface for code blocks, terminals, hero */
   --td-ink:       #0e1f1d;
@@ -62,7 +69,7 @@
 
   /* ---------- TYPOGRAPHY ---------- */
   --td-font-sans: "Inter", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
-  --td-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --td-font-display: "Cinzel", Georgia, serif;   /* v2 display serif */
   --td-font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --td-fs-xs:  12px;
@@ -122,16 +129,24 @@
   --td-topbar:    56px;
 }
 
-/* Dark theme — opt in via [data-theme="dark"] on <html> */
+/* Dark theme — opt in via [data-theme="dark"] on <html>.
+   Kept in lockstep with the same block in services/ui/src/index.css. Both
+   exist because this file is also consumed standalone (docs, design refs)
+   while index.css ships in the Vite bundle; index.css wins at runtime purely
+   on load order, so letting these two drift silently changes the theme for
+   anyone loading tokens.css on its own. v2 dark fantasy-tech values: */
 [data-theme="dark"] {
-  --td-bg:        #0c1816;
-  --td-surface:   #122421;
-  --td-surface-2: #0e1f1d;
-  --td-border:    #1d3431;
-  --td-border-strong: #2c4a45;
-  --td-muted:     #8a9892;
-  --td-text:      #e9efea;
-  --td-text-soft: #b3bcb6;
+  --td-bg:        #0e1416;
+  --td-surface:   #131c1e;
+  --td-surface-2: #182224;
+  --td-raise:     #1d292b;
+  --td-border:    rgba(126, 208, 120, 0.13);
+  --td-border-strong: rgba(126, 208, 120, 0.22);
+  --td-muted:     #6e857a;
+  --td-text:      #e2f2d9;
+  --td-text-soft: #a3b7a8;
+  --td-ink:       #090e0f;
+  --td-lime:      #b6ff4b;
   --td-shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --td-shadow-md: 0 4px 12px rgba(0,0,0,0.5);
   --td-shadow-lg: 0 12px 32px rgba(0,0,0,0.6);
