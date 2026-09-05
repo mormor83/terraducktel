@@ -15,13 +15,18 @@ import { useAccountColors } from "./useAccountColors";
 
 const AWS = [
   { id: "pk-1", account_id: "333333333333", name: "Prod-Account", color_effective: "red" },
+  // Deliberately shares a display name with the Azure subscription below —
+  // names are only unique within a provider table.
+  { id: "pk-2", account_id: "444444444444", name: "Dev-Account", color_effective: "yellow" },
 ];
+const AZURE = [{ id: "sub-1", name: "Dev-Account", color_effective: "green" }];
 const K8S = [{ id: "cl-1", name: "prod-eks", color_effective: "yellow" }];
 
 beforeEach(() => {
   get.mockReset();
   get.mockImplementation((url: string) => {
     if (url.includes("aws-accounts")) return Promise.resolve({ data: AWS });
+    if (url.includes("azure-subscriptions")) return Promise.resolve({ data: AZURE });
     if (url.includes("clusters")) return Promise.resolve({ data: K8S });
     return Promise.resolve({ data: [] });
   });
@@ -89,5 +94,34 @@ describe("useAccountColors badgeFor", () => {
     // AWS colours still resolve even though the other three 403'd.
     expect(badgeFor({ aws_account_id: "333333333333" })?.color).toBe("red");
     expect(badgeFor({ kind: "helm", cluster_id: "cl-1" })).toBeNull();
+  });
+});
+
+describe("provider attribution", () => {
+  async function badges() {
+    const { result } = renderHook(() => useAccountColors());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    return result.current.badgeFor;
+  }
+
+  it("stamps the provider from whichever list answered", async () => {
+    const badgeFor = await badges();
+    expect(badgeFor({ aws_account_id: "333333333333" })?.provider).toBe("aws");
+    expect(badgeFor({ azure_subscription_id: "sub-1" })?.provider).toBe("azure");
+    expect(badgeFor({ kind: "helm", cluster_id: "cl-1" })?.provider).toBe("k8s");
+  });
+
+  it("distinguishes two accounts that share a display name", async () => {
+    // The reported bug: an Azure subscription and an AWS account both named
+    // "Dev-Account" necessarily carry different colours (pick_next assigns BU-wide
+    // across provider tables), which reads as one account rendering two ways
+    // unless the row also carries the provider.
+    const badgeFor = await badges();
+    const aws = badgeFor({ aws_account_id: "444444444444" })!;
+    const azure = badgeFor({ azure_subscription_id: "sub-1" })!;
+    expect(aws.name).toBe(azure.name);
+    expect(aws.color).not.toBe(azure.color);
+    expect(aws.provider).toBe("aws");
+    expect(azure.provider).toBe("azure");
   });
 });

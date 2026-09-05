@@ -1,21 +1,56 @@
-import { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, useEffect, useRef } from "react";
+import {
+  ButtonHTMLAttributes,
+  HTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TableHTMLAttributes,
+  TdHTMLAttributes,
+  ThHTMLAttributes,
+  useEffect,
+  useRef,
+} from "react";
 import { Link } from "react-router-dom";
 
 type ClassNames = (string | false | null | undefined)[];
 export const cx = (...c: ClassNames): string => c.filter(Boolean).join(" ");
 
+// ---------------------------------------------------------------------------
+// Fantasy-tech theme. Token mapping (design var -> Tailwind utility):
+//   panel   -> bg-brand-surface       line   -> border-brand-border
+//   panel-2 -> bg-brand-surface2      line-2 -> border-brand-borderStrong
+//   txt     -> text-brand-text        txt-2  -> text-brand-textSoft
+//   txt-3   -> text-brand-muted       bg     -> brand-bg
+// Every theme-dependent accent routes through a --td-* CSS var defined in
+// src/index.css (light on :root, dark under [data-theme="dark"]/html.dark):
+//   text/icon inks  -> var(--td-accent-ink|green-ink|run-ink|warn-ink|err-ink|info-ink)
+//   washes/hairlines-> rgba(var(--td-edge-rgb|glow-rgb|ok-rgb|run-rgb|warn-rgb|err-rgb|info-rgb), α)
+// The lime/green button FILLS (#b6ff4b / #7ed078 + dark ink) are deliberately
+// literal — they are the brand punch and read correctly on both themes.
+// ---------------------------------------------------------------------------
+
 // -------------------------------------------------------------------------
-// Card — frosted glass surface with subtle border + drop-shadow (dual-theme)
+// Card — `.card`: panel surface, hairline border, 14px radius. The optional
+// `tick` prop renders the design's corner-bracket detail (9px L-shaped
+// brackets, top-left + bottom-right). Off by default.
 // -------------------------------------------------------------------------
-export function Card({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
+const CARD_TICK =
+  "before:pointer-events-none before:absolute before:-left-px before:-top-px before:h-[9px] before:w-[9px] before:rounded-tl-[14px] before:border-l before:border-t before:border-brand-borderStrong before:content-[''] " +
+  "after:pointer-events-none after:absolute after:-bottom-px after:-right-px after:h-[9px] after:w-[9px] after:rounded-br-[14px] after:border-b after:border-r after:border-brand-borderStrong after:content-['']";
+
+export function Card({
+  tick = false,
+  className,
+  ...rest
+}: HTMLAttributes<HTMLDivElement> & {
+  /** Renders the corner-tick ornament (top-left / bottom-right brackets). */
+  tick?: boolean;
+}) {
   return (
     <div
       className={cx(
-        "rounded-xl border shadow-sm",
-        // light
-        "border-slate-200 bg-white",
-        // dark
-        "dark:border-slate-800/80 dark:bg-slate-900/60 dark:backdrop-blur-sm dark:shadow-lg dark:shadow-black/20",
+        "relative rounded-[14px] border border-brand-border bg-brand-surface",
+        tick && CARD_TICK,
         className,
       )}
       {...rest}
@@ -27,8 +62,7 @@ export function CardHeader({ className, ...rest }: HTMLAttributes<HTMLDivElement
   return (
     <div
       className={cx(
-        "flex items-center justify-between gap-3 border-b px-5 py-4",
-        "border-slate-200 dark:border-slate-800/80",
+        "flex items-center justify-between gap-3 border-b border-brand-border px-[18px] py-3.5",
         className,
       )}
       {...rest}
@@ -39,44 +73,47 @@ export function CardHeader({ className, ...rest }: HTMLAttributes<HTMLDivElement
 export function CardTitle({ className, ...rest }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cx(
-        "text-base font-semibold",
-        "text-slate-900 dark:text-slate-100",
-        className,
-      )}
+      className={cx("text-sm font-semibold text-brand-text", className)}
       {...rest}
     />
   );
 }
 
 export function CardBody({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cx("p-5", className)} {...rest} />;
+  return <div className={cx("p-[18px]", className)} {...rest} />;
 }
 
 // -------------------------------------------------------------------------
-// Button
+// Button — `.btn` family. 34px tall, 8px radius, 12.5px/600, 7px gap,
+// 15px icons. `primary` is the lime call-to-action with a glow.
 // -------------------------------------------------------------------------
 type ButtonVariant = "primary" | "accent" | "secondary" | "ghost" | "danger" | "warning";
 type ButtonSize = "sm" | "md";
 const BTN_BASE =
-  "inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-all duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-brand-surface dark:focus-visible:ring-offset-brand-ink";
+  "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-md border font-semibold transition-all duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-brand-bg [&>svg]:h-[15px] [&>svg]:w-[15px] [&>svg]:shrink-0";
 const BTN_VARIANT: Record<ButtonVariant, string> = {
+  // .btn-p — lime primary with glow
   primary:
-    "bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-700 focus-visible:ring-brand-400 shadow-sm dark:bg-brand-500 dark:hover:bg-brand-400 dark:active:bg-brand-600",
+    "border-transparent bg-[#b6ff4b] text-[#0d1a05] shadow-[0_0_18px_-6px_rgba(182,255,75,.6)] hover:bg-[#c8ff6e] hover:shadow-[0_0_22px_-4px_rgba(182,255,75,.75)] active:bg-[#a8f03f] focus-visible:ring-[rgba(var(--td-glow-rgb),0.6)]",
+  // green sibling of primary — distinct, calmer accent
   accent:
-    "bg-accent-400 text-brand-900 hover:bg-accent-300 active:bg-accent-500 focus-visible:ring-accent-400 shadow-sm dark:bg-accent-400 dark:hover:bg-accent-300 dark:active:bg-accent-500",
+    "border-transparent bg-[#7ed078] text-[#0b1a0d] shadow-[0_0_18px_-8px_rgba(126,208,120,.55)] hover:bg-[#93dc8e] active:bg-[#6bc465] focus-visible:ring-[rgba(var(--td-edge-rgb),0.6)]",
+  // .btn-s
   secondary:
-    "bg-brand-surface text-brand-text border border-brand-borderStrong hover:bg-brand-surface2 hover:border-brand-muted focus-visible:ring-brand-400 dark:bg-brand-800/40 dark:text-brand-100 dark:border-brand-700 dark:hover:bg-brand-800 dark:hover:border-brand-600",
+    "border-brand-borderStrong bg-brand-surface2 text-brand-text hover:border-[rgba(var(--td-edge-rgb),0.35)] hover:bg-[var(--td-raise)] focus-visible:ring-[rgba(var(--td-edge-rgb),0.5)]",
+  // .btn-g
   ghost:
-    "bg-transparent text-brand-textSoft hover:bg-brand-surface2 hover:text-brand-text focus-visible:ring-brand-400 dark:text-brand-100/80 dark:hover:bg-brand-800/40 dark:hover:text-brand-100",
+    "border-transparent bg-transparent text-brand-textSoft hover:bg-[rgba(var(--td-edge-rgb),0.07)] hover:text-brand-text focus-visible:ring-[rgba(var(--td-edge-rgb),0.5)]",
+  // .btn-d
   danger:
-    "bg-[#c4452f] text-white hover:bg-[#a63a27] active:bg-[#8a2f1f] focus-visible:ring-[#c4452f]/60",
+    "border-[rgba(var(--td-err-rgb),0.32)] bg-[rgba(var(--td-err-rgb),0.14)] text-[var(--td-err-ink)] hover:bg-[rgba(var(--td-err-rgb),0.22)] focus-visible:ring-[rgba(var(--td-err-rgb),0.6)]",
+  // .btn-d shape on --warn
   warning:
-    "bg-[#c98a14] text-white hover:bg-[#a87311] active:bg-[#8a5e0e] focus-visible:ring-[#c98a14]/60",
+    "border-[rgba(var(--td-warn-rgb),0.32)] bg-[rgba(var(--td-warn-rgb),0.14)] text-[var(--td-warn-ink)] hover:bg-[rgba(var(--td-warn-rgb),0.22)] focus-visible:ring-[rgba(var(--td-warn-rgb),0.6)]",
 };
 const BTN_SIZE: Record<ButtonSize, string> = {
-  sm: "h-7 px-2.5 text-xs",
-  md: "h-9 px-3.5 text-sm",
+  sm: "h-[27px] px-2.5 text-[11.5px]", // .btn-sm
+  md: "h-[34px] px-3.5 text-[12.5px]",
 };
 
 export function Button({
@@ -94,12 +131,10 @@ export function Button({
 }
 
 // -------------------------------------------------------------------------
-// Input / Select / Label
+// Input / Select / Label — match the design's `.search input` field.
 // -------------------------------------------------------------------------
 const FIELD_BASE =
-  "block w-full rounded-md px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 " +
-  "border border-brand-border bg-white text-brand-text placeholder-brand-muted focus:border-brand-400 focus:ring-brand-400/30 " +
-  "dark:border-slate-700/70 dark:bg-slate-950/60 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-brand-400 dark:focus:ring-brand-400/30";
+  "block h-[34px] w-full rounded-md border border-brand-border bg-brand-surface px-3 text-[13px] text-brand-text transition-[border-color,box-shadow] duration-150 placeholder:text-brand-muted focus:border-brand-borderStrong focus:shadow-[0_0_0_3px_rgba(var(--td-glow-rgb),0.08)] focus:outline-none";
 
 export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cx(FIELD_BASE, className)} {...rest} />;
@@ -117,7 +152,7 @@ export function Label({ children, htmlFor }: { children: ReactNode; htmlFor?: st
   return (
     <label
       htmlFor={htmlFor}
-      className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400"
+      className="mb-1.5 block font-mono text-[10px] font-medium uppercase tracking-[1.3px] text-brand-muted"
     >
       {children}
     </label>
@@ -125,7 +160,11 @@ export function Label({ children, htmlFor }: { children: ReactNode; htmlFor?: st
 }
 
 // -------------------------------------------------------------------------
-// Badge — colored pills for statuses
+// Badge — `.bdg`: 21px mono uppercase pills. Existing tone names are kept
+// and mapped onto the design variants:
+//   success -> b-ok · info -> b-run (lime) · warning + amber -> b-warn
+//   danger -> b-err · neutral -> b-idle · violet -> the --info cyan
+// `dot` renders the pulsing 5px dot (used by in-flight run statuses).
 // -------------------------------------------------------------------------
 type BadgeTone =
   | "neutral"
@@ -137,39 +176,41 @@ type BadgeTone =
   | "amber";
 
 const BADGE_TONE: Record<BadgeTone, string> = {
-  neutral:
-    "bg-slate-100 text-slate-700 ring-slate-300/80 dark:bg-slate-800/80 dark:text-slate-300 dark:ring-slate-700/50",
-  info:
-    "bg-sky-50 text-sky-700 ring-sky-300/60 dark:bg-sky-900/40 dark:text-sky-300 dark:ring-sky-700/40",
-  success:
-    "bg-emerald-50 text-emerald-700 ring-emerald-300/60 dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-emerald-700/40",
-  warning:
-    "bg-amber-50 text-amber-700 ring-amber-300/60 dark:bg-amber-900/40 dark:text-amber-300 dark:ring-amber-700/40",
-  danger:
-    "bg-red-50 text-red-700 ring-red-300/60 dark:bg-red-900/40 dark:text-red-300 dark:ring-red-700/40",
-  violet:
-    "bg-violet-50 text-violet-700 ring-violet-300/60 dark:bg-violet-900/40 dark:text-violet-300 dark:ring-violet-700/40",
-  amber:
-    "bg-amber-100 text-amber-800 ring-amber-400/60 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-600/40",
+  neutral: "bg-[var(--td-idle-soft)] text-brand-muted",
+  info: "bg-[rgba(var(--td-run-rgb),0.13)] text-[var(--td-run-ink)]",
+  success: "bg-[rgba(var(--td-ok-rgb),0.12)] text-[var(--td-green-ink)]",
+  warning: "bg-[rgba(var(--td-warn-rgb),0.13)] text-[var(--td-warn-ink)]",
+  danger: "bg-[rgba(var(--td-err-rgb),0.13)] text-[var(--td-err-ink)]",
+  violet: "bg-[rgba(var(--td-info-rgb),0.13)] text-[var(--td-info-ink)]",
+  amber: "bg-[rgba(var(--td-warn-rgb),0.13)] text-[var(--td-warn-ink)]",
 };
 
 export function Badge({
   tone = "neutral",
+  dot = false,
   children,
   className,
 }: {
   tone?: BadgeTone;
+  /** Pulsing 5px status dot (design's `.b-run .dot`). */
+  dot?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+        "inline-flex h-[21px] items-center gap-[5px] whitespace-nowrap rounded-full px-[9px] font-mono text-[10px] uppercase tracking-[.6px] [&>svg]:h-[11px] [&>svg]:w-[11px]",
         BADGE_TONE[tone],
         className,
       )}
     >
+      {dot && (
+        <span
+          className="h-[5px] w-[5px] shrink-0 animate-[bp_1.2s_ease-in-out_infinite] rounded-full bg-current"
+          aria-hidden
+        />
+      )}
       {children}
     </span>
   );
@@ -187,9 +228,16 @@ const RUN_STATUS_TONE: Record<string, BadgeTone> = {
   cancelled: "neutral",
 };
 
+/** Statuses that get the pulsing "in flight" dot. */
+const RUN_STATUS_ACTIVE = new Set(["running", "planning", "applying"]);
+
 export function RunStatusBadge({ status }: { status: string }) {
   const tone = RUN_STATUS_TONE[status] ?? "neutral";
-  return <Badge tone={tone}>{status.replace(/_/g, " ")}</Badge>;
+  return (
+    <Badge tone={tone} dot={RUN_STATUS_ACTIVE.has(status)}>
+      {status.replace(/_/g, " ")}
+    </Badge>
+  );
 }
 
 const DRIFT_TONE: Record<string, BadgeTone> = {
@@ -201,6 +249,47 @@ const DRIFT_TONE: Record<string, BadgeTone> = {
 export function DriftBadge({ status }: { status: string }) {
   const tone = DRIFT_TONE[status] ?? "neutral";
   return <Badge tone={tone}>{status}</Badge>;
+}
+
+// -------------------------------------------------------------------------
+// Table — `.tbl`: panel surface, hairline chrome, mono header row. Row
+// hover + last-row border removal live on <Table> so <Td> stays simple.
+// -------------------------------------------------------------------------
+export function Table({ className, ...rest }: TableHTMLAttributes<HTMLTableElement>) {
+  return (
+    <table
+      className={cx(
+        "w-full border-collapse overflow-hidden rounded-[14px] border border-brand-border bg-brand-surface",
+        "[&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-[rgba(var(--td-edge-rgb),0.045)] [&_tbody_tr:last-child>td]:border-b-0",
+        className,
+      )}
+      {...rest}
+    />
+  );
+}
+
+export function Th({ className, ...rest }: ThHTMLAttributes<HTMLTableCellElement>) {
+  return (
+    <th
+      className={cx(
+        "border-b border-brand-border bg-[var(--td-tint)] px-4 py-[11px] text-left font-mono text-[9.5px] font-medium uppercase tracking-[1.4px] text-brand-muted",
+        className,
+      )}
+      {...rest}
+    />
+  );
+}
+
+export function Td({ className, ...rest }: TdHTMLAttributes<HTMLTableCellElement>) {
+  return (
+    <td
+      className={cx(
+        "border-b border-[var(--td-row-border)] px-4 py-[13px] align-middle text-[13px]",
+        className,
+      )}
+      {...rest}
+    />
+  );
 }
 
 // -------------------------------------------------------------------------
@@ -218,17 +307,17 @@ export function EmptyState({
   icon?: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-dashed border-brand-borderStrong/70 bg-gradient-to-b from-brand-surface2/50 to-transparent px-6 py-14 text-center dark:border-slate-700/70 dark:from-slate-800/30">
-      <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-100 text-brand-500 dark:bg-brand-500/15 dark:text-brand-300">
+    <div className="rounded-[14px] border border-dashed border-brand-borderStrong/70 bg-brand-surface/40 px-6 py-14 text-center">
+      <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full border border-brand-border bg-[rgba(var(--td-ok-rgb),0.08)] text-[var(--td-green-ink)]">
         {icon ?? (
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M3 7l9-4 9 4-9 4-9-4Z" /><path d="M3 7v10l9 4 9-4V7" /><path d="m12 11 0 10" />
           </svg>
         )}
       </div>
-      <h3 className="font-display text-base font-semibold text-brand-text dark:text-slate-100">{title}</h3>
+      <h3 className="font-display text-base font-semibold text-brand-text">{title}</h3>
       {description && (
-        <p className="mx-auto mt-1.5 max-w-sm text-sm text-brand-muted dark:text-slate-400">{description}</p>
+        <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-brand-muted">{description}</p>
       )}
       {action && <div className="mt-5">{action}</div>}
     </div>
@@ -239,13 +328,11 @@ export function EmptyState({
 // Skeleton
 // -------------------------------------------------------------------------
 export function Skeleton({ className }: { className?: string }) {
-  return (
-    <div className={cx("animate-pulse rounded bg-slate-200 dark:bg-slate-800/60", className)} />
-  );
+  return <div className={cx("animate-pulse rounded bg-[var(--td-skeleton)]", className)} />;
 }
 
 // -------------------------------------------------------------------------
-// SectionHeader
+// SectionHeader — `.phead`: Cinzel display title, mono green eyebrow.
 // -------------------------------------------------------------------------
 export function SectionHeader({
   title,
@@ -259,16 +346,18 @@ export function SectionHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-[22px] flex flex-wrap items-end justify-between gap-4">
       <div>
         {eyebrow && (
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-500 dark:text-brand-300">
+          <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-[1.6px] text-[var(--td-green-ink)]">
             {eyebrow}
           </p>
         )}
-        <h1 className="font-display text-3xl font-semibold tracking-tight text-brand-text dark:text-slate-100">{title}</h1>
+        <h1 className="font-display text-[29px] font-bold leading-[1.1] tracking-[.2px] text-brand-text">
+          {title}
+        </h1>
         {subtitle && (
-          <p className="mt-1.5 max-w-2xl text-sm text-brand-muted dark:text-slate-400">{subtitle}</p>
+          <p className="mt-1.5 max-w-2xl text-[13px] text-brand-muted">{subtitle}</p>
         )}
       </div>
       {action}
@@ -277,16 +366,22 @@ export function SectionHeader({
 }
 
 // -------------------------------------------------------------------------
-// Stat card
+// Stat tiles — `.stat`: mono label, big Cinzel value, decorative offset
+// circle (::after). `Stat` keeps its legacy API (label/value/hint/tone/to);
+// `StatTile` is the design-faithful tile with an up/warn/flat delta line.
 // -------------------------------------------------------------------------
-const STAT_TONE: Record<BadgeTone, { value: string; rail: string; tint: string; dot: string }> = {
-  neutral: { value: "text-brand-text dark:text-slate-100", rail: "bg-brand-300 dark:bg-slate-600", tint: "from-brand-surface2/60 dark:from-slate-800/30", dot: "bg-brand-400" },
-  info: { value: "text-brand-700 dark:text-brand-200", rail: "bg-brand-400", tint: "from-brand-50 dark:from-brand-500/10", dot: "bg-brand-400" },
-  success: { value: "text-accent-700 dark:text-accent-300", rail: "bg-accent-400", tint: "from-accent-50 dark:from-accent-500/10", dot: "bg-accent-500" },
-  warning: { value: "text-amber-700 dark:text-amber-300", rail: "bg-amber-400", tint: "from-amber-50 dark:from-amber-500/10", dot: "bg-amber-500" },
-  danger: { value: "text-red-700 dark:text-red-300", rail: "bg-red-400", tint: "from-red-50 dark:from-red-500/10", dot: "bg-red-500" },
-  violet: { value: "text-violet-700 dark:text-violet-300", rail: "bg-violet-400", tint: "from-violet-50 dark:from-violet-500/10", dot: "bg-violet-500" },
-  amber: { value: "text-amber-700 dark:text-amber-300", rail: "bg-amber-400", tint: "from-amber-50 dark:from-amber-500/10", dot: "bg-amber-500" },
+const STAT_TILE =
+  "relative overflow-hidden rounded-[14px] border border-brand-border bg-brand-surface px-[18px] py-4 " +
+  "after:pointer-events-none after:absolute after:-right-6 after:-top-6 after:h-[90px] after:w-[90px] after:rounded-full after:border after:border-[rgba(var(--td-edge-rgb),0.09)] after:content-['']";
+
+const STAT_VALUE_TONE: Record<BadgeTone, string> = {
+  neutral: "text-brand-text",
+  info: "text-[var(--td-run-ink)]",
+  success: "text-[var(--td-green-ink)]",
+  warning: "text-[var(--td-warn-ink)]",
+  danger: "text-[var(--td-err-ink)]",
+  violet: "text-[var(--td-info-ink)]",
+  amber: "text-[var(--td-warn-ink)]",
 };
 
 export function Stat({
@@ -303,29 +398,126 @@ export function Stat({
   /** When set, the whole tile becomes a router link to this path. */
   to?: string;
 }) {
-  const t = STAT_TONE[tone];
   const interactive = to
-    ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-td-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+    ? "transition-all hover:-translate-y-0.5 hover:border-brand-borderStrong"
     : "";
   const inner = (
-    <Card className={cx("group relative block overflow-hidden bg-gradient-to-br to-transparent p-5 shadow-td-sm transition-all", t.tint, interactive)}>
-      <span className={cx("absolute inset-x-0 top-0 h-[3px]", t.rail)} aria-hidden />
+    <div className={cx(STAT_TILE, "group", interactive)}>
       <div className="flex items-center gap-2">
-        <span className={cx("h-1.5 w-1.5 rounded-full", t.dot)} aria-hidden />
-        <p className="text-[11px] font-medium uppercase tracking-wider text-brand-muted dark:text-slate-500">
-          {label}
-        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[1.3px] text-brand-muted">{label}</p>
         {to && (
-          <svg className="ml-auto text-brand-muted opacity-0 transition-opacity group-hover:opacity-100" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg className="ml-auto shrink-0 text-brand-muted opacity-0 transition-opacity group-hover:opacity-100" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M7 17 17 7M9 7h8v8" />
           </svg>
         )}
       </div>
-      <p className={cx("mt-2 font-display text-3xl font-semibold tabular-nums tracking-tight", t.value)}>{value}</p>
-      {hint && <p className="mt-1 text-xs text-brand-muted dark:text-slate-500">{hint}</p>}
-    </Card>
+      <p className={cx("mt-2 font-display text-[31px] font-bold leading-[1.15] tabular-nums tracking-tight", STAT_VALUE_TONE[tone])}>
+        {value}
+      </p>
+      {hint && <p className="mt-[5px] text-[11.5px] text-brand-muted">{hint}</p>}
+    </div>
   );
-  return to ? <Link to={to} className="block rounded-xl">{inner}</Link> : inner;
+  return to ? (
+    <Link
+      to={to}
+      className="block rounded-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--td-glow-rgb),0.4)]"
+    >
+      {inner}
+    </Link>
+  ) : (
+    inner
+  );
+}
+
+type StatDeltaTone = "up" | "warn" | "flat";
+const STAT_DELTA_TONE: Record<StatDeltaTone, string> = {
+  up: "text-[var(--td-green-ink)]",
+  warn: "text-[var(--td-warn-ink)]",
+  flat: "text-brand-muted",
+};
+
+function DeltaIcon({ tone }: { tone: StatDeltaTone }) {
+  const common = {
+    width: 13,
+    height: 13,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+    className: "shrink-0",
+  };
+  if (tone === "up") {
+    return (
+      <svg {...common}>
+        <path d="M3 17l6-6 4 4 8-8" /><path d="M14 7h7v7" />
+      </svg>
+    );
+  }
+  if (tone === "warn") {
+    return (
+      <svg {...common}>
+        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        <path d="M12 9v4" /><path d="M12 17h.01" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+export function StatTile({
+  label,
+  value,
+  delta,
+  deltaTone = "flat",
+  className,
+}: {
+  label: string;
+  value: ReactNode;
+  /** Delta line under the value, e.g. "+3 this week". */
+  delta?: ReactNode;
+  deltaTone?: StatDeltaTone;
+  className?: string;
+}) {
+  return (
+    <div className={cx(STAT_TILE, className)}>
+      <p className="font-mono text-[10px] uppercase tracking-[1.3px] text-brand-muted">{label}</p>
+      <p className="mt-2 font-display text-[31px] font-bold leading-[1.15] tabular-nums text-brand-text">
+        {value}
+      </p>
+      {delta && (
+        <p className={cx("mt-[5px] flex items-center gap-[5px] text-[11.5px]", STAT_DELTA_TONE[deltaTone])}>
+          <DeltaIcon tone={deltaTone} />
+          {delta}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------
+// Ornament — `.orn`: the leaf divider (centered leaf glyph flanked by
+// fading hairline rules). Purely decorative.
+// -------------------------------------------------------------------------
+export function Ornament({ className }: { className?: string }) {
+  return (
+    <div className={cx("mb-5 mt-1.5 flex items-center gap-3", className)} aria-hidden>
+      <span className="h-px flex-1 bg-gradient-to-r from-transparent via-brand-borderStrong to-transparent" />
+      <svg viewBox="0 0 40 18" className="h-3 w-[26px] shrink-0 text-[#1f6f6c] opacity-75" fill="currentColor">
+        <path d="M20 1c-2.4 4-5.5 6.4-9 7.6 3.5 1.2 6.6 3.6 9 7.6 2.4-4 5.5-6.4 9-7.6-3.5-1.2-6.6-3.6-9-7.6z" />
+        <path d="M8 8.6L0 8.6M40 8.6l-8 0" stroke="currentColor" strokeWidth="1" />
+        <circle cx="10.5" cy="8.6" r="1.6" />
+        <circle cx="29.5" cy="8.6" r="1.6" />
+      </svg>
+      <span className="h-px flex-1 bg-gradient-to-r from-transparent via-brand-borderStrong to-transparent" />
+    </div>
+  );
 }
 
 // -------------------------------------------------------------------------
@@ -334,7 +526,7 @@ export function Stat({
 export function Spinner({ size = 16 }: { size?: number }) {
   return (
     <svg
-      className="animate-spin text-sky-500 dark:text-sky-400"
+      className="animate-spin text-[var(--td-accent-ink)]"
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -426,19 +618,19 @@ export function ConfirmDialog({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
     >
       <div
         ref={cardRef}
-        className="w-full max-w-md rounded-lg border border-brand-borderStrong bg-brand-surface shadow-xl dark:border-brand-700 dark:bg-brand-900"
+        className="w-full max-w-md rounded-[14px] border border-brand-borderStrong bg-brand-surface shadow-[0_18px_50px_rgba(0,0,0,.55)]"
       >
-        <div className="border-b border-brand-borderStrong px-5 py-3 dark:border-brand-700">
-          <h2 className="text-sm font-semibold text-brand-text dark:text-brand-100">{title}</h2>
+        <div className="border-b border-brand-border px-5 py-3">
+          <h2 className="text-sm font-semibold text-brand-text">{title}</h2>
         </div>
-        <div className="px-5 py-4 text-sm text-brand-textSoft dark:text-brand-100/80">
+        <div className="px-5 py-4 text-sm text-brand-textSoft">
           {message}
         </div>
-        <div className="flex justify-end gap-2 border-t border-brand-borderStrong px-5 py-3 dark:border-brand-700">
+        <div className="flex justify-end gap-2 border-t border-brand-border px-5 py-3">
           <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>

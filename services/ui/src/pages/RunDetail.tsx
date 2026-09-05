@@ -255,6 +255,7 @@ export default function RunDetail() {
                   color={account.color}
                   name={account.name}
                   id={account.id}
+                  provider={account.provider}
                   className="align-middle font-medium"
                 />
               ) : (

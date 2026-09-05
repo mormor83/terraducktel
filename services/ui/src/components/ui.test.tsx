@@ -8,6 +8,12 @@ import {
   DriftBadge,
   EmptyState,
   ConfirmDialog,
+  Card,
+  Table,
+  Th,
+  Td,
+  StatTile,
+  Ornament,
 } from "./ui";
 
 describe("cx", () => {
@@ -28,8 +34,8 @@ describe("Button", () => {
   it("applies variant + size classes", () => {
     render(<Button variant="danger" size="sm">X</Button>);
     const cls = screen.getByRole("button").className;
-    expect(cls).toContain("h-7"); // sm size
-    expect(cls).toContain("#c4452f"); // danger variant hex
+    expect(cls).toContain("h-[27px]"); // sm size (.btn-sm is 27px tall)
+    expect(cls).toContain("--td-err-ink"); // danger variant ink (theme-flipping var)
   });
 });
 
@@ -109,5 +115,51 @@ describe("ConfirmDialog", () => {
     render(<ConfirmDialog open title="t" message="x" onConfirm={vi.fn()} onCancel={onCancel} />);
     fireEvent.mouseDown(document.body);
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Card", () => {
+  it("renders children; corner ticks are opt-in via the tick prop", () => {
+    const { rerender } = render(<Card data-testid="c">body</Card>);
+    expect(screen.getByText("body")).toBeInTheDocument();
+    expect(screen.getByTestId("c").className).not.toContain("before:absolute");
+    rerender(<Card data-testid="c" tick>body</Card>);
+    expect(screen.getByTestId("c").className).toContain("before:absolute");
+  });
+});
+
+describe("Table family", () => {
+  it("renders semantic table markup", () => {
+    render(
+      <Table>
+        <thead><tr><Th>Workspace</Th></tr></thead>
+        <tbody><tr><Td>prod/vpc</Td></tr></tbody>
+      </Table>,
+    );
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "prod/vpc" })).toBeInTheDocument();
+  });
+});
+
+describe("StatTile", () => {
+  it("renders label, value and the optional delta line", () => {
+    render(<StatTile label="Workspaces" value={42} delta="+3 this week" deltaTone="up" />);
+    expect(screen.getByText("Workspaces")).toBeInTheDocument();
+    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.getByText("+3 this week")).toBeInTheDocument();
+  });
+
+  it("omits the delta line when no delta is given", () => {
+    render(<StatTile label="Drift" value={0} />);
+    expect(screen.getByText("Drift")).toBeInTheDocument();
+    expect(screen.queryByText(/this week/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Ornament", () => {
+  it("is decorative: hidden from the accessibility tree", () => {
+    const { container } = render(<Ornament />);
+    expect(container.firstElementChild).toHaveAttribute("aria-hidden");
   });
 });

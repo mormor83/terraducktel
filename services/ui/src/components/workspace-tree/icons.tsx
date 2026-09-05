@@ -1,7 +1,16 @@
 // Inline SVG icons for the workspace tree rows. Kept together so the tree's
 // visual vocabulary (chevron / folder / file / cloud) lives in one place.
+//
+// The four PROVIDER marks (CloudIcon / AzureIcon / GcpIcon / ClusterIcon) are
+// also reused outside the tree — `components/AccountTag.tsx` renders them at
+// glyph size to say which cloud an account belongs to. They therefore take a
+// `className` carrying BOTH size and colour; the default reproduces the tree's
+// 16px brand-coloured mark exactly, so tree call sites pass nothing.
 
 import { cx } from "../ui";
+
+/** Provider marks size and colour themselves via `className`. */
+type ProviderIconProps = { className?: string };
 
 export function ChevronIcon({ open }: { open: boolean }) {
   return (
@@ -54,9 +63,11 @@ export function HelmChip() {
   );
 }
 
-export function CloudIcon() {
+export function CloudIcon({
+  className = "h-4 w-4 text-orange-500 dark:text-orange-400",
+}: ProviderIconProps = {}) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="text-orange-500 dark:text-orange-400">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
       <path d="M19.35 10.04A7.49 7.49 0 0 0 12 4a7.5 7.5 0 0 0-6.94 4.66A6 6 0 0 0 6 20h13a5 5 0 0 0 .35-9.96Z" />
     </svg>
   );
@@ -64,9 +75,11 @@ export function CloudIcon() {
 
 // Azure subscription group icon — the canonical Azure "A" mark in Azure blue,
 // to read as visually distinct from the orange AWS CloudIcon at a glance.
-export function AzureIcon() {
+export function AzureIcon({
+  className = "h-4 w-4 text-blue-500 dark:text-blue-400",
+}: ProviderIconProps = {}) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="text-blue-500 dark:text-blue-400">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
       <path d="M5.483 21.3H24L14.025 4.013l-3.038 8.347 5.836 6.938L5.483 21.3zM13.23 2.7 6.105 8.677 0 19.253h5.505v.014L13.23 2.7z" />
     </svg>
   );
@@ -75,11 +88,11 @@ export function AzureIcon() {
 // GCP project group icon — a cloud+check in emerald, distinct from the orange
 // AWS CloudIcon and blue AzureIcon at a glance. Stroke-based (matches the
 // `td-i-gcp` sprite geometry) rather than filled.
-export function GcpIcon() {
+export function GcpIcon({
+  className = "h-4 w-4 text-emerald-500 dark:text-emerald-400",
+}: ProviderIconProps = {}) {
   return (
     <svg
-      width="16"
-      height="16"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -87,10 +100,23 @@ export function GcpIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
-      className="text-emerald-500 dark:text-emerald-400"
+      className={className}
     >
       <path d="M7 17a4 4 0 0 1 1-7.9 6 6 0 0 1 11 2A3.5 3.5 0 0 1 18 18z" />
       <path d="M10 13l2 2 3-4" />
+    </svg>
+  );
+}
+
+// Kubernetes-cluster mark — the account behind a `kind=helm` workspace. Reuses
+// HelmChip's hexagon geometry so "cluster" reads the same wherever it appears,
+// in the blue the tree already uses for helm.
+export function ClusterIcon({
+  className = "h-4 w-4 text-blue-500 dark:text-blue-400",
+}: ProviderIconProps = {}) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
+      <path d="M12 2 3 6.5v11L12 22l9-4.5v-11L12 2Zm0 2.3 6.5 3.25L12 10.8 5.5 7.55 12 4.3ZM5 9.2l6 3v6.6l-6-3V9.2Zm14 0v6.6l-6 3v-6.6l6-3Z" />
     </svg>
   );
 }
