@@ -157,12 +157,13 @@
   /* ---------- hero / orbit scene ---------- */
   .hero{
     position:relative;
-    padding-top:88px;
+    padding-top:76px;
     padding-bottom:0;
     overflow:hidden;
     background:
       radial-gradient(ellipse 60% 45% at 88% 4%, rgba(var(--glow-rgb),0.10), transparent 62%),
       radial-gradient(ellipse 90% 55% at 42% 0%, rgba(31,111,108,0.26), transparent 60%),
+      radial-gradient(ellipse 55% 30% at 50% 96%, rgba(31,111,108,0.16), transparent 70%),
       linear-gradient(180deg, var(--ink) 0%, #0e1416 55%, #090e0f 100%);
   }
   .stars{position:absolute; inset:0; z-index:0; pointer-events:none}
@@ -174,7 +175,7 @@
   .star.big{width:3px;height:3px; box-shadow:0 0 6px 1px rgba(226,242,217,0.6)}
   @keyframes twinkle{ 0%,100%{opacity:.15} 50%{opacity:.9} }
 
-  .hero-inner{position:relative; z-index:2; text-align:center; padding:64px 28px 40px}
+  .hero-inner{position:relative; z-index:2; text-align:center; padding:56px 28px 28px}
   .eyebrow{
     display:inline-flex; align-items:center; gap:9px;
     font-size:0.74rem; letter-spacing:0.14em; text-transform:uppercase;
@@ -188,7 +189,7 @@
   }
   .hero h1 em{
     font-style:normal;
-    background:linear-gradient(100deg, var(--teal-bright), var(--lime) 55%, var(--spring));
+    background:linear-gradient(100deg, var(--spring) 4%, var(--lime) 46%, var(--lime-soft));
     -webkit-background-clip:text; background-clip:text; color:transparent;
   }
   .hero p.lede{
@@ -226,82 +227,73 @@
   }
   .trust-line .dot{width:3px;height:3px;border-radius:50%;background:var(--mist-faint)}
 
-  /* orbit flight scene */
-  .orbit{
-    position:relative; height:min(46vw, 460px); min-height:280px;
-    margin-top:26px;
-  }
-  /* The v2 summoning sigil — the same artwork the console's login page and
-     splash screen use, sat behind the flight scene so the two surfaces share
-     a centrepiece. Decorative; the duck flies in front of it. */
-  .sigil{
-    position:absolute; left:50%; top:48%; transform:translate(-50%,-50%);
-    width:min(38vw, 340px); aspect-ratio:1; z-index:1;
-    pointer-events:none;
-  }
-  .sigil img{
-    width:100%; height:100%; object-fit:contain;
-    opacity:.42;
-    filter:drop-shadow(0 0 26px rgba(var(--glow-rgb),0.14));
-    animation:sigil-breathe 6.5s ease-in-out infinite;
-  }
-  .sigil::before{
-    content:""; position:absolute; inset:-12%; border-radius:50%;
-    background:radial-gradient(closest-side, rgba(var(--glow-rgb),0.10), rgba(31,111,108,0.10) 55%, transparent 100%);
-    filter:blur(26px);
-    animation:sigil-breathe 5.4s ease-in-out infinite;
-  }
-  @keyframes sigil-breathe{ 0%,100%{opacity:.75; transform:scale(.97)} 50%{opacity:1; transform:scale(1.03)} }
-  @media (prefers-reduced-motion: reduce){
-    .sigil img, .sigil::before{animation:none}
-  }
-  .duck-fly{
-    position:absolute; top:14%; left:-10%; z-index:3;
-    width:64px; height:64px;
-    animation:fly-across 13s linear infinite;
-    filter:drop-shadow(0 0 18px rgba(126,208,120,0.45));
-  }
-  .duck-fly img{width:100%;height:100%; animation:bob 2.6s ease-in-out infinite}
-  @keyframes fly-across{
-    0%{ left:-10%; top:20%; transform:rotate(-4deg) scale(0.9)}
-    45%{ top:8%; transform:rotate(3deg) scale(1.05)}
-    100%{ left:108%; top:24%; transform:rotate(-2deg) scale(0.95)}
-  }
-  @keyframes bob{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
-  .trail{
-    position:absolute; inset:0; width:100%; height:100%; z-index:2;
-  }
-  .trail path{
-    fill:none; stroke:url(#trailGrad); stroke-width:2; stroke-linecap:round;
-    stroke-dasharray:6 10; opacity:.55;
-    animation:dash 2.4s linear infinite;
-  }
-  @keyframes dash{ to{ stroke-dashoffset:-160 } }
+  /* ---------- the rite: hero emblem ----------
+     v1 had a flight scene: a 64px duck crossing a 460px band over a grid
+     floor. v2's sigil went in behind it, and the composition stopped working —
+     two ducks competing, a dashed trail cutting straight through the sigil's
+     head, and a terrain that no longer read against the darker ground, so the
+     emblem floated in ~500px of void.
 
-  .terrain{
-    position:absolute; left:0; right:0; bottom:0; height:62%;
-    background:
-      linear-gradient(180deg, transparent 0%, rgba(14,20,22,0.0) 30%, rgba(9,14,15,0.9) 78%, #090e0f 100%);
-    perspective:340px; overflow:hidden;
+     So: one figure, not three. The sigil at full strength inside the SAME live
+     summoning circle the console's login page draws (LoginSigil's geometry,
+     ported ring for ring), grounded on a horizon. Everything animates on
+     transform/opacity only, so it composites on the GPU. */
+  .rite{
+    position:relative;
+    height:min(34vw, 410px); min-height:260px;
+    margin-top:4px;
+    display:grid; place-items:center;
   }
-  .grid-floor{
-    position:absolute; left:-50%; right:-50%; bottom:-10%; height:220%;
-    background-image:
-      linear-gradient(rgba(126,208,120,0.35) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(126,208,120,0.35) 1px, transparent 1px);
-    background-size:64px 64px;
-    transform:rotateX(62deg);
-    -webkit-mask-image:radial-gradient(ellipse 70% 90% at 50% 10%, #000 30%, transparent 72%);
-    mask-image:radial-gradient(ellipse 70% 90% at 50% 10%, #000 30%, transparent 72%);
-    animation:drift 7s linear infinite;
+  .rite-fig{
+    position:relative;
+    width:min(31vw, 370px); aspect-ratio:1;
+    animation:rite-float 7s ease-in-out infinite;
   }
-  @keyframes drift{ from{background-position:0 0} to{background-position:0 64px} }
-  .node{
-    position:absolute; width:7px; height:7px; border-radius:50%;
-    background:var(--spring); box-shadow:0 0 12px 3px rgba(126,208,120,0.7);
-    animation:pulse-node 3s ease-in-out infinite;
+  /* Breathing bloom, behind everything. */
+  .rite-fig::before{
+    content:""; position:absolute; inset:2%; border-radius:50%;
+    background:radial-gradient(closest-side,
+      rgba(var(--glow-rgb),0.20), rgba(31,111,108,0.26) 55%, transparent 100%);
+    filter:blur(30px);
+    animation:rite-breathe 5.4s ease-in-out infinite;
   }
-  @keyframes pulse-node{ 0%,100%{opacity:.55; transform:scale(1)} 50%{opacity:1; transform:scale(1.3)} }
+  .rite-rings{position:absolute; inset:0; width:100%; height:100%}
+  .rite-rings g{transform-box:view-box; transform-origin:50% 50%}
+  .ring-a{animation:spin 80s linear infinite}
+  .ring-b{animation:spin-rev 46s linear infinite}
+  .ring-c{animation:spin 150s linear infinite}
+  .rite-art{
+    position:absolute; inset:9%; width:82%; height:82%;
+    object-fit:contain;
+    filter:drop-shadow(0 0 30px rgba(var(--glow-rgb),0.16));
+  }
+  /* Horizon: the emblem stands on something instead of floating. */
+  .horizon{
+    position:absolute; left:50%; bottom:2px; transform:translateX(-50%);
+    width:min(760px, 82vw); height:1px;
+    background:linear-gradient(90deg, transparent,
+      rgba(var(--edge-rgb),0.45) 22%, rgba(var(--glow-rgb),0.55) 50%,
+      rgba(var(--edge-rgb),0.45) 78%, transparent);
+  }
+  .horizon::after{
+    content:""; position:absolute; left:50%; bottom:-2px; transform:translateX(-50%);
+    width:64%; height:110px; border-radius:50%;
+    background:radial-gradient(ellipse at 50% 100%,
+      rgba(var(--glow-rgb),0.13), rgba(31,111,108,0.10) 45%, transparent 72%);
+    filter:blur(16px); pointer-events:none;
+  }
+  @keyframes spin     { to{ transform:rotate(360deg) } }
+  @keyframes spin-rev { to{ transform:rotate(-360deg) } }
+  @keyframes rite-float  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+  @keyframes rite-breathe{ 0%,100%{opacity:.6; transform:scale(.94)} 50%{opacity:1; transform:scale(1.05)} }
+  @media (prefers-reduced-motion: reduce){
+    .rite-fig, .rite-fig::before, .rite-rings g{animation:none}
+    .rite-fig::before{opacity:.85}
+  }
+  @media (max-width:760px){
+    .rite{height:min(58vw, 300px); min-height:220px}
+    .rite-fig{width:min(56vw, 250px)}
+  }
 
   /* ---------- sections shared ---------- */
   section{position:relative; padding:110px 0}
@@ -654,26 +646,36 @@
     </div>
   </div>
 
-  <div class="orbit" aria-hidden="true">
-    <div class="sigil"><img src="assets/terraducktel-sigil.png" alt=""></div>
-    <svg class="trail" viewBox="0 0 1000 300" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="trailGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#b6ff4b" stop-opacity="0"/>
-          <stop offset="100%" stop-color="#b6ff4b" stop-opacity="0.9"/>
-        </linearGradient>
-      </defs>
-      <path d="M -50 90 Q 200 40, 450 65 T 1050 55"></path>
-    </svg>
-    <div class="duck-fly"><img src="assets/duck-flying.svg" alt="Terraducktel"></div>
-    <div class="terrain">
-      <div class="grid-floor"></div>
-      <div class="node" style="left:22%; top:18%"></div>
-      <div class="node" style="left:47%; top:32%; animation-delay:.6s"></div>
-      <div class="node" style="left:68%; top:14%; animation-delay:1.2s"></div>
-      <div class="node" style="left:81%; top:38%; animation-delay:1.8s"></div>
-      <div class="node" style="left:34%; top:46%; animation-delay:2.4s"></div>
+  <!-- The rite. Same figure as the console's login sigil: three counter-
+       rotating rings with nodes riding two of them, around the raster art. -->
+  <div class="rite" aria-hidden="true">
+    <div class="rite-fig">
+      <svg class="rite-rings" viewBox="0 0 1000 1000" fill="none">
+        <circle cx="500" cy="500" r="482" stroke="rgba(86,170,163,.42)" stroke-width="0.75" opacity="0.45"/>
+        <g class="ring-a">
+          <circle cx="500" cy="500" r="482" stroke="rgba(86,170,163,.42)" stroke-width="2"
+                  stroke-dasharray="2 10" stroke-linecap="round"/>
+          <path d="M982 492 L990 500 L982 508 L974 500 Z" fill="#b6ff4b" opacity="0.75"/>
+          <path d="M500 974 L508 982 L500 990 L492 982 Z" fill="#b6ff4b" opacity="0.75"/>
+          <path d="M18 492 L26 500 L18 508 L10 500 Z"     fill="#b6ff4b" opacity="0.75"/>
+          <path d="M500 10 L508 18 L500 26 L492 18 Z"     fill="#b6ff4b" opacity="0.75"/>
+          <circle cx="63.2" cy="296.3" r="4" fill="#b6ff4b" opacity="0.9"/>
+        </g>
+        <g class="ring-b">
+          <circle cx="500" cy="500" r="448" stroke="rgba(182,255,75,.42)" stroke-width="2.5"
+                  stroke-dasharray="160 90 12 90" stroke-linecap="round"/>
+          <circle cx="926.1" cy="638.4" r="5" fill="#b6ff4b"/>
+          <circle cx="151.8" cy="781.9" r="5" fill="#b6ff4b"/>
+          <circle cx="437.7" cy="56.4"  r="5" fill="#b6ff4b"/>
+        </g>
+        <g class="ring-c">
+          <circle cx="500" cy="500" r="414" stroke="rgba(86,170,163,.38)" stroke-width="3"
+                  stroke-dasharray="1 18" stroke-linecap="round"/>
+        </g>
+      </svg>
+      <img class="rite-art" src="assets/terraducktel-sigil.png" alt="">
     </div>
+    <div class="horizon"></div>
   </div>
 </header>
 
