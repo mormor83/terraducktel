@@ -1,12 +1,48 @@
+/* Cinzel is not in mkdocs.yml's `theme.font` (that pair has to stay
+   Inter/JetBrains Mono for body and code), so the display face is pulled in
+   here. @import must lead the file. */
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&display=swap");
+
 /* Terraducktel palette, lifted from docs/branding/td/tokens/tokens.json so the
-   docs and the landing page are demonstrably the same colours rather than
-   approximately the same colours. */
+   docs, the landing page and the console are demonstrably the same colours
+   rather than approximately the same colours.
+
+   v2 ("dark fantasy-tech"): the console moved to a dark-first green-black
+   palette with arcane lime as the accent and Cinzel as the display face. Dark
+   mode below therefore repaints Material's `slate` scheme with the app's own
+   surface strata instead of leaving it on Material's blue-grey — otherwise the
+   docs read as a different product to the app they document. Light mode is the
+   app's "day" counterpart: warm green-white surfaces, teal-tinted hairlines. */
 :root {
   --td-brand-300: #56aaa3;
   --td-brand-400: #2f8a85;
   --td-brand-500: #1f6f6c;
   --td-brand-700: #134847;
-  --td-accent-400: #5eb85a;
+  --td-accent-300: #7ed078;   /* the "add"/healthy green */
+  --td-accent-600: #2f7c34;   /* green dark enough to read as text on white */
+  --td-lime: #b6ff4b;         /* the v2 accent — glows, not body text */
+
+  /* Dark surface strata, straight off the app's --td-bg/surface/surface-2. */
+  --td-bg: #0e1416;
+  --td-surface: #131c1e;
+  --td-surface-2: #182224;
+  --td-text: #e2f2d9;
+  --td-text-soft: #a3b7a8;
+  --td-edge: rgba(126, 208, 120, 0.13);
+}
+
+/* Display face — the console's `font-display`. Material sets its heading font
+   from mkdocs.yml's `font.text`, which has to stay Inter for body copy, so the
+   headings are re-pointed here instead. */
+:root {
+  --md-text-font-family: "Inter", -apple-system, system-ui, sans-serif;
+}
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-header__topic .md-ellipsis {
+  font-family: "Cinzel", Georgia, serif;
+  letter-spacing: 0.01em;
 }
 
 [data-md-color-primary="custom"] {
@@ -19,15 +55,78 @@
   --md-accent-fg-color: var(--td-brand-400);
 }
 
-/* In dark mode the 500 is too low-contrast against the slate surface for link
-   text, so links move up two steps. Material's own slate scheme does the same
-   for its defaults. */
+/* ── dark ────────────────────────────────────────────────────────────────
+   Repaint Material's slate scheme with the app's own strata. Links move up
+   the brand ramp two steps: the 500 is too low-contrast against these
+   surfaces for text, which is what Material's own slate does for its
+   defaults too. */
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color: var(--td-brand-700);
-  --md-accent-fg-color: var(--td-brand-300);
-  --md-typeset-a-color: var(--td-brand-300);
+  --md-primary-fg-color: var(--td-surface);
+  --md-accent-fg-color: var(--td-accent-300);
+  --md-typeset-a-color: var(--td-accent-300);
+
+  --md-default-bg-color: var(--td-bg);
+  --md-default-fg-color: var(--td-text);
+  --md-default-fg-color--light: var(--td-text-soft);
+  --md-default-fg-color--lighter: rgba(226, 242, 217, 0.42);
+  --md-default-fg-color--lightest: rgba(226, 242, 217, 0.14);
+
+  --md-code-bg-color: var(--td-surface);
+  --md-code-fg-color: var(--td-text);
+  --md-footer-bg-color: var(--td-surface);
+  --md-footer-bg-color--dark: #0b1113;
 }
 
+/* Hairlines are a green tint in v2, not a grey. */
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) th,
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) td,
+[data-md-color-scheme="slate"] .md-typeset hr,
+[data-md-color-scheme="slate"] .md-header,
+[data-md-color-scheme="slate"] .md-tabs {
+  border-color: var(--td-edge);
+}
+
+/* Material drives BOTH the header background and `.md-button` from
+   --md-primary-fg-color. Pointing it at the app's surface gives the right
+   header but leaves buttons dark-on-dark, so they are restyled here in the
+   console's own Button language: `primary` is arcane lime on dark ink,
+   everything else is surface-2 behind a strong green hairline. */
+[data-md-color-scheme="slate"] .md-typeset .md-button {
+  background-color: var(--td-surface-2);
+  border-color: rgba(126, 208, 120, 0.22);
+  color: var(--td-text);
+}
+[data-md-color-scheme="slate"] .md-typeset .md-button:hover,
+[data-md-color-scheme="slate"] .md-typeset .md-button:focus {
+  background-color: #1d292b;
+  border-color: rgba(182, 255, 75, 0.45);
+  color: var(--td-text);
+}
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary {
+  background-color: var(--td-lime);
+  border-color: var(--td-lime);
+  color: #0e1416;
+}
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary:hover,
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary:focus {
+  background-color: #c8ff6e;
+  border-color: #c8ff6e;
+  color: #0e1416;
+}
+
+/* The search/focus glow is the app's arcane lime. */
+[data-md-color-scheme="slate"] .md-search__input:focus,
+[data-md-color-scheme="slate"] .md-search__form:focus-within {
+  box-shadow: 0 0 0 1px rgba(182, 255, 75, 0.28);
+}
+
+/* ── light ─────────────────────────────────────────────────────────────── */
 [data-md-color-scheme="default"] {
   --md-typeset-a-color: var(--td-brand-500);
+}
+
+[data-md-color-scheme="default"] .md-typeset .md-button--primary {
+  background-color: var(--td-brand-500);
+  border-color: var(--td-brand-500);
+  color: #ffffff;
 }
