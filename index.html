@@ -36,21 +36,35 @@
 <link rel="icon" href="assets/terraducktel-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
+  /* Palette mirrors the app's v2 "dark fantasy-tech" tokens
+     (services/ui/src/index.css + public/td/tokens/tokens.css) so the landing
+     page and the console are demonstrably the same product. Names are kept
+     from v1 — only the values moved — so the ~100 var() uses below still read
+     the way they did. */
   :root{
-    --ink:#0a1613;
-    --ink-soft:#0f1e1b;
-    --ink-card:#132723;
-    --line: rgba(234,243,240,0.09);
-    --teal:#2f8a85;
-    --teal-deep:#1a5854;
-    --teal-bright:#4db3ac;
-    --spring:#5eb85a;
-    --amber:#d9a441;
-    --mist:#eaf3f0;
-    --mist-soft:rgba(234,243,240,0.68);
-    --mist-faint:rgba(234,243,240,0.44);
+    --ink:#0e1416;          /* --td-bg      : page ground            */
+    --ink-soft:#131c1e;     /* --td-surface : alternating section    */
+    --ink-card:#182224;     /* --td-surface-2: card                  */
+    --ink-deep:#090e0f;     /* --td-ink     : below the fold         */
+    /* Hairlines are a green tint, not a grey — same as --td-border. */
+    --line: rgba(126,208,120,0.13);
+    --line-strong: rgba(126,208,120,0.22);
+    /* Arcane lime is v2's accent: the primary CTA and every focus glow. */
+    --lime:#b6ff4b;
+    --lime-soft:#c8ff6e;
+    --teal:#1f6f6c;         /* --td-brand-500, unchanged from v1      */
+    --teal-deep:#134847;
+    --teal-bright:#56aaa3;
+    --spring:#7ed078;       /* the "add"/healthy green                */
+    --amber:#e0a93b;        /* --td-warn                              */
+    --mist:#e2f2d9;         /* --td-text: mint body text              */
+    --mist-soft:rgba(226,242,217,0.68);
+    --mist-faint:rgba(226,242,217,0.44);
+    /* Bare triples, composed with a local alpha at the point of use. */
+    --edge-rgb:126,208,120;
+    --glow-rgb:182,255,75;
     --maxw:1180px;
   }
   *{box-sizing:border-box}
@@ -67,11 +81,11 @@
     -webkit-font-smoothing:antialiased;
     overflow-x:hidden;
   }
-  h1,h2,h3{font-family:'Space Grotesk',system-ui,sans-serif; margin:0; letter-spacing:-0.01em}
+  h1,h2,h3{font-family:'Cinzel',Georgia,serif; margin:0; letter-spacing:0.01em}
   .mono{font-family:'JetBrains Mono',monospace}
   a{color:inherit}
   a:focus-visible, button:focus-visible{
-    outline:2px solid var(--spring); outline-offset:3px; border-radius:4px;
+    outline:2px solid var(--lime); outline-offset:3px; border-radius:4px;
   }
   img{max-width:100%; display:block}
   .wrap{max-width:var(--maxw); margin:0 auto; padding:0 28px}
@@ -80,13 +94,13 @@
   .nav{
     position:sticky; top:0; z-index:50;
     backdrop-filter:blur(14px) saturate(140%);
-    background:rgba(10,22,19,0.72);
+    background:rgba(14,20,22,0.72);
     border-bottom:1px solid var(--line);
   }
   .nav .wrap{display:flex; align-items:center; justify-content:space-between; height:68px}
   .brand{display:flex; align-items:center; gap:10px; text-decoration:none}
-  .brand img{width:30px; height:30px}
-  .brand span{font-family:'Space Grotesk'; font-weight:700; font-size:1.05rem; letter-spacing:-0.01em; color:var(--mist)}
+  .brand img{width:30px; height:30px; border-radius:50%; box-shadow:0 0 0 1px rgba(var(--edge-rgb),0.25)}
+  .brand span{font-family:'Cinzel',Georgia,serif; font-weight:700; font-size:1.05rem; letter-spacing:0.02em; color:var(--mist)}
   .navlinks{display:flex; align-items:center; gap:30px}
   .navlinks a{
     text-decoration:none; color:var(--mist-soft); font-size:0.92rem; font-weight:500;
@@ -95,20 +109,23 @@
   .navlinks a:hover{color:var(--mist)}
   .gh-btn{
     display:inline-flex; align-items:center; gap:8px;
-    background:linear-gradient(135deg, var(--teal) 0%, var(--teal-deep) 100%);
-    color:#f4fbfa !important; text-decoration:none;
+    background:var(--ink-card);
+    color:var(--mist) !important; text-decoration:none;
     padding:9px 16px; border-radius:8px; font-size:0.88rem; font-weight:600;
-    border:1px solid rgba(234,243,240,0.14);
-    box-shadow:0 1px 0 rgba(255,255,255,0.06) inset;
-    transition:transform .15s, box-shadow .15s;
+    border:1px solid var(--line-strong);
+    transition:transform .15s, box-shadow .15s, border-color .15s;
     white-space:nowrap;
   }
-  .gh-btn:hover{transform:translateY(-1px); box-shadow:0 6px 18px rgba(47,138,133,0.35)}
+  .gh-btn:hover{
+    transform:translateY(-1px);
+    border-color:rgba(var(--glow-rgb),0.45);
+    box-shadow:0 6px 18px rgba(var(--edge-rgb),0.18);
+  }
   .gh-btn svg{width:15px; height:15px; flex:none}
   .nav-toggle{
     display:none; align-items:center; justify-content:center;
     width:42px; height:42px; margin-left:8px; padding:0;
-    background:rgba(234,243,240,0.05); border:1px solid var(--line);
+    background:rgba(226,242,217,0.05); border:1px solid var(--line);
     border-radius:8px; color:var(--mist); cursor:pointer;
   }
   .nav-toggle svg{width:22px; height:22px}
@@ -130,7 +147,7 @@
       transition:opacity .18s ease, transform .18s ease;
     }
     .navlinks a{padding:14px 28px; font-size:1rem}
-    .navlinks a:active{background:rgba(234,243,240,0.06)}
+    .navlinks a:active{background:rgba(226,242,217,0.06)}
     .nav.open .navlinks{transform:none; opacity:1; pointer-events:auto}
   }
   @media (max-width:400px){
@@ -144,16 +161,17 @@
     padding-bottom:0;
     overflow:hidden;
     background:
-      radial-gradient(ellipse 90% 55% at 50% 0%, rgba(47,138,133,0.20), transparent 60%),
-      linear-gradient(180deg, var(--ink) 0%, #0a1613 55%, #081210 100%);
+      radial-gradient(ellipse 60% 45% at 88% 4%, rgba(var(--glow-rgb),0.10), transparent 62%),
+      radial-gradient(ellipse 90% 55% at 42% 0%, rgba(31,111,108,0.26), transparent 60%),
+      linear-gradient(180deg, var(--ink) 0%, #0e1416 55%, #090e0f 100%);
   }
   .stars{position:absolute; inset:0; z-index:0; pointer-events:none}
   .star{
     position:absolute; width:2px; height:2px; border-radius:50%;
-    background:#eaf3f0; opacity:.5;
+    background:#e2f2d9; opacity:.5;
     animation:twinkle 4.5s ease-in-out infinite;
   }
-  .star.big{width:3px;height:3px; box-shadow:0 0 6px 1px rgba(234,243,240,0.6)}
+  .star.big{width:3px;height:3px; box-shadow:0 0 6px 1px rgba(226,242,217,0.6)}
   @keyframes twinkle{ 0%,100%{opacity:.15} 50%{opacity:.9} }
 
   .hero-inner{position:relative; z-index:2; text-align:center; padding:64px 28px 40px}
@@ -164,13 +182,13 @@
   }
   .eyebrow::before, .eyebrow::after{content:""; width:22px; height:1px; background:currentColor; opacity:.5}
   .hero h1{
-    font-size:clamp(2.4rem, 6vw, 4.6rem);
-    font-weight:700; line-height:1.04; color:var(--mist);
+    font-size:clamp(2rem, 5vw, 3.8rem);
+    font-weight:700; line-height:1.12; color:var(--mist);
     margin:0 auto 22px; max-width:920px;
   }
   .hero h1 em{
     font-style:normal;
-    background:linear-gradient(100deg, var(--teal-bright), var(--spring) 60%, var(--amber));
+    background:linear-gradient(100deg, var(--teal-bright), var(--lime) 55%, var(--spring));
     -webkit-background-clip:text; background-clip:text; color:transparent;
   }
   .hero p.lede{
@@ -183,17 +201,23 @@
     padding:13px 24px; border-radius:10px; font-weight:600; font-size:0.96rem;
     text-decoration:none; transition:transform .15s, box-shadow .15s, background .15s;
   }
+  /* The app's primary Button, verbatim in spirit: flat arcane lime, dark ink,
+     lime glow. This is v2's loudest element — keep it to one per view. */
   .btn-primary{
-    background:linear-gradient(135deg, var(--teal-bright), var(--teal-deep));
-    color:#06110f;
-    box-shadow:0 8px 24px rgba(47,138,133,0.30);
+    background:var(--lime);
+    color:#0e1416;
+    box-shadow:0 0 0 1px rgba(var(--glow-rgb),0.28), 0 10px 28px -6px rgba(var(--glow-rgb),0.35);
   }
-  .btn-primary:hover{transform:translateY(-2px); box-shadow:0 12px 30px rgba(47,138,133,0.42)}
+  .btn-primary:hover{
+    background:var(--lime-soft);
+    transform:translateY(-2px);
+    box-shadow:0 0 0 1px rgba(var(--glow-rgb),0.38), 0 14px 34px -6px rgba(var(--glow-rgb),0.45);
+  }
   .btn-ghost{
-    background:rgba(234,243,240,0.05); color:var(--mist);
-    border:1px solid rgba(234,243,240,0.18);
+    background:rgba(226,242,217,0.05); color:var(--mist);
+    border:1px solid rgba(226,242,217,0.18);
   }
-  .btn-ghost:hover{background:rgba(234,243,240,0.1); transform:translateY(-2px)}
+  .btn-ghost:hover{background:rgba(226,242,217,0.1); transform:translateY(-2px)}
   .btn svg{width:16px;height:16px}
 
   .trust-line{
@@ -207,11 +231,35 @@
     position:relative; height:min(46vw, 460px); min-height:280px;
     margin-top:26px;
   }
+  /* The v2 summoning sigil — the same artwork the console's login page and
+     splash screen use, sat behind the flight scene so the two surfaces share
+     a centrepiece. Decorative; the duck flies in front of it. */
+  .sigil{
+    position:absolute; left:50%; top:48%; transform:translate(-50%,-50%);
+    width:min(38vw, 340px); aspect-ratio:1; z-index:1;
+    pointer-events:none;
+  }
+  .sigil img{
+    width:100%; height:100%; object-fit:contain;
+    opacity:.42;
+    filter:drop-shadow(0 0 26px rgba(var(--glow-rgb),0.14));
+    animation:sigil-breathe 6.5s ease-in-out infinite;
+  }
+  .sigil::before{
+    content:""; position:absolute; inset:-12%; border-radius:50%;
+    background:radial-gradient(closest-side, rgba(var(--glow-rgb),0.10), rgba(31,111,108,0.10) 55%, transparent 100%);
+    filter:blur(26px);
+    animation:sigil-breathe 5.4s ease-in-out infinite;
+  }
+  @keyframes sigil-breathe{ 0%,100%{opacity:.75; transform:scale(.97)} 50%{opacity:1; transform:scale(1.03)} }
+  @media (prefers-reduced-motion: reduce){
+    .sigil img, .sigil::before{animation:none}
+  }
   .duck-fly{
-    position:absolute; top:14%; left:-10%;
+    position:absolute; top:14%; left:-10%; z-index:3;
     width:64px; height:64px;
     animation:fly-across 13s linear infinite;
-    filter:drop-shadow(0 0 18px rgba(94,184,90,0.45));
+    filter:drop-shadow(0 0 18px rgba(126,208,120,0.45));
   }
   .duck-fly img{width:100%;height:100%; animation:bob 2.6s ease-in-out infinite}
   @keyframes fly-across{
@@ -221,7 +269,7 @@
   }
   @keyframes bob{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
   .trail{
-    position:absolute; inset:0; width:100%; height:100%;
+    position:absolute; inset:0; width:100%; height:100%; z-index:2;
   }
   .trail path{
     fill:none; stroke:url(#trailGrad); stroke-width:2; stroke-linecap:round;
@@ -233,14 +281,14 @@
   .terrain{
     position:absolute; left:0; right:0; bottom:0; height:62%;
     background:
-      linear-gradient(180deg, transparent 0%, rgba(10,22,19,0.0) 30%, rgba(8,18,16,0.9) 78%, #081210 100%);
+      linear-gradient(180deg, transparent 0%, rgba(14,20,22,0.0) 30%, rgba(9,14,15,0.9) 78%, #090e0f 100%);
     perspective:340px; overflow:hidden;
   }
   .grid-floor{
     position:absolute; left:-50%; right:-50%; bottom:-10%; height:220%;
     background-image:
-      linear-gradient(rgba(77,179,172,0.35) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(77,179,172,0.35) 1px, transparent 1px);
+      linear-gradient(rgba(126,208,120,0.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(126,208,120,0.35) 1px, transparent 1px);
     background-size:64px 64px;
     transform:rotateX(62deg);
     -webkit-mask-image:radial-gradient(ellipse 70% 90% at 50% 10%, #000 30%, transparent 72%);
@@ -250,7 +298,7 @@
   @keyframes drift{ from{background-position:0 0} to{background-position:0 64px} }
   .node{
     position:absolute; width:7px; height:7px; border-radius:50%;
-    background:var(--spring); box-shadow:0 0 12px 3px rgba(94,184,90,0.7);
+    background:var(--spring); box-shadow:0 0 12px 3px rgba(126,208,120,0.7);
     animation:pulse-node 3s ease-in-out infinite;
   }
   @keyframes pulse-node{ 0%,100%{opacity:.55; transform:scale(1)} 50%{opacity:1; transform:scale(1.3)} }
@@ -273,10 +321,10 @@
     border-radius:16px; padding:30px 28px; border:1px solid var(--line);
   }
   .panel-td{
-    background:linear-gradient(160deg, rgba(47,138,133,0.16), rgba(94,184,90,0.05));
-    border-color:rgba(77,179,172,0.35);
+    background:linear-gradient(160deg, rgba(31,111,108,0.16), rgba(126,208,120,0.05));
+    border-color:rgba(126,208,120,0.35);
   }
-  .panel-saas{ background:rgba(234,243,240,0.03) }
+  .panel-saas{ background:rgba(226,242,217,0.03) }
   .panel h3{font-size:1.15rem; margin-bottom:20px; display:flex; align-items:center; gap:10px}
   .panel-td h3::before{content:"●"; color:var(--spring); font-size:.7rem}
   .panel-saas h3::before{content:"●"; color:var(--mist-faint); font-size:.7rem}
@@ -312,19 +360,24 @@
   .shot-frame{
     border-radius:14px; overflow:hidden; border:1px solid var(--line);
     box-shadow:0 30px 70px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02) inset;
-    background:#050b0a;
+    background:#070b0c;
   }
   .shot-chrome{
-    display:flex; gap:6px; padding:11px 14px; background:#0c1a17; border-bottom:1px solid var(--line);
+    display:flex; gap:6px; padding:11px 14px; background:#111a1c; border-bottom:1px solid var(--line);
   }
-  .shot-chrome span{width:9px; height:9px; border-radius:50%; background:rgba(234,243,240,0.15)}
+  .shot-chrome span{width:9px; height:9px; border-radius:50%; background:rgba(226,242,217,0.15)}
   .shot-frame img{width:100%; display:block}
 
   /* ---------- features ---------- */
-  .feat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:16px; overflow:hidden}
+  /* Hairlines come from a ring on each cell, not from a tinted grid
+     background showing through the 1px gaps. With v1's near-neutral --line
+     the difference was invisible; v2's hairline is a green tint, and the
+     trailing empty cell of the last row lit up as a green block. Rings also
+     give that lone last card a complete border. */
+  .feat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--ink); border:1px solid var(--line); border-radius:16px; overflow:hidden}
   @media (max-width:860px){ .feat-grid{grid-template-columns:repeat(2,1fr)} }
   @media (max-width:560px){ .feat-grid{grid-template-columns:1fr} }
-  .feat{background:var(--ink); padding:32px 28px}
+  .feat{background:var(--ink); padding:32px 28px; box-shadow:0 0 0 1px var(--line)}
   .feat .glyph{
     width:34px; height:34px; margin-bottom:18px;
     color:var(--spring);
@@ -336,21 +389,21 @@
   .quickstart{display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:center}
   @media (max-width:860px){ .quickstart{grid-template-columns:1fr} }
   .term{
-    background:#050b0a; border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    background:#070b0c; border:1px solid var(--line); border-radius:14px; overflow:hidden;
     box-shadow:0 30px 70px -25px rgba(0,0,0,0.7);
   }
-  .term-bar{display:flex; align-items:center; gap:6px; padding:12px 16px; background:#0c1a17; border-bottom:1px solid var(--line)}
-  .term-bar span{width:10px;height:10px;border-radius:50%; background:rgba(234,243,240,0.15)}
+  .term-bar{display:flex; align-items:center; gap:6px; padding:12px 16px; background:#111a1c; border-bottom:1px solid var(--line)}
+  .term-bar span{width:10px;height:10px;border-radius:50%; background:rgba(226,242,217,0.15)}
   .copy-btn{
     margin-left:auto;
     font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:600; letter-spacing:.04em;
-    color:var(--mist-soft); background:rgba(234,243,240,0.06);
+    color:var(--mist-soft); background:rgba(226,242,217,0.06);
     border:1px solid var(--line); border-radius:6px;
     padding:4px 12px; cursor:pointer;
     transition:color .15s, background .15s, border-color .15s;
   }
-  .copy-btn:hover{color:var(--mist); background:rgba(234,243,240,0.12)}
-  .copy-btn.done{color:var(--spring); border-color:rgba(94,184,90,0.4)}
+  .copy-btn:hover{color:var(--mist); background:rgba(226,242,217,0.12)}
+  .copy-btn.done{color:var(--spring); border-color:rgba(126,208,120,0.4)}
   .term pre{margin:0; padding:24px; font-family:'JetBrains Mono'; font-size:0.85rem; line-height:1.85; overflow-x:auto}
   .term .c1{color:var(--mist-faint)}
   .term .c2{color:var(--spring)}
@@ -359,7 +412,7 @@
   /* ---------- animated run console ---------- */
   .run-console{
     max-width:680px; margin:0 auto 72px;
-    background:#050b0a; border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    background:#070b0c; border:1px solid var(--line); border-radius:14px; overflow:hidden;
     box-shadow:0 30px 70px -25px rgba(0,0,0,0.7);
   }
   .rc-title{
@@ -377,19 +430,19 @@
   .rc-step b{font-weight:600; width:88px; flex:none}
   .rc-ico{
     width:17px; height:17px; flex:none; border-radius:50%; position:relative;
-    border:2px solid rgba(234,243,240,0.14);
+    border:2px solid rgba(226,242,217,0.14);
     transition:border-color .3s, background .3s;
   }
   .rc-step.running{color:var(--mist-soft)}
   .rc-step.running .rc-ico{
-    border-color:rgba(77,179,172,0.25); border-top-color:var(--teal-bright);
+    border-color:rgba(126,208,120,0.25); border-top-color:var(--teal-bright);
     animation:rc-spin .7s linear infinite;
   }
   .rc-step.gate{color:var(--amber)}
   .rc-step.gate .rc-ico{border-color:var(--amber); animation:rc-pulse 1.1s ease-in-out infinite}
   .rc-step.gate .rc-detail{opacity:1; color:var(--amber)}
   .rc-step.done{color:var(--mist-soft)}
-  .rc-step.done .rc-ico{border-color:rgba(94,184,90,0.7); background:rgba(94,184,90,0.14); animation:none}
+  .rc-step.done .rc-ico{border-color:rgba(126,208,120,0.7); background:rgba(126,208,120,0.14); animation:none}
   .rc-step.done .rc-ico::after{
     content:"✓"; position:absolute; inset:0;
     display:flex; align-items:center; justify-content:center;
@@ -409,7 +462,7 @@
   /* ---------- CTA footer band ---------- */
   .cta-band{
     text-align:center; padding:120px 0;
-    background:radial-gradient(ellipse 80% 100% at 50% 100%, rgba(94,184,90,0.14), transparent 70%);
+    background:radial-gradient(ellipse 80% 100% at 50% 100%, rgba(126,208,120,0.14), transparent 70%);
   }
   .cta-band h2{font-size:clamp(1.8rem,4vw,2.8rem); color:var(--mist); margin-bottom:18px}
   .cta-band p{color:var(--mist-soft); max-width:520px; margin:0 auto 34px; font-size:1.05rem}
@@ -431,7 +484,7 @@
     position:fixed; inset:0; z-index:100;
     display:flex; align-items:center; justify-content:center;
     padding:4vmin;
-    background:rgba(5,11,10,0.88);
+    background:rgba(7,11,12,0.88);
     backdrop-filter:blur(8px) saturate(120%);
     opacity:0; pointer-events:none;
     transition:opacity .25s ease;
@@ -463,11 +516,11 @@
     position:absolute; top:50%; transform:translateY(-50%); z-index:2;
     width:46px; height:46px; border-radius:50%; padding:0;
     display:flex; align-items:center; justify-content:center;
-    background:rgba(234,243,240,0.07); border:1px solid var(--line);
+    background:rgba(226,242,217,0.07); border:1px solid var(--line);
     color:var(--mist); cursor:pointer;
     transition:background .15s, opacity .2s;
   }
-  .lb-nav:hover{background:rgba(234,243,240,0.18)}
+  .lb-nav:hover{background:rgba(226,242,217,0.18)}
   .lb-nav svg{width:22px; height:22px}
   .lb-prev{left:max(12px, 2.5vmin)}
   .lb-next{right:max(12px, 2.5vmin)}
@@ -477,17 +530,17 @@
   /* ---------- what's new (live GitHub releases) ---------- */
   .ver-pill{
     display:inline-flex; align-items:center; gap:7px; position:relative;
-    background:rgba(234,243,240,0.05); color:var(--mist-soft);
+    background:rgba(226,242,217,0.05); color:var(--mist-soft);
     border:1px solid var(--line); border-radius:8px;
     padding:8px 12px; margin-left:4px; font:inherit; font-size:0.84rem; font-weight:600;
     cursor:pointer; white-space:nowrap;
     transition:color .15s, border-color .15s, background .15s;
   }
-  .ver-pill:hover{color:var(--mist); border-color:rgba(234,243,240,0.2); background:rgba(234,243,240,0.08)}
+  .ver-pill:hover{color:var(--mist); border-color:rgba(226,242,217,0.2); background:rgba(226,242,217,0.08)}
   .ver-pill svg{color:var(--amber); flex:none}
-  .ver-dot{width:7px; height:7px; border-radius:50%; background:var(--spring); box-shadow:0 0 0 3px rgba(94,184,90,0.22)}
+  .ver-dot{width:7px; height:7px; border-radius:50%; background:var(--spring); box-shadow:0 0 0 3px rgba(126,208,120,0.22)}
   .wn-backdrop{
-    position:fixed; inset:0; z-index:90; background:rgba(4,10,9,0.55);
+    position:fixed; inset:0; z-index:90; background:rgba(7,11,12,0.55);
     -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
     opacity:0; transition:opacity .2s ease;
   }
@@ -508,10 +561,10 @@
   .wn-head h3 svg{color:var(--amber)}
   .wn-close{
     width:34px; height:34px; border-radius:8px; border:1px solid var(--line);
-    background:rgba(234,243,240,0.04); color:var(--mist-soft); cursor:pointer;
+    background:rgba(226,242,217,0.04); color:var(--mist-soft); cursor:pointer;
     font-size:0.95rem; line-height:1; transition:color .15s, background .15s;
   }
-  .wn-close:hover{color:var(--mist); background:rgba(234,243,240,0.08)}
+  .wn-close:hover{color:var(--mist); background:rgba(226,242,217,0.08)}
   .wn-body{overflow-y:auto; padding:4px 22px 18px; flex:1}
   .wn-rel{padding:18px 0; border-bottom:1px solid var(--line)}
   .wn-rel:last-child{border-bottom:0}
@@ -528,7 +581,7 @@
   .wn-notes li{margin:3px 0}
   .wn-notes p{margin:6px 0}
   .wn-notes a{color:var(--teal-bright); text-decoration:underline}
-  .wn-notes code{font-family:'JetBrains Mono',monospace; font-size:0.85em; background:rgba(234,243,240,0.08); padding:1px 5px; border-radius:4px}
+  .wn-notes code{font-family:'JetBrains Mono',monospace; font-size:0.85em; background:rgba(226,242,217,0.08); padding:1px 5px; border-radius:4px}
   .wn-notes pre{background:var(--ink); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow-x:auto; margin:9px 0}
   .wn-notes pre code{background:none; padding:0; font-size:0.82rem; color:var(--mist-soft); white-space:pre}
   .wn-notes blockquote{margin:9px 0; padding:2px 0 2px 12px; border-left:2px solid var(--teal-deep); color:var(--mist-faint)}
@@ -537,7 +590,7 @@
     display:block; text-align:center; padding:15px; border-top:1px solid var(--line); flex:none;
     color:var(--teal-bright); text-decoration:none; font-size:0.9rem; font-weight:600;
   }
-  .wn-all:hover{background:rgba(234,243,240,0.04)}
+  .wn-all:hover{background:rgba(226,242,217,0.04)}
   body.wn-lock{overflow:hidden}
   @media (max-width:760px){ .ver-pill{display:none} }
   @media (prefers-reduced-motion: reduce){
@@ -550,7 +603,7 @@
 <nav class="nav">
   <div class="wrap">
     <a class="brand" href="#top">
-      <img src="assets/terraducktel-mark.svg" alt="">
+      <img src="assets/terraducktel-duck.png" alt="">
       <span>Terraducktel</span>
     </a>
     <div class="navlinks" id="navlinks">
@@ -602,11 +655,12 @@
   </div>
 
   <div class="orbit" aria-hidden="true">
+    <div class="sigil"><img src="assets/terraducktel-sigil.png" alt=""></div>
     <svg class="trail" viewBox="0 0 1000 300" preserveAspectRatio="none">
       <defs>
         <linearGradient id="trailGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#5eb85a" stop-opacity="0"/>
-          <stop offset="100%" stop-color="#5eb85a" stop-opacity="0.9"/>
+          <stop offset="0%" stop-color="#b6ff4b" stop-opacity="0"/>
+          <stop offset="100%" stop-color="#b6ff4b" stop-opacity="0.9"/>
         </linearGradient>
       </defs>
       <path d="M -50 90 Q 200 40, 450 65 T 1050 55"></path>
@@ -826,7 +880,7 @@ docker compose exec -T api python scripts/seed_dev_users.py
 <footer>
   <div class="wrap foot-row">
     <div class="foot-brand">
-      <img src="assets/terraducktel-mark.svg" alt="">
+      <img src="assets/terraducktel-duck.png" alt="">
       <span>Terraducktel — self-hosted Terraform &amp; Helm orchestration</span>
     </div>
     <div class="foot-links">
