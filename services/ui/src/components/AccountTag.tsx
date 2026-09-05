@@ -2,41 +2,79 @@ import {
   ACCOUNT_COLOR_CLASSES,
   ACCOUNT_COLOR_LABELS,
   ACCOUNT_COLORS,
+  ACCOUNT_PROVIDER_LABELS,
   asAccountColor,
   type AccountColor,
+  type AccountProvider,
 } from "./accountColors";
+import { AzureIcon, CloudIcon, ClusterIcon, GcpIcon } from "./workspace-tree/icons";
 import { cx } from "./ui";
 
 /**
- * A cloud account rendered as `● Account-Name`, with the raw id in the tooltip.
+ * The provider mark, at glyph size and in `currentColor` — deliberately NOT in
+ * the tree's brand colours. Inside a tag the colour channel is already spoken
+ * for (it identifies the account), so a second colour next to the dot would
+ * compete with it. Shape says which cloud, colour says which account.
+ */
+const PROVIDER_GLYPH: Record<AccountProvider, (c: string) => JSX.Element> = {
+  aws: (c) => <CloudIcon className={c} />,
+  azure: (c) => <AzureIcon className={c} />,
+  gcp: (c) => <GcpIcon className={c} />,
+  k8s: (c) => <ClusterIcon className={c} />,
+};
+
+/**
+ * A cloud account rendered as `● ☁ Account-Name`, with the raw id in the
+ * tooltip.
  *
  * The name carries the meaning and the dot carries the colour: colour is never
  * the only channel, so the row still reads for colourblind users and in
  * grayscale print. The 12-digit id moves to `title` because nobody recognises
  * an account by its number.
+ *
+ * `provider` adds the second channel. A display name is only unique *within* a
+ * provider table, so an Azure subscription and an AWS account can both be named
+ * "Dev-Account" — and because the API assigns colours BU-wide across all
+ * four tables (`account_colors.pick_next`), those two are guaranteed to get
+ * DIFFERENT colours. Without the glyph that reads as one account rendering
+ * inconsistently, which is exactly how it was reported. Optional so a caller
+ * that genuinely has no provider (an unresolved account) can omit it.
  */
 export function AccountTag({
   color,
   name,
   id,
+  provider,
   className,
 }: {
   color: string | null | undefined;
   name: string;
   /** Natural id (12-digit AWS account, subscription/project id, cluster PK). */
   id?: string;
+  /** Which cloud — renders the disambiguating glyph. */
+  provider?: AccountProvider;
   className?: string;
 }) {
   const token = asAccountColor(color);
+  const providerLabel = provider ? ACCOUNT_PROVIDER_LABELS[provider] : null;
   return (
     <span
       className={cx("inline-flex items-center gap-1.5", className)}
-      title={id ? `${name} · ${id}` : name}
+      title={[name, id, providerLabel].filter(Boolean).join(" · ")}
     >
       <span
         aria-hidden
         className={cx("h-2 w-2 shrink-0 rounded-full", ACCOUNT_COLOR_CLASSES[token].solid)}
       />
+      {provider && (
+        <>
+          {PROVIDER_GLYPH[provider]("h-3 w-3 shrink-0 opacity-70")}
+          {/* The glyph is aria-hidden; keep the provider in the a11y tree so a
+              screen reader hears "Dev-Account, Azure subscription" and
+              gets the same disambiguation a sighted user does. */}
+          <span className="sr-only">{providerLabel}</span>
+        </>
+      )}
       <span className="truncate">{name}</span>
     </span>
   );

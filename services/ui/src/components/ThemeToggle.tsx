@@ -12,7 +12,7 @@ export default function ThemeToggle() {
       onClick={() => setTheme(isDark ? "light" : "dark")}
       title={isDark ? "Switch to light" : "Switch to dark"}
       aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
-      className="grid h-8 w-8 place-items-center rounded-md border border-brand-border bg-brand-surface text-brand-textSoft transition-colors hover:border-brand-borderStrong hover:text-brand-text dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:text-slate-100"
+      className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg border border-brand-border bg-brand-surface text-brand-textSoft transition-colors hover:border-brand-borderStrong hover:text-brand-text"
     >
       {isDark ? (
         // sun

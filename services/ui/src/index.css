@@ -7,30 +7,191 @@
     height: 100%;
   }
 
+  /* ==========================================================================
+     Theme flip — single source of truth for every theme-dependent color.
+     Light ("day") values live on bare :root; dark values live under
+     [data-theme="dark"], html.dark (useTheme.ts sets BOTH hooks; dark is the
+     app default). App.tsx / components/ui.tsx reference these exclusively via
+     var(--td-*) (often through Tailwind arbitrary values), so neither file
+     hardcodes a theme.
+
+     Var families:
+       --td-bg/surface/surface-2/raise/border/border-strong/text/text-soft/
+       --td-muted/ink            neutral strata (Tailwind brand.* map to these)
+       --td-lime                 the arcane-lime FILL — same in both themes
+                                 (only ever used with dark ink on top)
+       --td-*-ink                accents used AS TEXT/ICON — bright in dark,
+                                 darkened equivalents in light:
+                                 accent (lime→teal) · green · run (lime status)
+                                 · ok/green · warn · err · info
+       --td-*-rgb                bare R,G,B triples for translucent washes /
+                                 hairlines / glows: compose as
+                                 rgba(var(--td-edge-rgb), .07). edge = green
+                                 hairline hue, glow = lime glow hue, plus one
+                                 per status tone.
+       --td-shell…/chrome/rail… sidebar gradient, topbar glass, active-nav
+                                 rail (+ glow — dark-only effect, light gets a
+                                 flat teal rail).
+     ========================================================================== */
+
+  /* This bundle loads after public/td/tokens/tokens.css (linked in
+     index.html), so :root declarations here override its values. The display
+     face is redefined for the fantasy-tech theme — tokens.css still says
+     Space Grotesk, which is no longer loaded. */
+  :root {
+    --td-font-display: "Cinzel", Georgia, serif;
+
+    /* Light "day" palette — same teal+green identity, inverted in value. */
+    --td-bg:            #f4f7f0;
+    --td-surface:       #ffffff;
+    --td-surface-2:     #eaf0e4;
+    --td-raise:         #dfe8d8;
+    --td-border:        rgba(31, 111, 108, 0.16);
+    --td-border-strong: rgba(31, 111, 108, 0.28);
+    --td-muted:         #4f6157;      /* darkened from #667a6e — was 3.51:1 on --td-bg */
+
+    /* Neutral ramp backing Tailwind's `slate-*` alias (see tailwind.config.js).
+       Light mode's neutral is a near-grey with a faint hue-152 green cast —
+       the same family as --td-muted. It is NOT the dark theme's mint/sage:
+       those read as neutral on a green-black ground but as *green* on white,
+       which is what turned every `bg-slate-100` chip mint and left the bare
+       `text-slate-400` meta labels at 2.70:1. Ratios below are vs #ffffff. */
+    --td-slate-50-rgb:  245 248 246;  /* #f5f8f6 — row wash / hover          */
+    --td-slate-100-rgb: 234 238 236;  /* #eaeeec — chip + inset fill         */
+    --td-slate-200-rgb: 214 222 218;  /* #d6deda — hairline, divider         */
+    --td-slate-300-rgb: 176 191 184;  /* #b0bfb8 — soft border / ring        */
+    --td-slate-400-rgb: 102 122 112;  /* #667a70 — 4.58:1, AA meta text      */
+    --td-slate-500-rgb: 88 106 98;    /* #586a62 — AA on every light surface */
+    --td-slate-600-rgb: 72 90 82;     /* #485a52 — 7.34:1, strong secondary  */
+    --td-text:          #0f1f1c;
+    --td-text-soft:     #3c4f47;
+    --td-ink:           #0e1f1d;
+    --td-lime:          #b6ff4b;   /* fill only — always carries dark ink text */
+
+    /* Accents as text/icon: lime/green are unreadable as text on white, so the
+       light theme substitutes darker equivalents of the same hues. */
+    --td-accent-ink:    #1f6f6c;   /* dark: arcane lime  → light: brand teal  */
+    --td-green-ink:     #2f7c34;   /* dark: #7ed078      → light: deep green  */
+    --td-run-ink:       #5c7a12;   /* dark: lime status  → light: olive       */
+    --td-warn-ink:      #96690f;
+    --td-err-ink:       #b3402c;
+    --td-info-ink:      #2e727e;
+    --td-nav-ink:       #134847;   /* active nav label */
+
+    /* Wash/hairline hues (R,G,B triples — alpha applied at point of use). */
+    --td-edge-rgb:      31, 111, 108;
+    --td-glow-rgb:      31, 111, 108;
+    --td-ok-rgb:        47, 124, 52;
+    --td-run-rgb:       122, 168, 20;
+    --td-warn-rgb:      180, 120, 20;
+    --td-err-rgb:       196, 69, 47;
+    --td-info-rgb:      46, 114, 126;
+
+    /* Neutral tints (theme-relative "5% of the opposite pole"). */
+    --td-idle-soft:     rgba(0, 0, 0, 0.05);
+    --td-tint:          rgba(15, 31, 28, 0.03);
+    --td-skeleton:      rgba(15, 31, 28, 0.08);
+    --td-row-border:    rgba(31, 111, 108, 0.12);
+
+    /* Shell chrome. */
+    --td-shell-from:    #ffffff;
+    --td-shell-to:      #f4f7f0;
+    --td-chrome:        rgba(255, 255, 255, 0.86);
+    --td-rail:          #1f6f6c;
+    --td-rail-glow:     0 0 0 0 rgba(0, 0, 0, 0);  /* glow is a dark-mode effect */
+    --td-avatar-from:   #1f6f6c;
+    --td-avatar-to:     #2f7c34;
+    --td-avatar-ink:    #ffffff;
+    --td-mark-shadow:   0 0 0 1px rgba(31, 111, 108, 0.25), 0 4px 14px rgba(15, 31, 28, 0.16);
+  }
+
   body {
     font-family: var(--td-font-sans, "Inter", system-ui, sans-serif);
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
-    background-color: var(--td-bg, #f6f7f4);
-    color: var(--td-text, #14201d);
+    background-color: var(--td-bg, #f4f7f0);
+    color: var(--td-text, #0f1f1c);
   }
 
-  /* Dark theme: flip the semantic neutral tokens. Tailwind's brand.{bg,
-     surface,...} map to these vars, so every `bg-brand-*` / `text-brand-*` /
-     `border-brand-*` utility becomes dark-appropriate and readable in dark mode
-     without per-component `dark:` overrides. Warm teal-tinted darks to stay
-     on-brand. */
+  /* Ambient fantasy-tech page texture: a teal ember bleeding in from the
+     top-left and a faint arcane-lime halo at the top-right. Fixed, inert and
+     behind the app (#root paints above it in tree order). The base values are
+     tuned for the light theme (much lower alpha so white doesn't go muddy);
+     the dark block below restores the near-black tuning. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 18% 0%, rgba(31, 111, 108, 0.07), transparent 70%),
+      radial-gradient(ellipse 50% 40% at 92% 8%, rgba(182, 255, 75, 0.05), transparent 70%);
+  }
+
+  /* Dark theme: flip every themed token. Tailwind's brand.{bg,surface,...}
+     map to these vars, so every `bg-brand-*` / `text-brand-*` /
+     `border-brand-*` utility becomes dark-appropriate without per-component
+     `dark:` overrides — and the accent/wash vars flip the hardcoded-hex-free
+     shell (App.tsx) and primitives (ui.tsx) the same way. Dark fantasy-tech
+     palette: green-black surfaces, mint text, translucent green hairlines.
+     This block wins over the [data-theme="dark"] block in tokens.css
+     (index.css loads later, and useTheme sets both hooks). */
   [data-theme="dark"],
   html.dark {
-    --td-bg:            #0a1513;
-    --td-surface:       #10211d;
-    --td-surface-2:     #16302b;
-    --td-border:        #21413b;
-    --td-border-strong: #305a52;
-    --td-muted:         #8fa8a1;
-    --td-text:          #eaf1ed;
-    --td-text-soft:     #b7c7c0;
-    --td-ink:           #070f0d;
+    --td-bg:            #0e1416;
+    --td-surface:       #131c1e;
+    --td-surface-2:     #182224;
+    --td-raise:         #1d292b;  /* hover / raised strata above surface-2 */
+    --td-border:        rgba(126, 208, 120, 0.13);
+    --td-border-strong: rgba(126, 208, 120, 0.22);
+    --td-muted:         #6e857a;
+
+    /* Neutral ramp, dark half — the v2 mint/sage values, unchanged. These
+       carry `dark:text-slate-100` (mint body), `dark:text-slate-300/400`
+       (secondary) and `dark:border-slate-600`. */
+    --td-slate-50-rgb:  233 245 223;  /* #e9f5df */
+    --td-slate-100-rgb: 226 242 217;  /* #e2f2d9 */
+    --td-slate-200-rgb: 198 217 189;  /* #c6d9bd */
+    --td-slate-300-rgb: 163 183 168;  /* #a3b7a8 */
+    --td-slate-400-rgb: 139 163 150;  /* #8ba396 */
+    --td-slate-500-rgb: 125 147 137;  /* #7d9389 — AA on every dark surface */
+    --td-slate-600-rgb: 70 89 90;     /* #46595a */
+    --td-text:          #e2f2d9;
+    --td-text-soft:     #a3b7a8;
+    --td-ink:           #090e0f;
+    --td-lime:          #b6ff4b;  /* arcane-lime accent (Tailwind: lime-400) */
+
+    --td-accent-ink:    #b6ff4b;
+    --td-green-ink:     #7ed078;
+    --td-run-ink:       #b6ff4b;
+    --td-warn-ink:      #e0a93b;
+    --td-err-ink:       #e05c45;
+    --td-info-ink:      #4fb3c4;
+    --td-nav-ink:       #e2f2d9;
+
+    --td-edge-rgb:      126, 208, 120;
+    --td-glow-rgb:      182, 255, 75;
+    --td-ok-rgb:        126, 208, 120;
+    --td-run-rgb:       182, 255, 75;
+    --td-warn-rgb:      224, 169, 59;
+    --td-err-rgb:       224, 92, 69;
+    --td-info-rgb:      79, 179, 196;
+
+    --td-idle-soft:     rgba(255, 255, 255, 0.05);
+    --td-tint:          rgba(255, 255, 255, 0.02);
+    --td-skeleton:      rgba(255, 255, 255, 0.06);
+    --td-row-border:    rgba(126, 208, 120, 0.07);
+
+    --td-shell-from:    #101819;
+    --td-shell-to:      #0d1314;
+    --td-chrome:        rgba(14, 20, 22, 0.86);
+    --td-rail:          #b6ff4b;
+    --td-rail-glow:     0 0 8px rgba(182, 255, 75, 0.7);
+    --td-avatar-from:   #1f6f6c;
+    --td-avatar-to:     #7ed078;
+    --td-avatar-ink:    #0b1214;
+    --td-mark-shadow:   0 0 0 1px rgba(126, 208, 120, 0.22), 0 4px 14px rgba(0, 0, 0, 0.5);
   }
 
   [data-theme="dark"] body,
@@ -39,39 +200,94 @@
     color: var(--td-text);
   }
 
+  /* Ambient texture at full dark-theme strength (tuned for near-black). */
+  [data-theme="dark"] body::before,
+  html.dark body::before {
+    background:
+      radial-gradient(ellipse 60% 50% at 18% 0%, rgba(31, 111, 108, 0.20), transparent 70%),
+      radial-gradient(ellipse 50% 40% at 92% 8%, rgba(182, 255, 75, 0.07), transparent 70%);
+  }
+
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--td-font-display, "Space Grotesk", "Inter", system-ui, sans-serif);
+    font-family: var(--td-font-display, "Cinzel", Georgia, serif);
   }
 
   code, pre, kbd, samp {
     font-family: var(--td-font-mono, "JetBrains Mono", ui-monospace, monospace);
   }
 
-  /* Custom scrollbar — warm to match the brand bg */
+  /* Custom scrollbar — strata track with a hairline thumb. Var-driven so it
+     follows the theme. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
   ::-webkit-scrollbar-track {
-    background: var(--td-surface-2, #f0f2ee);
+    background: var(--td-surface-2, #eaf0e4);
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--td-border-strong, #b9bfb4);
+    background: var(--td-border-strong, rgba(31, 111, 108, 0.28));
     border-radius: 8px;
-    border: 2px solid var(--td-surface-2, #f0f2ee);
+    border: 2px solid var(--td-surface-2, #eaf0e4);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--td-muted, #6b7368);
+    background: var(--td-muted, #667a6e);
   }
 
-  /* Selection — brand teal */
+  /* Selection — teal on light (lime is poor contrast on white)… */
   ::selection {
-    background: rgba(31, 111, 108, 0.3);
-    color: var(--td-text, #14201d);
+    background: rgba(31, 111, 108, 0.18);
+  }
+  /* …arcane lime on dark. */
+  [data-theme="dark"] ::selection,
+  html.dark ::selection {
+    background: rgba(182, 255, 75, 0.25);
   }
 }
 
 @layer utilities {
+  /* Native checkboxes/radios (16 across the app) paint with the UA's own
+     accent. One `accent-color` here retints every one of them without
+     touching call sites; per-element Tailwind `accent-*` would need 16 edits.
+     --td-accent-ink = arcane lime on dark, brand teal on light. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--td-accent-ink, #1f6f6c);
+  }
+
+  /* `accent-color` only tints the CHECKED fill — an UNCHECKED native box still
+     paints the UA's white, which reads as a hole punched in a near-black
+     surface. Restyle only the unchecked state (`:not(:checked)`) so the
+     checked state keeps the UA's own checkmark/dot and its accent-color, and
+     nothing has to be re-drawn. */
+  input[type="checkbox"]:not(:checked),
+  input[type="radio"]:not(:checked) {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border: 1px solid var(--td-border-strong, rgba(31, 111, 108, 0.28));
+    background: var(--td-surface-2, #eaf0e4);
+  }
+  input[type="checkbox"]:not(:checked) { border-radius: 4px; }
+  input[type="radio"]:not(:checked)    { border-radius: 50%; }
+  input[type="checkbox"]:not(:checked):hover,
+  input[type="radio"]:not(:checked):hover {
+    border-color: var(--td-accent-ink, #1f6f6c);
+  }
+
+  /* `bp` (breathe-pulse) — the live-status dot heartbeat. Shared by the
+     Badge dot (components/ui.tsx) and the topbar "all systems nominal" pill,
+     both of which reference it as `animate-[bp_…]`, so it has to be defined
+     once here rather than in either component. */
+  @keyframes bp {
+    50% { opacity: 0.35; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-\[bp_1\.2s_ease-in-out_infinite\],
+    .animate-\[bp_1\.8s_ease-in-out_infinite\] { animation: none; }
+  }
+
   /* Staggered entrance used by the Inventory dashboard tiles + rows. */
   @keyframes tdt-fade-up {
     from { opacity: 0; transform: translateY(10px); }

@@ -5,7 +5,7 @@ import { useCurrentUser } from "../hooks/useAuth";
 import { cx } from "./ui";
 
 /**
- * Sidebar Business Unit switcher.
+ * Topbar Business Unit switcher.
  *
  * Renders nothing when only one BU is visible and the user is not a
  * superadmin — single-tenant deployments keep the existing chrome unchanged.
@@ -56,30 +56,29 @@ export default function BusinessUnitSwitcher() {
   })();
 
   return (
-    <div ref={ref} className="relative mb-4 px-3">
-      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-brand-muted">
-        Business Unit
-      </div>
+    <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={loading || !!error}
+        title="Business Unit scope"
         className={cx(
-          "flex w-full items-center justify-between rounded-md border px-2.5 py-1.5 text-sm",
-          "border-brand-border bg-brand-surface text-brand-text",
-          "hover:bg-brand-surface2",
-          "dark:border-brand-700 dark:bg-brand-800/40 dark:text-brand-100 dark:hover:bg-brand-800",
+          "flex h-[34px] max-w-[220px] items-center gap-2 rounded-lg border border-brand-border bg-brand-surface px-3 text-[12.5px] text-brand-text",
+          "transition-colors hover:border-brand-borderStrong hover:bg-brand-surface2",
           "disabled:opacity-60",
         )}
       >
-        <span className="truncate">{currentLabel}</span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+        {/* textSoft, not muted: at 9.5px on the translucent topbar `muted` measured
+            4.37:1 in dark — just under AA. */}
+        <span className="shrink-0 font-mono text-[9.5px] tracking-[1.4px] text-brand-textSoft">BU</span>
+        <span className="truncate font-medium">{currentLabel}</span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-brand-muted" aria-hidden>
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
 
       {open && !loading && !error && (
-        <div className="absolute left-3 right-3 z-30 mt-1 overflow-hidden rounded-md border bg-brand-surface shadow-lg border-brand-border dark:border-brand-700 dark:bg-brand-900">
+        <div className="absolute right-0 top-full z-40 mt-2 w-64 overflow-hidden rounded-lg border border-brand-border bg-brand-surface shadow-[0_12px_32px_rgba(0,0,0,0.5)]">
           {user?.is_superadmin && (
             <button
               type="button"
@@ -88,8 +87,8 @@ export default function BusinessUnitSwitcher() {
                 setOpen(false);
               }}
               className={cx(
-                "block w-full px-3 py-2 text-left text-sm hover:bg-brand-surface2 dark:hover:bg-brand-800",
-                selectedSlug === "" && "bg-brand-50 text-brand-700 dark:bg-brand-800/50 dark:text-brand-100",
+                "block w-full px-3 py-2 text-left text-sm text-brand-textSoft transition-colors hover:bg-brand-surface2 hover:text-brand-text",
+                selectedSlug === "" && "bg-[rgba(182,255,75,0.1)] text-brand-text",
               )}
             >
               All Business Units
@@ -105,12 +104,12 @@ export default function BusinessUnitSwitcher() {
                   setOpen(false);
                 }}
                 className={cx(
-                  "block w-full px-3 py-2 text-left text-sm hover:bg-brand-surface2 dark:hover:bg-brand-800",
-                  selectedSlug === b.slug && "bg-brand-50 text-brand-700 dark:bg-brand-800/50 dark:text-brand-100",
+                  "block w-full px-3 py-2 text-left text-sm text-brand-textSoft transition-colors hover:bg-brand-surface2 hover:text-brand-text",
+                  selectedSlug === b.slug && "bg-[rgba(182,255,75,0.1)] text-brand-text",
                 )}
               >
                 <div className="truncate font-medium">{b.name}</div>
-                <div className="truncate text-[11px] text-brand-muted">{b.slug}</div>
+                <div className="truncate font-mono text-[10.5px] text-brand-muted">{b.slug}</div>
               </button>
             ))}
           </div>

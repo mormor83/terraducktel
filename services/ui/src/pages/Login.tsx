@@ -7,6 +7,7 @@ import {
   setToken,
 } from "../api/client";
 import { Button, Card, CardBody, Input, Label } from "../components/ui";
+import LoginSigil from "../components/LoginSigil";
 
 function formatLoginError(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -92,7 +93,7 @@ export default function Login() {
         className="grid min-h-screen w-full place-items-center bg-brand-bg px-4 py-10 dark:bg-brand-ink"
         style={{
           backgroundImage:
-            "radial-gradient(1200px 600px at 80% 10%, rgba(94,184,90,0.18), transparent 55%), radial-gradient(900px 500px at 10% 90%, rgba(31,111,108,0.18), transparent 60%)",
+            "radial-gradient(1200px 600px at 80% 10%, rgba(182,255,75,0.10), transparent 55%), radial-gradient(900px 500px at 10% 90%, rgba(31,111,108,0.22), transparent 60%)",
         }}
       >
         <div className="flex flex-col items-center gap-3 text-brand-textSoft dark:text-brand-100/70">
@@ -108,32 +109,23 @@ export default function Login() {
       className="grid min-h-screen w-full place-items-center bg-brand-bg px-4 py-10 dark:bg-brand-ink"
       style={{
         backgroundImage:
-          "radial-gradient(1200px 600px at 80% 10%, rgba(94,184,90,0.18), transparent 55%), radial-gradient(900px 500px at 10% 90%, rgba(31,111,108,0.18), transparent 60%)",
+          "radial-gradient(1200px 600px at 80% 10%, rgba(182,255,75,0.10), transparent 55%), radial-gradient(900px 500px at 10% 90%, rgba(31,111,108,0.22), transparent 60%)",
       }}
     >
-      <div className="grid w-full max-w-5xl items-center gap-10 md:grid-cols-2">
-        {/* Hero — visible on md+ */}
-        <div className="hidden md:block">
-          <img
-            src="/td/brand/terraducktel-logo-full.png?v=2026-05-11"
-            alt="Terraducktel"
-            className="mx-auto w-full max-w-md object-contain drop-shadow-xl"
-          />
-          <p className="mx-auto mt-4 max-w-md text-center text-sm text-brand-textSoft dark:text-brand-100/70">
-            Automated Infrastructure &amp; Terraform — plan, review, apply.
-          </p>
+      <div className="grid w-full max-w-5xl items-center gap-8 md:grid-cols-2 md:gap-10">
+        {/* Hero — the animated summoning-sigil centrepiece. Full size on md+,
+            scaled down (not dropped) on small screens so the card still gets
+            the vertical room it needs. The sigil art carries no wordmark, so
+            LoginSigil renders "TerraDuckTel" + tagline as real (animatable)
+            text — this replaces both the old hero PNG and the in-card mobile
+            lockup. */}
+        <div className="flex justify-center">
+          <LoginSigil className="w-full max-w-[220px] sm:max-w-[260px] md:max-w-[420px]" />
         </div>
 
         {/* Login card */}
         <Card className="w-full max-w-md justify-self-center border-brand-border bg-brand-surface shadow-td-lg dark:bg-brand-surface dark:border-brand-border">
           <CardBody className="space-y-6 p-8">
-            <div className="text-center md:hidden">
-              <img
-                src="/td/brand/terraducktel-lockup.svg?v=2026-05-11"
-                alt="Terraducktel"
-                className="mx-auto h-20 w-auto object-contain"
-              />
-            </div>
             <div className="text-center">
               <h2 className="font-display text-2xl font-semibold text-brand-700 dark:text-brand-100">
                 Welcome to Terraducktel

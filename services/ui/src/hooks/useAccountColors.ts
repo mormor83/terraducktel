@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import type { AccountColor } from "../components/accountColors";
+import type { AccountColor, AccountProvider } from "../components/accountColors";
 import { asAccountColor } from "../components/accountColors";
 import { BU_CHANGED_EVENT } from "./useBusinessUnit";
 
@@ -21,6 +21,12 @@ export type AccountBadge = {
   name: string;
   /** Natural id — the 12-digit AWS account, subscription/project id, or cluster PK. */
   id: string;
+  /**
+   * Which cloud the account lives in. Names are only unique *within* a provider
+   * table, so this is what lets a row distinguish the Azure subscription named
+   * "Dev-Account" from the AWS account of the same name.
+   */
+  provider: AccountProvider;
 };
 
 /** The workspace fields this resolver keys off; a subset of WorkspaceResponse. */
@@ -78,13 +84,20 @@ export function useAccountColors(): {
         api.get("/v1/clusters").catch(() => empty),
       ]);
       if (!alive) return;
-      const build = (rows: any[], key: (r: any) => string): Record<string, AccountBadge> => {
+      const build = (
+        rows: any[],
+        provider: AccountProvider,
+        key: (r: any) => string,
+      ): Record<string, AccountBadge> => {
         const out: Record<string, AccountBadge> = {};
         for (const r of rows ?? []) {
           out[key(r)] = {
             color: asAccountColor(r.color_effective ?? r.color),
             name: r.name ?? "",
             id: key(r),
+            // Stamped from which list the row came out of — the provider isn't
+            // a field on the row, it's which endpoint answered.
+            provider,
           };
         }
         return out;
@@ -92,10 +105,10 @@ export function useAccountColors(): {
       setMaps({
         // AWS is keyed by the 12-digit account id because that's what
         // `workspace.aws_account_id` stores — not the row PK, unlike the others.
-        aws: build(aws.data, (r) => r.account_id),
-        azure: build(azure.data, (r) => r.id),
-        gcp: build(gcp.data, (r) => r.id),
-        k8s: build(k8s.data, (r) => r.id),
+        aws: build(aws.data, "aws", (r) => r.account_id),
+        azure: build(azure.data, "azure", (r) => r.id),
+        gcp: build(gcp.data, "gcp", (r) => r.id),
+        k8s: build(k8s.data, "k8s", (r) => r.id),
       });
       setLoading(false);
     })();

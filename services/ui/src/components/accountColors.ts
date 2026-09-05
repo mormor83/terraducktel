@@ -22,6 +22,25 @@ export type AccountColor =
   | "brown"
   | "gray";
 
+/**
+ * Which cloud a `AccountTag` is naming. Colour answers "which account"; this
+ * answers "which cloud" — two separate channels, needed because a display name
+ * is only unique *within* a provider table. An Azure subscription and an AWS
+ * account can both be called "Dev-Account", and since `pick_next` assigns
+ * colours BU-wide (across all four provider tables) they are guaranteed to
+ * carry different colours — which reads as one account rendering inconsistently
+ * unless the row also says which cloud each is.
+ */
+export type AccountProvider = "aws" | "azure" | "gcp" | "k8s";
+
+/** Tooltip/`aria-label` wording for each provider. */
+export const ACCOUNT_PROVIDER_LABELS: Record<AccountProvider, string> = {
+  aws: "AWS account",
+  azure: "Azure subscription",
+  gcp: "GCP project",
+  k8s: "Kubernetes cluster",
+};
+
 export const ACCOUNT_COLORS: AccountColor[] = [
   "red",
   "orange",

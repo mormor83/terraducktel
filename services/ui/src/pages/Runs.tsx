@@ -490,6 +490,7 @@ export default function Runs() {
                                       color={account.color}
                                       name={account.name}
                                       id={account.id}
+                                      provider={account.provider}
                                       className="max-w-[14rem] font-sans font-medium text-slate-600 dark:text-slate-300"
                                     />
                                   ) : (

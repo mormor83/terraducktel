@@ -1,6 +1,6 @@
 [project]
 name = "terraducktel-cli"
-version = "0.1.0"
+version = "1.0.0"
 description = "Command-line client for Terraducktel (TDT)"
 requires-python = ">=3.11"
 dependencies = [
