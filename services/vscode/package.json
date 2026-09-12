@@ -1,0 +1,173 @@
+{
+  "name": "terraducktel-vscode",
+  "displayName": "Terraducktel",
+  "description": "Drive Terraducktel (TDT) Terraform runs from VS Code: workspaces, runs, plan output and approvals.",
+  "version": "0.3.1",
+  "publisher": "terraducktel",
+  "license": "MIT",
+  "private": true,
+  "icon": "media/icon.png",
+  "keywords": ["terraform", "terraducktel", "iac", "approvals", "gitops"],
+  "homepage": "https://github.com/mormor83/terraducktel/blob/main/docs/VSCODE.md",
+  "bugs": { "url": "https://github.com/mormor83/terraducktel/issues" },
+  "galleryBanner": { "color": "#0e1f1d", "theme": "dark" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mormor83/terraducktel"
+  },
+  "engines": { "vscode": "^1.90.0", "node": ">=20" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "terraducktel", "title": "Terraducktel", "icon": "media/tdt.svg" }
+      ]
+    },
+    "views": {
+      "terraducktel": [
+        { "id": "terraducktel.workspaces", "name": "Workspaces" },
+        { "id": "terraducktel.runs", "name": "Runs" }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "terraducktel.workspaces",
+        "contents": "No Terraducktel profile yet.\n[Add profile…](command:terraducktel.addProfile)",
+        "when": "!terraducktel.signedIn && !terraducktel.hasProfiles"
+      },
+      {
+        "view": "terraducktel.workspaces",
+        "contents": "Not signed in to Terraducktel.\n[Sign in](command:terraducktel.signIn)",
+        "when": "!terraducktel.signedIn && terraducktel.hasProfiles"
+      }
+    ],
+    "commands": [
+      { "command": "terraducktel.signIn", "title": "Sign in", "category": "Terraducktel" },
+      { "command": "terraducktel.signOut", "title": "Sign out", "category": "Terraducktel" },
+      { "command": "terraducktel.switchProfile", "title": "Switch profile", "category": "Terraducktel", "icon": "$(server)" },
+      { "command": "terraducktel.addProfile", "title": "Add profile…", "category": "Terraducktel" },
+      { "command": "terraducktel.removeProfile", "title": "Remove profile…", "category": "Terraducktel" },
+      { "command": "terraducktel.switchBusinessUnit", "title": "Switch business unit", "category": "Terraducktel", "icon": "$(organization)" },
+      { "command": "terraducktel.refresh", "title": "Refresh", "category": "Terraducktel", "icon": "$(refresh)" },
+      { "command": "terraducktel.plan", "title": "Plan", "category": "Terraducktel", "icon": "$(play)" },
+      { "command": "terraducktel.apply", "title": "Apply…", "category": "Terraducktel" },
+      { "command": "terraducktel.destroy", "title": "Destroy…", "category": "Terraducktel" },
+      { "command": "terraducktel.setBranch", "title": "Set tracked branch…", "category": "Terraducktel" },
+      { "command": "terraducktel.syncWorkspace", "title": "Sync from repo", "category": "Terraducktel" },
+      { "command": "terraducktel.openInBrowser", "title": "Open in browser", "category": "Terraducktel", "icon": "$(link-external)" },
+      { "command": "terraducktel.copyId", "title": "Copy id", "category": "Terraducktel" },
+      { "command": "terraducktel.watchRun", "title": "Watch run (show steps)", "category": "Terraducktel", "icon": "$(output)" },
+      { "command": "terraducktel.showPlan", "title": "Show plan output", "category": "Terraducktel", "icon": "$(diff)" },
+      { "command": "terraducktel.approve", "title": "Approve…", "category": "Terraducktel", "icon": "$(check)" },
+      { "command": "terraducktel.reject", "title": "Reject…", "category": "Terraducktel", "icon": "$(close)" },
+      { "command": "terraducktel.cancelRun", "title": "Cancel run", "category": "Terraducktel" },
+      { "command": "terraducktel.currentFileActions", "title": "Current file: actions…", "category": "Terraducktel" },
+      { "command": "terraducktel.planCurrentFile", "title": "Plan this leaf", "category": "Terraducktel", "icon": "$(play)" },
+      { "command": "terraducktel.revealCurrentWorkspace", "title": "Reveal current workspace in sidebar", "category": "Terraducktel" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "terraducktel.switchProfile", "when": "view == terraducktel.workspaces && terraducktel.hasProfiles", "group": "navigation@0" },
+        { "command": "terraducktel.refresh", "when": "view == terraducktel.workspaces || view == terraducktel.runs", "group": "navigation@1" },
+        { "command": "terraducktel.switchBusinessUnit", "when": "view == terraducktel.workspaces && terraducktel.signedIn", "group": "navigation@2" }
+      ],
+      "view/item/context": [
+        { "command": "terraducktel.plan", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "inline@1" },
+        { "command": "terraducktel.plan", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "1_run@1" },
+        { "command": "terraducktel.apply", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "1_run@2" },
+        { "command": "terraducktel.destroy", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "1_run@3" },
+        { "command": "terraducktel.setBranch", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "2_edit@1" },
+        { "command": "terraducktel.syncWorkspace", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "2_edit@2" },
+        { "command": "terraducktel.openInBrowser", "when": "view == terraducktel.workspaces && viewItem == workspace", "group": "3_nav@1" },
+        { "command": "terraducktel.copyId", "when": "view == terraducktel.workspaces && viewItem == workspace", "group": "3_nav@2" },
+        { "command": "terraducktel.watchRun", "when": "viewItem =~ /^run/", "group": "inline@1" },
+        { "command": "terraducktel.showPlan", "when": "viewItem =~ /^run/", "group": "inline@2" },
+        { "command": "terraducktel.approve", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "inline@3" },
+        { "command": "terraducktel.approve", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "1_gate@1" },
+        { "command": "terraducktel.reject", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "1_gate@2" },
+        { "command": "terraducktel.cancelRun", "when": "viewItem =~ /^run\\.(pending|running|planning|awaiting_approval)$/ && terraducktel.canWrite", "group": "1_gate@3" },
+        { "command": "terraducktel.watchRun", "when": "viewItem =~ /^run/", "group": "2_view@1" },
+        { "command": "terraducktel.showPlan", "when": "viewItem =~ /^run/", "group": "2_view@2" },
+        { "command": "terraducktel.openInBrowser", "when": "viewItem =~ /^run/", "group": "3_nav@1" },
+        { "command": "terraducktel.copyId", "when": "viewItem =~ /^run/", "group": "3_nav@2" }
+      ],
+      "commandPalette": [
+        { "command": "terraducktel.plan", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.apply", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.destroy", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.watchRun", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.showPlan", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.approve", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.reject", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.cancelRun", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.setBranch", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.syncWorkspace", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.switchBusinessUnit", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.copyId", "when": "false" },
+        { "command": "terraducktel.openInBrowser", "when": "false" },
+        { "command": "terraducktel.currentFileActions", "when": "terraducktel.signedIn && terraducktel.currentFileMapped" },
+        { "command": "terraducktel.revealCurrentWorkspace", "when": "terraducktel.signedIn && terraducktel.currentFileMapped" },
+        { "command": "terraducktel.planCurrentFile", "when": "terraducktel.signedIn" }
+      ],
+      "editor/title": [
+        { "command": "terraducktel.planCurrentFile", "when": "terraducktel.currentFileMapped && terraducktel.canWrite && resourceExtname =~ /\\.(tf|tfvars|hcl)$/", "group": "navigation" }
+      ]
+    },
+    "configuration": {
+      "title": "Terraducktel",
+      "properties": {
+        "terraducktel.profiles": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "markdownDescription": "Profile name → API origin, e.g. `prod` → `https://tdt.example.com`. Add rows here or run **Terraducktel: Add profile…**."
+        },
+        "terraducktel.uiUrls": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "markdownDescription": "Profile name → web UI origin, only when the UI is served from a different origin than the API (e.g. the dev compose stack: `http://localhost:3001`)."
+        },
+        "terraducktel.insecureTlsProfiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Profile names for which TLS certificate verification is skipped (self-signed dev stacks only)."
+        },
+        "terraducktel.activeProfile": {
+          "type": "string",
+          "default": "",
+          "description": "Name of the profile to use.",
+          "deprecationMessage": "The active profile is chosen with 'Terraducktel: Switch profile' (sidebar title button / status bar). This setting is only read once to migrate."
+        },
+        "terraducktel.refreshIntervalSeconds": { "type": "number", "default": 30, "minimum": 5, "description": "How often the sidebar polls while visible." },
+        "terraducktel.runsLimit": { "type": "number", "default": 200, "minimum": 1, "maximum": 1000, "description": "How many recent runs to fetch." },
+        "terraducktel.trace": { "type": "boolean", "default": false, "description": "Log request/response metadata (never credentials) to the Terraducktel output channel." },
+        "terraducktel.statusBar.enabled": { "type": "boolean", "default": true, "description": "Show the current file's Terraducktel workspace in the status bar." },
+        "terraducktel.approvals.pollSeconds": { "type": "number", "default": 60, "minimum": 0, "description": "How often to check for runs awaiting approval and raise a notification (seconds). 0 disables; values below 15 are treated as 15." }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "test:integration": "npm run build && node ./out-test/integration/runTest.js",
+    "pretest:integration": "tsc -p tsconfig.test.json",
+    "package": "npm run build && vsce package --no-dependencies --skip-license --out terraducktel-vscode.vsix"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.9",
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "mocha": "^10.8.2",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.10"
+  }
+}

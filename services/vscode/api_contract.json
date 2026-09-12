@@ -1,0 +1,23 @@
+{
+  "_comment": "Every API endpoint the VS Code extension calls. Guarded by services/api/tests/test_vscode_api_contract.py. Paths are relative to /api/v1.",
+  "endpoints": [
+    { "method": "GET", "path": "/auth/config", "used_by": "Sign in (provider discovery: sso vs password)" },
+    { "method": "POST", "path": "/auth/token", "used_by": "Sign in with password" },
+    { "method": "GET", "path": "/auth/oidc/login", "used_by": "Sign in with SSO (browser is sent here; the extension never fetches it)", "browser": true },
+    { "method": "POST", "path": "/auth/refresh", "used_by": "automatic token refresh" },
+    { "method": "GET", "path": "/business-units", "used_by": "Switch business unit" },
+    { "method": "GET", "path": "/workspaces", "used_by": "Workspaces view" },
+    { "method": "PUT", "path": "/workspaces/{workspace_id}", "used_by": "Set tracked branch" },
+    { "method": "GET", "path": "/workspaces/{workspace_id}/branches", "used_by": "Set tracked branch (picker)" },
+    { "method": "POST", "path": "/workspaces/{workspace_id}/sync", "used_by": "Sync from repo" },
+    { "method": "POST", "path": "/workspaces/{workspace_id}/runs", "used_by": "Plan / Apply / Destroy" },
+    { "method": "GET", "path": "/runs", "used_by": "Runs view, workspace run children, approval notifications" },
+    { "method": "GET", "path": "/runs/{run_id}", "used_by": "Watch run (status poll)" },
+    { "method": "GET", "path": "/runs/{run_id}/steps", "used_by": "Watch run (step tailing with ?since=)" },
+    { "method": "GET", "path": "/runs/{run_id}/graph", "used_by": "Approve… confirmation summary, approval notifications" },
+    { "method": "GET", "path": "/runs/{run_id}/plan", "used_by": "Show plan output" },
+    { "method": "POST", "path": "/runs/{run_id}/approve", "used_by": "Approve…" },
+    { "method": "POST", "path": "/runs/{run_id}/reject", "used_by": "Reject…" },
+    { "method": "POST", "path": "/runs/{run_id}/cancel", "used_by": "Cancel run" }
+  ]
+}
