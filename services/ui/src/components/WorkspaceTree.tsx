@@ -8,10 +8,12 @@ import {
   AccountGroup,
   AzureSubscriptionGroup,
   GcpProjectGroup,
+  ProxmoxClusterGroup,
 } from "./workspace-tree/groups";
 import {
   azureInfo,
   gcpInfo,
+  proxmoxInfo,
   workspacePathSegments,
 } from "./workspace-tree/paths";
 import { TagChip } from "./TagChip";
@@ -22,6 +24,7 @@ import type {
   AzureSubscriptionLite,
   ExpandSignal,
   GcpProjectLite,
+  ProxmoxClusterLite,
   Run,
   Workspace,
 } from "./workspace-tree/types";
@@ -31,10 +34,11 @@ export type {
   AwsAccountLite,
   AzureSubscriptionLite,
   GcpProjectLite,
+  ProxmoxClusterLite,
   Run,
   Workspace,
 };
-export { azureInfo, gcpInfo, workspacePathSegments };
+export { azureInfo, gcpInfo, proxmoxInfo, workspacePathSegments };
 
 export default function WorkspaceTree({
   workspaces,
@@ -42,6 +46,7 @@ export default function WorkspaceTree({
   awsAccounts,
   azureSubscriptions,
   gcpProjects,
+  proxmoxClusters,
   onChanged,
 }: {
   workspaces: Workspace[];
@@ -49,6 +54,7 @@ export default function WorkspaceTree({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
   onChanged: () => void;
 }) {
   const [filter, setFilter] = useState("");
@@ -93,11 +99,24 @@ export default function WorkspaceTree({
     return m;
   }, [gcpProjects]);
 
+  // Same two views for Proxmox clusters: by TDT pk (the explicit link) and by
+  // cluster slug (what the `proxmox/cluster-<slug>/` repo path encodes).
+  const pmxByPk = useMemo(() => {
+    const m = new Map<string, ProxmoxClusterLite>();
+    for (const c of proxmoxClusters) m.set(c.id, c);
+    return m;
+  }, [proxmoxClusters]);
+  const pmxBySlug = useMemo(() => {
+    const m = new Map<string, ProxmoxClusterLite>();
+    for (const c of proxmoxClusters) m.set(c.slug, c);
+    return m;
+  }, [proxmoxClusters]);
+
   // Classify a workspace into its top-level cloud group + the region it should
-  // nest under. Detection: explicit link first (Azure, then GCP), then the
-  // path convention (Azure, then GCP); AWS is the default.
+  // nest under. Detection: explicit link first (Azure, GCP, Proxmox), then the
+  // path convention (Azure, GCP, Proxmox); AWS is the default.
   function classify(w: Workspace): {
-    cloud: "aws" | "azure" | "gcp";
+    cloud: "aws" | "azure" | "gcp" | "proxmox";
     key: string;
     region: string;
   } {
@@ -120,6 +139,11 @@ export default function WorkspaceTree({
         region: info?.region ?? w.region,
       };
     }
+    if (w.proxmox_cluster_id) {
+      const c = pmxByPk.get(w.proxmox_cluster_id);
+      const info = proxmoxInfo(w);
+      return { cloud: "proxmox", key: c ? c.id : w.proxmox_cluster_id, region: info?.node ?? w.region };
+    }
     const info = azureInfo(w);
     if (info) {
       const sub = azureByGuid.get(info.guid);
@@ -137,6 +161,11 @@ export default function WorkspaceTree({
         key: proj ? proj.id : `pid:${ginfo.projectId}`,
         region: ginfo.region,
       };
+    }
+    const pinfo = proxmoxInfo(w);
+    if (pinfo) {
+      const c = pmxBySlug.get(pinfo.slug);
+      return { cloud: "proxmox", key: c ? c.id : `slug:${pinfo.slug}`, region: pinfo.node };
     }
     return { cloud: "aws", key: w.aws_account_id, region: w.region };
   }
@@ -181,6 +210,9 @@ export default function WorkspaceTree({
       const proj = w.gcp_project_id
         ? gcpByPk.get(w.gcp_project_id)
         : gcpByProjectId.get(gcpInfo(w)?.projectId ?? "");
+      const pmx = w.proxmox_cluster_id
+        ? pmxByPk.get(w.proxmox_cluster_id)
+        : pmxBySlug.get(proxmoxInfo(w)?.slug ?? "");
       return [
         w.name,
         w.aws_account_id,
@@ -192,6 +224,8 @@ export default function WorkspaceTree({
         sub?.subscription_id ?? azureInfo(w)?.guid ?? "",
         proj?.name ?? "",
         proj?.project_id ?? gcpInfo(w)?.projectId ?? "",
+        pmx?.name ?? "",
+        pmx?.slug ?? proxmoxInfo(w)?.slug ?? "",
         // Tags join the fuzzy search as `key=value` pairs, so typing
         // "payments" finds tagged workspaces without knowing the key.
         tagsAsSearchText(w.tags),
@@ -209,31 +243,40 @@ export default function WorkspaceTree({
     azureByGuid,
     gcpByPk,
     gcpByProjectId,
+    pmxByPk,
+    pmxBySlug,
   ]);
 
-  // Group into AWS accounts, Azure subscriptions, and GCP projects; each →
-  // region → workspaces[].
-  const { awsGrouped, azureGrouped, gcpGrouped } = useMemo(() => {
+  // Group into AWS accounts, Azure subscriptions, GCP projects, and Proxmox
+  // clusters; each → region → workspaces[].
+  const { awsGrouped, azureGrouped, gcpGrouped, proxmoxGrouped } = useMemo(() => {
     const aws: Record<string, Record<string, Workspace[]>> = {};
     const azure: Record<string, Record<string, Workspace[]>> = {};
     const gcp: Record<string, Record<string, Workspace[]>> = {};
+    const proxmox: Record<string, Record<string, Workspace[]>> = {};
     for (const w of filtered) {
       const c = classify(w);
       const bucket =
-        c.cloud === "azure" ? azure : c.cloud === "gcp" ? gcp : aws;
+        c.cloud === "azure"
+          ? azure
+          : c.cloud === "gcp"
+            ? gcp
+            : c.cloud === "proxmox"
+              ? proxmox
+              : aws;
       const g = (bucket[c.key] ??= {});
       (g[c.region] ??= []).push(w);
     }
-    for (const bucket of [aws, azure, gcp]) {
+    for (const bucket of [aws, azure, gcp, proxmox]) {
       for (const g of Object.values(bucket)) {
         for (const region of Object.keys(g))
           g[region].sort((a, b) => a.name.localeCompare(b.name));
       }
     }
-    return { awsGrouped: aws, azureGrouped: azure, gcpGrouped: gcp };
+    return { awsGrouped: aws, azureGrouped: azure, gcpGrouped: gcp, proxmoxGrouped: proxmox };
     // classify closes over the cloud lookup maps, which are themselves memoized.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, azureByPk, azureByGuid, gcpByPk, gcpByProjectId]);
+  }, [filtered, azureByPk, azureByGuid, gcpByPk, gcpByProjectId, pmxByPk, pmxBySlug]);
 
   const accountIds = Object.keys(awsGrouped).sort();
   // Azure groups sorted by display name (registered) then bare GUID key.
@@ -248,7 +291,14 @@ export default function WorkspaceTree({
     const nb = gcpByPk.get(b)?.name ?? b;
     return na.localeCompare(nb);
   });
-  const groupCount = accountIds.length + azureKeys.length + gcpKeys.length;
+  // Proxmox groups sorted by display name (registered) then bare slug key.
+  const pmxKeys = Object.keys(proxmoxGrouped).sort((a, b) => {
+    const na = pmxByPk.get(a)?.name ?? a;
+    const nb = pmxByPk.get(b)?.name ?? b;
+    return na.localeCompare(nb);
+  });
+  const groupCount =
+    accountIds.length + azureKeys.length + gcpKeys.length + pmxKeys.length;
 
   // Clicking the chip that is already filtering clears it, so the same gesture
   // is both apply and undo — no hunting for an X.
@@ -353,6 +403,7 @@ export default function WorkspaceTree({
                 awsAccounts={awsAccounts}
                 azureSubscriptions={azureSubscriptions}
                 gcpProjects={gcpProjects}
+                proxmoxClusters={proxmoxClusters}
               />
             ))}
             {azureKeys.map((key) => (
@@ -372,6 +423,7 @@ export default function WorkspaceTree({
                 awsAccounts={awsAccounts}
                 azureSubscriptions={azureSubscriptions}
                 gcpProjects={gcpProjects}
+                proxmoxClusters={proxmoxClusters}
               />
             ))}
             {gcpKeys.map((key) => (
@@ -389,6 +441,23 @@ export default function WorkspaceTree({
                 awsAccounts={awsAccounts}
                 azureSubscriptions={azureSubscriptions}
                 gcpProjects={gcpProjects}
+                proxmoxClusters={proxmoxClusters}
+              />
+            ))}
+            {pmxKeys.map((key) => (
+              <ProxmoxClusterGroup
+                key={`proxmox:${key}`}
+                cluster={pmxByPk.get(key)}
+                slug={key.startsWith("slug:") ? key.slice("slug:".length) : undefined}
+                byRegion={proxmoxGrouped[key]}
+                latestByWs={latestByWs}
+                defaultOpen={false}
+                onChanged={onChanged}
+                expandSignal={expandSignal}
+                awsAccounts={awsAccounts}
+                azureSubscriptions={azureSubscriptions}
+                gcpProjects={gcpProjects}
+                proxmoxClusters={proxmoxClusters}
               />
             ))}
           </div>
