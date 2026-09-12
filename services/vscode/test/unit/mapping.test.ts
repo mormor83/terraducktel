@@ -26,6 +26,11 @@ describe("normalizeRepoUrl", () => {
     expect(normalizeRepoUrl("c:/x/repo")).toBeUndefined();
     expect(normalizeRepoUrl("git@github.com:acme/infra.git")).toBe("github.com/acme/infra");
   });
+  it("strips ssh's implicit default port (22) so it compares equal to the scp-like form", () => {
+    expect(normalizeRepoUrl("ssh://git@host:22/o/r")).toBe(normalizeRepoUrl("git@host:o/r"));
+    // A non-default port is a real distinguishing detail and must not be dropped.
+    expect(normalizeRepoUrl("ssh://git@host:2222/o/r")).not.toBe(normalizeRepoUrl("git@host:o/r"));
+  });
 });
 
 describe("relativeDir", () => {
@@ -36,6 +41,10 @@ describe("relativeDir", () => {
   it("returns undefined for files outside the root", () => {
     expect(relativeDir("/home/u/infra", "/home/u/other/main.tf")).toBeUndefined();
     expect(relativeDir("/home/u/infra", "/home/u/infra2/main.tf")).toBeUndefined();
+  });
+  it("accepts a directory literally named '..foo' rather than treating it as 'outside the root'", () => {
+    expect(relativeDir("/home/u/infra", "/home/u/infra/..foo/main.tf")).toBe("..foo");
+    expect(relativeDir("/home/u/infra", "/home/u/infra/..foo/bar/main.tf")).toBe("..foo/bar");
   });
 });
 
@@ -64,5 +73,9 @@ describe("matchWorkspace", () => {
   it("does not match a parent directory or an unrelated path", () => {
     expect(matchWorkspace(list, { relativeDir: "account-1/eu-west-1", remoteUrl: "https://github.com/acme/infra.git" })).toBeUndefined();
     expect(matchWorkspace(list, { relativeDir: "account-1/eu-west-1/vpcx", remoteUrl: "https://github.com/acme/infra.git" })).toBeUndefined();
+  });
+  it("strips a leading './' from tf_working_dir before matching", () => {
+    const withDotSlash = [ws({ name: "vpc", tf_working_dir: "./account-1/eu-west-1/vpc" })];
+    expect(matchWorkspace(withDotSlash, { relativeDir: "account-1/eu-west-1/vpc", remoteUrl: "https://github.com/acme/infra.git" })).toMatchObject({ ws: { name: "vpc" }, exact: true });
   });
 });
