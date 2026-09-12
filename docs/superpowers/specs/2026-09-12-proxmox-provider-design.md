@@ -65,8 +65,9 @@ Same revision adds `workspaces.proxmox_cluster_id` — String, nullable,
 `ForeignKey("proxmox_clusters.id", ondelete="SET NULL")`, indexed like the
 Azure/GCP columns. Proxmox workspaces use `aws_account_id="global"` (the
 existing non-AWS convention) and `state_backend="s3"`. The `region` column
-holds the Proxmox **node name** (e.g. `pve`, `pve2`); it is already free-form
-for Azure so no validation change is needed.
+stays `"global"`, as repo discovery already stamps for every non-AWS path.
+The Proxmox **node name** is the path's third segment and the UI reads it
+from there (the same way it reads Azure/GCP regions).
 
 `WorkspaceResponse`, `WorkspaceCreate` and `WorkspaceUpdate` gain
 `proxmox_cluster_id: str | None`. Create/update validate that a supplied
@@ -83,11 +84,11 @@ proxmox/cluster-<slug>/<node>/<stack>
 ```
 
 - `routers/workspaces.py` gains `_PROXMOX_CLUSTER_RE` and
-  `_proxmox_slug_from_path()`. Bulk import and the repo-sync loop auto-link a
-  leaf when `<slug>` matches a `proxmox_clusters` row in the same BU. An
-  unregistered slug leaves the workspace unlinked; registering the cluster and
-  re-running **Sync from repo** links it.
-- `<node>` is written to `workspace.region`.
+  `_proxmox_slug_from_path()`. Bulk import auto-links a leaf when `<slug>`
+  matches a `proxmox_clusters` row in the same BU. An unregistered slug leaves
+  the workspace unlinked; registering the cluster and re-running **Sync from
+  repo** links it.
+- `<node>` is read from the path by the UI; `workspace.region` stays `global`.
 - UI `paths.ts` gains `proxmoxInfo(ws)` and strips the `proxmox/cluster-<slug>`
   pair plus the node in `workspacePathSegments`, exactly as the GCP branch does.
 - The tree groups Proxmox clusters at top level (like GCP projects) with nodes
@@ -172,7 +173,8 @@ Cross-cutting touches (one branch each): `notification_service.py` account
 tag resolution (a `ws.proxmox_cluster_id` branch beside the GCP one) and a
 `_scoped_cluster()` helper inside the new router that 404s on a cluster outside
 the caller's BU, mirroring `_scoped_project()` in the GCP router.
-`account_colors.py` needs no code change; only its docstring lists providers.
+`account_colors.used_colors_for_bu()` gains `ProxmoxCluster` in its provider-table
+tuple so colours stay unique BU-wide.
 
 ## 5. UI
 
