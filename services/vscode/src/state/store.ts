@@ -12,6 +12,10 @@ export class Store {
   consecutiveFailures = 0;
   private inflight: Promise<void> | null = null;
   private timer: NodeJS.Timeout | undefined;
+  /** Bumped by every stop(); a tick re-arms only while its own epoch is still current. Without
+   *  it, a stop() landing during the tick's `await refresh()` is undone by the reschedule that
+   *  follows it — and a second start() mid-refresh leaves two chains polling forever. */
+  private loopEpoch = 0;
   /** Whether a view is on screen. The timer keeps ticking while inactive but skips the network:
    *  polling a sidebar nobody is looking at is pure load on the API. Manual `refresh()` (the
    *  title-bar button, a command, a just-landed run) is never gated by this. */
@@ -65,9 +69,13 @@ export class Store {
    *  5 minutes until one succeeds. */
   start(intervalMs: number) {
     this.stop();
-    const tick = async () => { if (this.active) await this.refresh(); const wait = this.consecutiveFailures >= 3 ? 5 * 60_000 : intervalMs; this.timer = setTimeout(tick, wait); };
+    const e = this.loopEpoch;
+    const tick = async () => {
+      try { if (this.active) await this.refresh(); }
+      finally { if (this.loopEpoch === e) this.timer = setTimeout(tick, this.consecutiveFailures >= 3 ? 5 * 60_000 : intervalMs); }
+    };
     this.timer = setTimeout(tick, intervalMs);
   }
-  stop() { if (this.timer) clearTimeout(this.timer); this.timer = undefined; }
+  stop() { this.loopEpoch++; if (this.timer) clearTimeout(this.timer); this.timer = undefined; }
   dispose() { this.stop(); this.changed.dispose(); }
 }

@@ -96,6 +96,26 @@ describe("Store", () => {
     expect(srv.calls.length).toBeGreaterThan(2);
   });
 
+  it("stop() during an in-flight tick is not undone by the tick's reschedule", async () => {
+    let reqs = 0;
+    srv.on("GET", "/api/v1/workspaces", (_q, _b, res) => {
+      reqs++;
+      setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end("[]"); }, 40);
+    });
+    srv.json("GET", "/api/v1/runs", 200, []);
+    const client = new TdtClient({ baseUrl: url, bu: "default", tokens });
+    const s = new Store(() => client, () => ({ runsLimit: 50 }));
+    s.start(5);
+    await new Promise((r) => setTimeout(r, 20));   // first tick fired; its refresh is in flight
+    expect(reqs).toBe(1);
+    s.stop();
+    await new Promise((r) => setTimeout(r, 60));   // let the in-flight refresh land and (not) re-arm
+    const after = reqs;
+    await new Promise((r) => setTimeout(r, 120));
+    expect(reqs).toBe(after);
+    s.dispose();
+  });
+
   it("reads runsLimit live from the options getter on each refresh", async () => {
     srv.json("GET", "/api/v1/workspaces", 200, []);
     srv.json("GET", "/api/v1/runs", 200, []);
