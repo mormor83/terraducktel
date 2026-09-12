@@ -84,15 +84,19 @@ Login URL: http://localhost:3001  ·  API: http://localhost:8001  ·  Forgejo: h
   the only component that touches the object store, selecting the backend in
   `routers/state.py:_service_for` (S3/Azure Blob/GCS implement the `StateStore`
   protocol in `services/state_store.py`). `s3` uses a bucket dedicated to the
-  workspace's AWS account (LocalStack in dev); `azureblob` reuses the linked
+  workspace's AWS account (LocalStack in dev); the fallback bucket for
+  non-AWS workspaces can live on any S3-compatible store via S3_ENDPOINT_URL
+  (see .env.example); `azureblob` reuses the linked
   Azure SP against a storage account/container; `gcs` reuses the linked GCP
   project's SA key against a bucket. Locking is DB-side (`pg_advisory_xact_lock`),
   backend-independent — not DynamoDB.
 - **Cloud providers:** AWS (`aws_accounts`), Azure (`azure_subscriptions`,
-  `azurerm` via `ARM_*`), and GCP (`gcp_projects`, `google` via a service-account
-  key → `GOOGLE_APPLICATION_CREDENTIALS`). Each is a per-BU-scoped vertical slice
-  (model/schema/service/router + a `CloudProviders` UI tab); a workspace links to
-  one via `aws_account_id` / `azure_subscription_id` / `gcp_project_id`.
+  `azurerm` via `ARM_*`), GCP (`gcp_projects`, `google` via a service-account
+  key → `GOOGLE_APPLICATION_CREDENTIALS`), and Proxmox VE (`proxmox_clusters`,
+  API token exported for both bpg/proxmox and Telmate/proxmox; no state backend).
+  Each is a per-BU-scoped vertical slice (model/schema/service/router +
+  a `CloudProviders` UI tab); a workspace links to one via `aws_account_id` /
+  `azure_subscription_id` / `gcp_project_id` / `proxmox_cluster_id`.
 - **No new sky-* colors.** Sky in Tailwind is aliased to brand teal; new code
   should write `brand-*` / `accent-*` directly.
 - **Migrations are forward-only.** Alembic; one revision per change; never edit

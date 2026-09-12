@@ -1,7 +1,7 @@
 // Inline SVG icons for the workspace tree rows. Kept together so the tree's
 // visual vocabulary (chevron / folder / file / cloud) lives in one place.
 //
-// The four PROVIDER marks (CloudIcon / AzureIcon / GcpIcon / ClusterIcon) are
+// The five PROVIDER marks (CloudIcon / AzureIcon / GcpIcon / ProxmoxIcon / ClusterIcon) are
 // also reused outside the tree — `components/AccountTag.tsx` renders them at
 // glyph size to say which cloud an account belongs to. They therefore take a
 // `className` carrying BOTH size and colour; the default reproduces the tree's
@@ -104,6 +104,29 @@ export function GcpIcon({
     >
       <path d="M7 17a4 4 0 0 1 1-7.9 6 6 0 0 1 11 2A3.5 3.5 0 0 1 18 18z" />
       <path d="M10 13l2 2 3-4" />
+    </svg>
+  );
+}
+
+// Proxmox cluster group icon — a server stack in amber, distinct from the
+// orange AWS cloud, blue Azure and emerald GCP marks. Stroke-based like GcpIcon.
+export function ProxmoxIcon({
+  className = "h-4 w-4 text-amber-600 dark:text-amber-400",
+}: ProviderIconProps = {}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <rect x="3" y="4" width="18" height="6" rx="1.5" />
+      <rect x="3" y="14" width="18" height="6" rx="1.5" />
+      <path d="M7 7h.01M7 17h.01" />
     </svg>
   );
 }

@@ -12,7 +12,7 @@ import type { Workspace } from "./types";
  */
 export function azureInfo(ws: Workspace): { guid: string; region: string } | null {
   const parts = (ws.tf_working_dir ?? "").trim().split("/").filter(Boolean);
-  if (parts[0] !== "azure") return null;
+  if ((parts[0] ?? "").toLowerCase() !== "azure") return null;
   const m = (parts[1] ?? "").match(/^subscription-(.+)$/);
   if (!m) return null;
   return { guid: m[1], region: parts[2] ?? ws.region };
@@ -26,10 +26,24 @@ export function azureInfo(ws: Workspace): { guid: string; region: string } | nul
  */
 export function gcpInfo(ws: Workspace): { projectId: string; region: string } | null {
   const parts = (ws.tf_working_dir ?? "").trim().split("/").filter(Boolean);
-  if (parts[0] !== "gcp") return null;
+  if ((parts[0] ?? "").toLowerCase() !== "gcp") return null;
   const m = (parts[1] ?? "").match(/^project-(.+)$/);
   if (!m) return null;
   return { projectId: m[1], region: parts[2] ?? ws.region };
+}
+
+/**
+ * Detect the Proxmox layout encoded in a workspace's repo path:
+ * `proxmox/cluster-<slug>/<node>/…`. The node name plays the region role.
+ * Path fallback for grouping — the explicit `workspace.proxmox_cluster_id`
+ * link wins when present.
+ */
+export function proxmoxInfo(ws: Workspace): { slug: string; node: string } | null {
+  const parts = (ws.tf_working_dir ?? "").trim().split("/").filter(Boolean);
+  if ((parts[0] ?? "").toLowerCase() !== "proxmox") return null;
+  const m = (parts[1] ?? "").match(/^cluster-(.+)$/);
+  if (!m) return null;
+  return { slug: m[1], node: parts[2] ?? ws.region };
 }
 
 /**
@@ -51,13 +65,19 @@ export function workspacePathSegments(ws: Workspace): { folders: string[]; leaf:
   // top-level group) and treat the next segment as the region to strip too, so
   // the leaf sits directly under its region — same shape as an AWS account.
   let regionToStrip = ws.region;
-  if (parts[0] === "azure" && /^subscription-/.test(parts[1] ?? "")) {
+  const head = (parts[0] ?? "").toLowerCase();
+  if (head === "azure" && /^subscription-/.test(parts[1] ?? "")) {
     parts.shift();
     parts.shift();
     regionToStrip = parts[0] ?? ws.region;
-  } else if (parts[0] === "gcp" && /^project-/.test(parts[1] ?? "")) {
+  } else if (head === "gcp" && /^project-/.test(parts[1] ?? "")) {
     // Strip the `gcp/project-<id>` pair (the project is the top-level group)
     // and treat the next segment as the region to strip — same shape as Azure.
+    parts.shift();
+    parts.shift();
+    regionToStrip = parts[0] ?? ws.region;
+  } else if (head === "proxmox" && /^cluster-/.test(parts[1] ?? "")) {
+    // Strip the `proxmox/cluster-<slug>` pair and treat the node as the region.
     parts.shift();
     parts.shift();
     regionToStrip = parts[0] ?? ws.region;

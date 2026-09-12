@@ -35,6 +35,7 @@ export type WorkspaceLike = {
   aws_account_id?: string | null;
   azure_subscription_id?: string | null;
   gcp_project_id?: string | null;
+  proxmox_cluster_id?: string | null;
   cluster_id?: string | null;
 };
 
@@ -42,10 +43,11 @@ type Maps = {
   aws: Record<string, AccountBadge>;
   azure: Record<string, AccountBadge>;
   gcp: Record<string, AccountBadge>;
+  proxmox: Record<string, AccountBadge>;
   k8s: Record<string, AccountBadge>;
 };
 
-const EMPTY: Maps = { aws: {}, azure: {}, gcp: {}, k8s: {} };
+const EMPTY: Maps = { aws: {}, azure: {}, gcp: {}, proxmox: {}, k8s: {} };
 
 export function useAccountColors(): {
   /** null when the workspace has no attributable account (or it was deleted). */
@@ -77,10 +79,11 @@ export function useAccountColors(): {
       // call degrades to an empty map independently so one missing provider
       // never costs the others their colours.
       const empty = { data: [] as any[] };
-      const [aws, azure, gcp, k8s] = await Promise.all([
+      const [aws, azure, gcp, pmx, k8s] = await Promise.all([
         api.get("/v1/aws-accounts").catch(() => empty),
         api.get("/v1/azure-subscriptions").catch(() => empty),
         api.get("/v1/gcp-projects").catch(() => empty),
+        api.get("/v1/proxmox-clusters").catch(() => empty),
         api.get("/v1/clusters").catch(() => empty),
       ]);
       if (!alive) return;
@@ -108,6 +111,7 @@ export function useAccountColors(): {
         aws: build(aws.data, "aws", (r) => r.account_id),
         azure: build(azure.data, "azure", (r) => r.id),
         gcp: build(gcp.data, "gcp", (r) => r.id),
+        proxmox: build(pmx.data, "proxmox", (r) => r.id),
         k8s: build(k8s.data, "k8s", (r) => r.id),
       });
       setLoading(false);
@@ -125,6 +129,7 @@ export function useAccountColors(): {
       if (ws.kind === "helm" && ws.cluster_id) return maps.k8s[ws.cluster_id] ?? null;
       if (ws.azure_subscription_id) return maps.azure[ws.azure_subscription_id] ?? null;
       if (ws.gcp_project_id) return maps.gcp[ws.gcp_project_id] ?? null;
+      if (ws.proxmox_cluster_id) return maps.proxmox[ws.proxmox_cluster_id] ?? null;
       // "global" is the sentinel for provider-less workspaces — not an account.
       if (ws.aws_account_id && ws.aws_account_id !== "global") {
         return maps.aws[ws.aws_account_id] ?? null;

@@ -24,6 +24,7 @@ import app.models.drift_report  # noqa: F401
 import app.models.variable  # noqa: F401
 import app.models.business_unit  # noqa: F401
 import app.models.api_key  # noqa: F401
+import app.models.proxmox_cluster  # noqa: F401
 
 target_metadata = Base.metadata
 
