@@ -356,6 +356,34 @@ auto-link to the matching project on import.
 
 ---
 
+## Proxmox VE Clusters — `/api/v1/proxmox-clusters`
+
+Encrypted-at-rest Proxmox VE API tokens and optional SSH private keys for
+orchestrating infrastructure across Proxmox hosts. Mirrors AWS Accounts / Azure
+Subscriptions / GCP Projects. Workspaces that target the `proxmox` provider link
+one of these; the executor writes credentials to a temp file and exports them
+at run time.
+
+| Method | Path | Description | Min role | BU |
+|---|---|---|---|---|
+| GET | `/proxmox-clusters` | List configured clusters (token secret never returned; masked tail shown). | viewer | BU-scoped |
+| POST | `/proxmox-clusters` | Add a cluster (API token + optional SSH private key stored encrypted). | admin | BU-scoped |
+| PUT | `/proxmox-clusters/{cluster_pk}` | Update name/description/endpoint/TLS settings or rotate the API token and/or SSH key. | admin | — |
+| DELETE | `/proxmox-clusters/{cluster_pk}` | Delete a cluster row. | admin | — |
+| POST | `/proxmox-clusters/{cluster_pk}/test` | Validate the API token by probing `/api2/json/version`. | admin | — |
+
+**POST /proxmox-clusters** body: `{slug, name, description?, endpoint, api_token_id, api_token_secret, ssh_username?, ssh_private_key?, tls_insecure?, ca_cert_pem?, color?}`. The `slug` is a unique natural key (3–40 chars; pattern: `^[a-z][a-z0-9-]{1,38}[a-z0-9]$`) — duplicate → **409**. The `endpoint` must be an HTTPS URL. The `api_token_id` must follow the format `user@realm!tokenid` and cannot contain `=` (to prevent pasting "id=secret" by mistake). Exactly one of `ssh_username` and `ssh_private_key` can be set (if one is set, both must be provided; pass empty string to clear on update). `ca_cert_pem` is optional and must be a valid PEM-encoded certificate block if provided.
+
+**POST .../test** writes the decrypted credentials to internal memory, probes
+the Proxmox VE cluster API and always returns `{ok, detail?, version?}` —
+never raises even on network/auth failures. The response includes the version
+string on success.
+
+**Secrets:** Responses never include `api_token_secret` or `ssh_private_key` —
+only `token_secret_masked_tail` (e.g. `…5555`) and `has_ssh_key: true|false`.
+
+---
+
 ## Kubernetes Clusters — `/api/v1/clusters`
 
 Encrypted-at-rest kubeconfigs for Helm-kind workspaces

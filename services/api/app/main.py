@@ -29,6 +29,7 @@ from app.routers import (  # noqa: E402
     inventory,
     policies,
     presence,
+    proxmox_clusters,
     runs,
     runtime_config,
     state,
@@ -197,6 +198,7 @@ app.include_router(auth.router)
 app.include_router(aws_accounts.router)
 app.include_router(azure_subscriptions.router)
 app.include_router(gcp_projects.router)
+app.include_router(proxmox_clusters.router)
 app.include_router(integrations.router)
 app.include_router(internal.router)
 app.include_router(workspaces.router)
