@@ -36,6 +36,26 @@ describe("tailRun", () => {
     expect(final.status).toBe("running");
   });
 
+  it("appends nothing after the cancel flag flips", async () => {
+    let poll = 0;
+    srv.json("GET", "/api/v1/runs/r1", 200, { id: "r1", workspace_id: "w", command: "plan", status: "running" });
+    srv.on("GET", "/api/v1/runs/r1/steps", (_q, _b, res) => {
+      poll++;
+      // Output keeps growing, so every poll WOULD append a line if the loop kept going.
+      const output = Array.from({ length: poll }, (_, i) => `line ${i}`).join("\n") + "\n";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify([{ position: 0, name: "Plan", status: "running", output }]));
+    });
+    const lines: string[] = [];
+    let cancelled = false, lenAtCancel = -1;
+    // applySteps is synchronous, so this timer can only fire between polls — the length it
+    // records is exactly what had been printed at the moment of cancellation.
+    setTimeout(() => { cancelled = true; lenAtCancel = lines.length; }, 30);
+    await tailRun(new TdtClient({ baseUrl: url, bu: "b", tokens }), "r1", { appendLine: (l) => lines.push(l) }, { pollMs: 5, isCancelled: () => cancelled });
+    expect(lenAtCancel).toBeGreaterThan(0);
+    expect(lines.length).toBe(lenAtCancel);
+  });
+
   it("stops polling once cancelled, even when the run never lands", async () => {
     srv.json("GET", "/api/v1/runs/r1", 200, { id: "r1", workspace_id: "w", command: "plan", status: "running" });
     srv.json("GET", "/api/v1/runs/r1/steps", 200, []);

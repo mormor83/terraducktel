@@ -38,15 +38,39 @@ export class PlanDocumentProvider implements vscode.TextDocumentContentProvider,
     );
   }
 
-  provideTextDocumentContent(uri: vscode.Uri) { return this.cache.get(uri.toString()) ?? "(loading…)"; }
+  /** Async on purpose: a plan tab restored by VS Code on the next window reload asks for its
+   *  content with an empty cache, so fall back to fetching the run id out of the URI's query
+   *  rather than leaving the reopened tab stuck on "(loading…)". */
+  async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+    const hit = this.cache.get(uri.toString());
+    if (hit !== undefined) return hit;
+    const runId = new URLSearchParams(uri.query).get("run");
+    if (!runId) return "(no run id in this plan URI)";
+    const c = this.client(); if (!c) return "(not signed in — run “Terraducktel: Sign in”, then reopen this plan)";
+    try {
+      const text = await this.fetch(c, runId, uri);
+      return text;
+    } catch (e) {
+      return `(could not load the plan: ${e instanceof Error ? e.message : String(e)})`;
+    }
+  }
+
+  private async fetch(c: TdtClient, runId: string, uri: vscode.Uri): Promise<string> {
+    const { plan_output } = await c.getPlan(runId);
+    const text = plan_output?.trim() ? plan_output : "(no plan output recorded for this run yet)";
+    this.cache.set(uri.toString(), text);
+    return text;
+  }
 
   async open(runId: string, label: string): Promise<void> {
     const c = this.client(); if (!c) throw new Error("Not signed in.");
     const uri = planUri(runId, label);
-    const { plan_output } = await c.getPlan(runId);
-    this.cache.set(uri.toString(), plan_output?.trim() ? plan_output : "(no plan output recorded for this run yet)");
+    await this.fetch(c, runId, uri);
     this.changed.fire(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
+    // Best-effort: gives HCL syntax colouring on top of the diff decorations when a Terraform
+    // grammar is installed, and is a no-op (throws "Unknown language id") when none is.
+    try { await vscode.languages.setTextDocumentLanguage(doc, "terraform"); } catch { /* no terraform grammar installed */ }
     const ed = await vscode.window.showTextDocument(doc, { preview: true });
     this.decorate(ed);
   }

@@ -18,7 +18,13 @@ export class TreeItem {
   constructor(label: string, public collapsibleState: TreeItemCollapsibleState = TreeItemCollapsibleState.None) { this.label = label; }
 }
 export class MarkdownString { value = ""; constructor(v = "") { this.value = v; } appendMarkdown(s: string) { this.value += s; return this; } }
-export const Uri = { parse: (s: string) => ({ toString: () => s, scheme: s.split(":")[0], path: s.split(":").slice(1).join(":") }) };
+export const Uri = {
+  parse: (s: string) => {
+    const [head, ...rest] = s.split("?");
+    return { toString: () => s, scheme: head.split(":")[0], path: head.split(":").slice(1).join(":"), query: rest.join("?") };
+  },
+};
 export const window = { createOutputChannel: () => ({ appendLine() {}, append() {}, show() {}, clear() {}, dispose() {} }) };
+export const languages = { setTextDocumentLanguage: async (d: unknown) => d };
 export const commands = { executeCommand: async () => undefined };
 export const env = { openExternal: async () => true, clipboard: { writeText: async () => undefined } };

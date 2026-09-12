@@ -43,19 +43,29 @@ export async function tailRun(client: TdtClient, runId: string, sink: LineSink, 
     }
   };
 
+  // Every `appendLine` is preceded by a cancellation check taken AFTER the await that produced
+  // the data: the sink is an OutputChannel that dispose() may already have destroyed, and even
+  // when it survives, a user who cancelled must not watch more lines arrive.
+  const cancelled = () => opts.isCancelled?.() === true;
+  let latest: Run | undefined;
   for (;;) {
-    applySteps(await client.getSteps(runId, since));
-    const run = await client.getRun(runId);
+    const steps = await client.getSteps(runId, since);
+    if (cancelled()) return latest ?? (await client.getRun(runId));
+    applySteps(steps);
+    const run = (latest = await client.getRun(runId));
     if (PLAN_LANDED_STATUSES.has(run.status)) {
       // The steps fetched above may still lag one status transition behind the run itself
       // (the run flips to its landed status between our steps call and our run call) — do
       // one last flush so the final step output/status makes it into the sink before we return.
-      applySteps(await client.getSteps(runId, since));
+      const last = await client.getSteps(runId, since);
+      if (cancelled()) return run;
+      applySteps(last);
       sink.appendLine(`── run ${run.status}`);
       return run;
     }
-    if (opts.isCancelled?.() || Date.now() > deadline) return run;
+    if (cancelled() || Date.now() > deadline) return run;
     await new Promise((r) => setTimeout(r, pollMs));
+    if (cancelled()) return run;   // cancelled while we slept — stop before the next request
   }
 }
 
@@ -70,10 +80,15 @@ export class RunOutputManager implements vscode.Disposable {
     let cancelled = false;
     const entry = { ch, active: true, cancel: () => { cancelled = true; } };
     this.channels.set(runId, entry);
-    ch.clear();
+    // Re-attaching to a run we already followed (after a cancel, say): keep what was printed —
+    // it is the only record of the first half of the run — and mark where following resumed.
+    if (existing) ch.appendLine("─".repeat(20) + " re-attached " + "─".repeat(20));
+    else ch.clear();
     ch.show(true);
     void vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: `TDT: watching ${title}`, cancellable: true },
+      // Notification, not Window: following a run is a foreground activity the user started and
+      // must be able to stop, and the status-bar spinner is too easy to miss to be that button.
+      { location: vscode.ProgressLocation.Notification, title: `TDT: watching ${title} — cancel to stop following`, cancellable: true },
       async (_progress, token) => {
         // Same flag either way: an explicit dispose() (entry.cancel()) and the progress
         // notification's own cancel button must stop the loop identically.
