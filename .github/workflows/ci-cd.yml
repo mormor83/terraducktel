@@ -109,6 +109,30 @@ jobs:
         working-directory: services/ui
         run: npm run test
 
+  vscode:
+    name: VS Code extension (type-check, unit tests, package)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/vscode/package-lock.json
+      - name: Install dependencies
+        working-directory: services/vscode
+        run: npm ci
+      - name: Type-check + unit tests
+        working-directory: services/vscode
+        run: npm run typecheck && npm test
+      - name: Package
+        working-directory: services/vscode
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraducktel-vscode
+          path: services/vscode/terraducktel-vscode.vsix
+
   release-version:
     name: Release version logic
     runs-on: ubuntu-latest

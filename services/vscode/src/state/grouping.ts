@@ -1,5 +1,6 @@
-// Port of services/ui/src/components/workspace-tree/paths.ts (grouping rules only).
-// Keep the two in step: same fixtures live in grouping.test.ts and paths.test.ts.
+// Port of services/ui/src/components/workspace-tree/paths.ts (grouping rules). When a
+// provider is added to the web tree, add the same fixture here; grouping.test.ts mirrors
+// paths.test.ts for the providers this extension knows about.
 import type { Workspace } from "../api/types";
 
 export type Cloud = "aws" | "azure" | "gcp" | "other";

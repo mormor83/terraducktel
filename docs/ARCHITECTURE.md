@@ -37,6 +37,14 @@ them: the React UI, the `tdt` CLI (terminals, CI, and AI agents — see
 [CLI](CLI.md)), and the executor, which is confined to run-scoped callback
 routes by a token type that cannot authenticate anywhere else.
 
+The VS Code extension (`services/vscode/`, see [VSCODE](VSCODE.md)) is a
+second first-class client alongside the CLI: it talks only to `/api/v1`, uses
+the same three auth modes — SSO (including the CLI's loopback hand-off),
+email + password, and API key — and pins the endpoints it calls in
+`services/vscode/api_contract.json`, guarded by
+`services/api/tests/test_vscode_api_contract.py` the same way the CLI's own
+contract file is guarded.
+
 ## 2. Service topology
 
 ```

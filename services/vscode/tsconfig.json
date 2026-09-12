@@ -14,6 +14,6 @@
     "outDir": "out",
     "types": ["node", "vscode"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "include": ["src/**/*.ts", "test/unit/**/*.ts", "test/fake-server.ts"],
   "exclude": ["node_modules", "dist", "out", "out-test", ".vscode-test"]
 }
