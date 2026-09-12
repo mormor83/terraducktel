@@ -425,7 +425,8 @@ state is stored. `azureblob` requires a linked `azure_subscription_id` whose
 `state_storage_account`/`state_container` are set; `gcs` requires a linked
 `gcp_project_id` whose `state_bucket` is set — create/update **422** otherwise.
 `gcp_project_id` links the workspace to a GCP project (google provider), the
-mirror of `azure_subscription_id`.
+mirror of `azure_subscription_id`. `proxmox_cluster_id` links the workspace to
+a registered Proxmox cluster (same-BU required); state stays `s3` for these.
 
 `tags` is a free-form key/value map (`{"team": "payments", "tier": "prod"}`).
 Keys are lowercased on write — `Team` and `team` are the same tag — while values
@@ -440,7 +441,7 @@ object, never `null`.
 | POST | `/workspaces/tags` | Bulk set/unset tags across many workspaces. | operator | BU-scoped |
 | GET | `/workspaces/{id}` | Get a single workspace. | viewer | BU-scoped |
 | POST | `/workspaces` | Create a workspace (manual). | admin | BU-scoped |
-| PUT | `/workspaces/{id}` | Update workspace (branch override, drift settings, `state_aws_account_id`, `azure_subscription_id`, `gcp_project_id`, `state_backend`, …). | admin-tier key or interactive operator+ | BU-scoped |
+| PUT | `/workspaces/{id}` | Update workspace (branch override, drift settings, `state_aws_account_id`, `azure_subscription_id`, `gcp_project_id`, `proxmox_cluster_id`, `state_backend`, …). | admin-tier key or interactive operator+ | BU-scoped |
 | POST | `/workspaces/discover` | Enumerate importable paths in a Git repo or local mount. | admin | BU-scoped |
 | POST | `/workspaces/import` | Bulk-import workspaces from a discovery result. | admin | BU-scoped |
 | GET | `/workspaces/{id}/branches` | List GitHub branches for the workspace's repo (falls back to free text if no token / non-GitHub remote). | viewer | BU-scoped |
