@@ -90,9 +90,11 @@ Login URL: http://localhost:3001  ·  API: http://localhost:8001  ·  Forgejo: h
   backend-independent — not DynamoDB.
 - **Cloud providers:** AWS (`aws_accounts`), Azure (`azure_subscriptions`,
   `azurerm` via `ARM_*`), GCP (`gcp_projects`, `google` via a service-account
-  key → `GOOGLE_APPLICATION_CREDENTIALS`), and Proxmox VE (`proxmox_clusters`, API token exported for both bpg/proxmox and Telmate/proxmox; no state backend). Each is a per-BU-scoped vertical slice
-  (model/schema/service/router + a `CloudProviders` UI tab); a workspace links to
-  one via `aws_account_id` / `azure_subscription_id` / `gcp_project_id` / `proxmox_cluster_id`.
+  key → `GOOGLE_APPLICATION_CREDENTIALS`), and Proxmox VE (`proxmox_clusters`,
+  API token exported for both bpg/proxmox and Telmate/proxmox; no state backend).
+  Each is a per-BU-scoped vertical slice (model/schema/service/router +
+  a `CloudProviders` UI tab); a workspace links to one via `aws_account_id` /
+  `azure_subscription_id` / `gcp_project_id` / `proxmox_cluster_id`.
 - **No new sky-* colors.** Sky in Tailwind is aliased to brand teal; new code
   should write `brand-*` / `accent-*` directly.
 - **Migrations are forward-only.** Alembic; one revision per change; never edit

@@ -353,8 +353,9 @@ must match — mismatch → **422**. `project_id` is unique per BU — duplicate
 Set `state_bucket` to enable **GCS** as a Terraform state backend for workspaces
 flagged `state_backend=gcs`. Workspaces at `gcp/project-<id>/<region>/<stack>`
 auto-link to the matching project on import. Proxmox workspaces similarly auto-link
-when at `proxmox/cluster-<slug>/<node>/<stack>`, with the node name (e.g. `pve`, `pve2`)
-read from the path by the UI; `state_backend` stays `s3`.
+when at `proxmox/cluster-<slug>/<node>/<stack>`; discovery stamps `aws_account_id="global"`
+and `region="global"` like other non-AWS paths, and the UI reads the node from the path;
+`state_backend` stays `s3`.
 
 ---
 
@@ -366,11 +367,11 @@ the executor exports both providers' env-var vocabularies from the one token.
 
 | Method | Path | Description | Min role | BU |
 |---|---|---|---|---|
-| GET | `/proxmox-clusters` | List configured clusters (token secret never returned; masked tail shown). | viewer | BU-scoped |
+| GET | `/proxmox-clusters` | List clusters (secret + SSH key never returned; masked tail shown). | viewer | BU-scoped |
 | POST | `/proxmox-clusters` | Add a cluster (API token + optional SSH private key stored encrypted). | admin | BU-scoped |
-| PUT | `/proxmox-clusters/{cluster_pk}` | Update name/description/endpoint/TLS settings or rotate the API token and/or SSH key. | admin | — |
-| DELETE | `/proxmox-clusters/{cluster_pk}` | Delete a cluster row. | admin | — |
-| POST | `/proxmox-clusters/{cluster_pk}/test` | Validate the API token by probing `/api2/json/version`. | admin | — |
+| PUT | `/proxmox-clusters/{cluster_pk}` | Update fields, rotate the token secret, set/clear SSH key, TLS flag, CA PEM. | admin | — |
+| DELETE | `/proxmox-clusters/{cluster_pk}` | Delete; linked workspaces are unlinked (FK SET NULL). | admin | — |
+| POST | `/proxmox-clusters/{cluster_pk}/test` | Test connection: GET the Proxmox `/api2/json/version` endpoint with the stored token; honours `tls_insecure` / `ca_cert_pem`. Returns `{ok, detail, version?}`. | admin | — |
 
 **POST /proxmox-clusters** body: `{slug, name, description?, endpoint,
 api_token_id, api_token_secret, ssh_username?, ssh_private_key?,
