@@ -84,6 +84,22 @@ async def test_update_clears_ca_cert_pem(auth_client, admin_token):
     assert upd.json()["ca_cert_pem"] is None
 
 
+async def test_update_ignores_explicit_null_on_not_nullable_fields(auth_client, admin_token):
+    """`{"name": null}` (explicit null, not omitted) must not 500 on the NOT
+    NULL column — it should be treated as "leave unchanged"."""
+    row = await _create(auth_client, admin_token, slug="nullcheck")
+    upd = await auth_client.put(
+        f"/api/v1/proxmox-clusters/{row['id']}",
+        json={"name": None, "endpoint": None, "api_token_id": None, "tls_insecure": None},
+        headers=_h(admin_token),
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["name"] == row["name"]
+    assert upd.json()["endpoint"] == row["endpoint"]
+    assert upd.json()["api_token_id"] == row["api_token_id"]
+    assert upd.json()["tls_insecure"] == row["tls_insecure"]
+
+
 async def test_duplicate_slug_409_and_404s(auth_client, admin_token):
     await _create(auth_client, admin_token, slug="dup")
     dup = await auth_client.post("/api/v1/proxmox-clusters", json=_body(slug="dup"), headers=_h(admin_token))
@@ -102,6 +118,10 @@ async def test_duplicate_slug_409_and_404s(auth_client, admin_token):
         {"api_token_id": "tdt@pve!ci=secret-leaked"},
         {"ca_cert_pem": "not a pem"},
         {"ssh_private_key": _KEY},  # key without username
+        {"endpoint": "https://pve.local:8006/#v1:0:18"},  # pasted Proxmox UI URL
+        {"endpoint": "https://pve:8006/?x=1"},  # query string
+        {"endpoint": "https://////"},  # empty host
+        {"endpoint": "https://pve:8006/foo"},  # unrecognised path
     ],
 )
 async def test_validation_422(auth_client, admin_token, over):
@@ -109,11 +129,49 @@ async def test_validation_422(auth_client, admin_token, over):
     assert r.status_code == 422, r.text
 
 
+async def test_endpoint_normalises_trailing_api2_json(auth_client, admin_token):
+    row = await _create(auth_client, admin_token, slug="apipath", endpoint="https://pve.local:8006/api2/json/")
+    assert row["endpoint"] == "https://pve.local:8006"
+
+
 async def test_rbac_viewer_cannot_create_but_can_list(auth_client, viewer_token, admin_token):
     await _create(auth_client, admin_token, slug="rbac")
     r = await auth_client.post("/api/v1/proxmox-clusters", json=_body(slug="vwr"), headers=_h(viewer_token))
     assert r.status_code == 403
     r = await auth_client.get("/api/v1/proxmox-clusters", headers=_h(viewer_token))
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("POST", "", _body(slug="rbac-post")),
+    ("PUT", "/{pk}", {}),
+    ("DELETE", "/{pk}", None),
+    ("POST", "/{pk}/test", None),
+])
+@pytest.mark.parametrize("role", ["viewer", "operator"])
+async def test_rbac_non_admin_forbidden_on_writes(
+    auth_client, admin_token, viewer_token, operator_token, method, path, body, role
+):
+    """viewer/operator are both below `admin` — every write endpoint (create,
+    update, delete, test-connection) must 403 for them, not just viewer.
+    (Both token fixtures are async, so both are requested up front rather
+    than looked up dynamically via `request.getfixturevalue` — that deadlocks
+    under pytest-asyncio's event loop.)"""
+    token = {"viewer": viewer_token, "operator": operator_token}[role]
+    row = await _create(auth_client, admin_token, slug="rbac-write")
+    url = "/api/v1/proxmox-clusters" + path.format(pk=row["id"])
+    kwargs = {"headers": _h(token)}
+    if body is not None:
+        kwargs["json"] = body
+    r = await auth_client.request(method, url, **kwargs)
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.parametrize("role", ["viewer", "operator"])
+async def test_rbac_non_admin_can_list(auth_client, admin_token, viewer_token, operator_token, role):
+    token = {"viewer": viewer_token, "operator": operator_token}[role]
+    await _create(auth_client, admin_token, slug="rbac-read")
+    r = await auth_client.get("/api/v1/proxmox-clusters", headers=_h(token))
     assert r.status_code == 200
 
 

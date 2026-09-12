@@ -1,10 +1,12 @@
 """Pydantic schemas for ProxmoxCluster."""
 import re
 from typing import Optional
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.services import account_colors
+from app.services.proxmox_cluster_service import normalize_endpoint
 
 # Operator-chosen natural key: 3–40 chars, lowercase, starts with a letter,
 # ends alphanumeric. Encoded in repo paths as `proxmox/cluster-<slug>/…`.
@@ -16,9 +18,23 @@ _TOKEN_ID_RE = re.compile(r"^[^\s!@=]+@[^\s!@=]+![^\s!=]+$")
 
 def _https_endpoint(v: str) -> str:
     v = (v or "").strip()
-    if not v.lower().startswith("https://"):
+    parts = urlsplit(v)
+    if parts.scheme != "https":
         raise ValueError("endpoint must start with https://")
-    return v
+    if not parts.netloc:
+        raise ValueError("endpoint must include a host")
+    if parts.query:
+        raise ValueError("endpoint must not include a query string")
+    if parts.fragment:
+        raise ValueError("endpoint must not include a fragment")
+    path = parts.path.rstrip("/")
+    if path not in ("", "/api2/json"):
+        raise ValueError(
+            "endpoint must not include a path other than a trailing /api2/json"
+        )
+    # Normalise here so the DB always holds a bare origin, e.g.
+    # `https://host:8006` — not `.../api2/json` or a trailing slash.
+    return normalize_endpoint(v)
 
 
 def _pem(v: Optional[str], header: str) -> Optional[str]:

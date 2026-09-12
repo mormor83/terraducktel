@@ -136,6 +136,13 @@ async def update_proxmox_cluster(
 ):
     row = await _scoped_cluster(db, cluster_pk, bu)
     data = body.model_dump(exclude_unset=True)
+    # `name` / `endpoint` / `api_token_id` / `tls_insecure` are NOT NULL columns.
+    # An explicit `null` from the client (as opposed to simply omitting the
+    # key) means "leave unchanged" here, not "clear" — clearing isn't a valid
+    # state for these fields, unlike the secret/SSH/CA fields below.
+    for _not_nullable in ("name", "endpoint", "api_token_id", "tls_insecure"):
+        if data.get(_not_nullable) is None:
+            data.pop(_not_nullable, None)
 
     new_secret = data.pop("api_token_secret", None)
     if new_secret:
