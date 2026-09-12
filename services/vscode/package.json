@@ -50,7 +50,10 @@
       { "command": "terraducktel.showPlan", "title": "Show plan output", "category": "Terraducktel", "icon": "$(diff)" },
       { "command": "terraducktel.approve", "title": "Approve…", "category": "Terraducktel", "icon": "$(check)" },
       { "command": "terraducktel.reject", "title": "Reject…", "category": "Terraducktel", "icon": "$(close)" },
-      { "command": "terraducktel.cancelRun", "title": "Cancel run", "category": "Terraducktel" }
+      { "command": "terraducktel.cancelRun", "title": "Cancel run", "category": "Terraducktel" },
+      { "command": "terraducktel.currentFileActions", "title": "Current file: actions…", "category": "Terraducktel" },
+      { "command": "terraducktel.planCurrentFile", "title": "Plan this leaf", "category": "Terraducktel", "icon": "$(play)" },
+      { "command": "terraducktel.revealCurrentWorkspace", "title": "Reveal current workspace in sidebar", "category": "Terraducktel" }
     ],
     "menus": {
       "view/title": [
@@ -90,7 +93,13 @@
         { "command": "terraducktel.syncWorkspace", "when": "terraducktel.signedIn" },
         { "command": "terraducktel.switchBusinessUnit", "when": "terraducktel.signedIn" },
         { "command": "terraducktel.copyId", "when": "false" },
-        { "command": "terraducktel.openInBrowser", "when": "false" }
+        { "command": "terraducktel.openInBrowser", "when": "false" },
+        { "command": "terraducktel.currentFileActions", "when": "terraducktel.signedIn && terraducktel.currentFileMapped" },
+        { "command": "terraducktel.revealCurrentWorkspace", "when": "terraducktel.signedIn && terraducktel.currentFileMapped" },
+        { "command": "terraducktel.planCurrentFile", "when": "terraducktel.signedIn" }
+      ],
+      "editor/title": [
+        { "command": "terraducktel.planCurrentFile", "when": "terraducktel.currentFileMapped && terraducktel.canWrite", "group": "navigation" }
       ]
     },
     "configuration": {
@@ -115,7 +124,8 @@
         "terraducktel.activeProfile": { "type": "string", "default": "", "description": "Name of the profile to use." },
         "terraducktel.refreshIntervalSeconds": { "type": "number", "default": 30, "minimum": 5, "description": "How often the sidebar polls while visible." },
         "terraducktel.runsLimit": { "type": "number", "default": 200, "minimum": 1, "maximum": 1000, "description": "How many recent runs to fetch." },
-        "terraducktel.trace": { "type": "boolean", "default": false, "description": "Log request/response metadata (never credentials) to the Terraducktel output channel." }
+        "terraducktel.trace": { "type": "boolean", "default": false, "description": "Log request/response metadata (never credentials) to the Terraducktel output channel." },
+        "terraducktel.statusBar.enabled": { "type": "boolean", "default": true, "description": "Show the current file's Terraducktel workspace in the status bar." }
       }
     }
   },

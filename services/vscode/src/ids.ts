@@ -6,3 +6,4 @@ export const VIEW_RUNS = "terraducktel.runs";
 export const PLAN_SCHEME = "tdt-plan";
 export const CTX_SIGNED_IN = "terraducktel.signedIn";
 export const CTX_CAN_WRITE = "terraducktel.canWrite";
+export const CTX_FILE_MAPPED = "terraducktel.currentFileMapped";

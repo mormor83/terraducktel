@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { registerAuthCommands } from "./commands/auth";
 import { registerRunCommands } from "./commands/run";
 import { registerWorkspaceCommands } from "./commands/workspace";
+import { EditorStatus } from "./editor/status";
 import { RunOutputManager } from "./output/runOutput";
 import { PlanDocumentProvider } from "./output/planDocument";
 import { Session } from "./session";
@@ -45,6 +46,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
   context.subscriptions.push(out, plans);
   const { watch } = registerRunCommands(context, session, out, plans);
   registerWorkspaceCommands(context, session, watch);
+  // `revealWorkspace` lands in Task 4; until then, jump to the sidebar view instead of a
+  // specific node.
+  const status = new EditorStatus(session, { watch, plans, reveal: async () => { await vscode.commands.executeCommand("terraducktel.workspaces.focus"); } });
+  context.subscriptions.push(status);
   await session.reload();
   return {
     __test: {

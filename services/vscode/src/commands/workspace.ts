@@ -13,22 +13,31 @@ async function pickWorkspace(s: Session): Promise<Workspace | undefined> {
 }
 const asWs = async (s: Session, arg: unknown) => (arg instanceof WorkspaceNode ? arg.ws : pickWorkspace(s));
 
+/** Behaviour shared by the Plan/Apply/Destroy commands and the editor status bar's "Plan this
+ *  leaf" action: the Apply modal and Destroy type-the-name guard stay in effect regardless of
+ *  the caller. When `opts.branch` differs from the workspace's tracked branch, it is pinned via
+ *  `updateWorkspace` before the run is triggered. */
+export async function runCommandFor(s: Session, ws: Workspace, command: "plan" | "apply" | "destroy", watch: (r: Run) => void, opts: { branch?: string } = {}): Promise<void> {
+  const c = s.requireClient();
+  if (command === "apply") {
+    const ok = await vscode.window.showWarningMessage(`Apply ${ws.name}? The plan will pause for approval before anything changes.`, { modal: true }, "Start apply");
+    if (ok !== "Start apply") return;
+  }
+  if (command === "destroy") {
+    const typed = await vscode.window.showInputBox({ prompt: `Type the workspace name to confirm DESTROY: ${ws.name}`, validateInput: (v) => (v === ws.name ? undefined : "Name does not match") });
+    if (typed !== ws.name) return;
+  }
+  if (opts.branch && opts.branch !== ws.repo_ref) await c.updateWorkspace(ws.id, { repo_ref: opts.branch });
+  const run = await c.triggerRun(ws.id, { command });
+  void vscode.window.showInformationMessage(`TDT: ${command} started on ${ws.name} (${run.id.slice(0, 8)}).`);
+  await s.store.refresh();
+  watch(run);
+}
+
 export function registerWorkspaceCommands(ctx: vscode.ExtensionContext, s: Session, watch: (r: Run) => void) {
   const trigger = async (arg: unknown, command: "plan" | "apply" | "destroy") => {
-    const c = s.requireClient();
     const ws = await asWs(s, arg); if (!ws) return;
-    if (command === "apply") {
-      const ok = await vscode.window.showWarningMessage(`Apply ${ws.name}? The plan will pause for approval before anything changes.`, { modal: true }, "Start apply");
-      if (ok !== "Start apply") return;
-    }
-    if (command === "destroy") {
-      const typed = await vscode.window.showInputBox({ prompt: `Type the workspace name to confirm DESTROY: ${ws.name}`, validateInput: (v) => (v === ws.name ? undefined : "Name does not match") });
-      if (typed !== ws.name) return;
-    }
-    const run = await c.triggerRun(ws.id, { command });
-    void vscode.window.showInformationMessage(`TDT: ${command} started on ${ws.name} (${run.id.slice(0, 8)}).`);
-    await s.store.refresh();
-    watch(run);
+    await runCommandFor(s, ws, command, watch);
   };
 
   ctx.subscriptions.push(
