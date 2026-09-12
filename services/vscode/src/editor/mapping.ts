@@ -7,10 +7,12 @@ export function normalizeRepoUrl(url: string | null | undefined): string | undef
   let u = url.trim();
   if (!u) return undefined;
   if (u.startsWith("local://")) { const p = u.slice("local://".length).replace(/\/+$/, ""); return p ? `local:${p}` : undefined; }
-  // scp-like: git@host:org/repo(.git)
-  const scp = u.match(/^(?:[\w.-]+@)?([\w.-]+):(?!\/\/)([^\s]+)$/);
+  // scp-like: git@host:org/repo(.git); guard against Windows drive paths (C:\ or c:/)
+  // Host must be 2+ chars or contain a dot to avoid matching C:\ or c:/
+  const scp = u.match(/^(?:[\w.-]+@)?((?:[\w.-]{2,}|[\w.-]*\.[\w.-]*)):(?!\/\/)([^\s]+)$/);
   if (scp) u = `ssh://${scp[1]}/${scp[2]}`;
   let host: string, p: string;
+  // Repo paths are case-insensitive for routing/uniqueness on GitHub, GitLab and Gitea/Forgejo, so compare them case-folded like the host.
   try { const parsed = new URL(u); host = parsed.host.toLowerCase(); p = parsed.pathname.toLowerCase(); } catch { return undefined; }
   if (!host) return undefined;
   p = p.replace(/\/+$/, "").replace(/\.git$/i, "").replace(/^\/+/, "");

@@ -16,9 +16,15 @@ describe("normalizeRepoUrl", () => {
     ["http://forgejo:3002/infra/live/", "forgejo:3002/infra/live"],
     ["https://user:tok@gitlab.example.com/grp/sub/repo.git", "gitlab.example.com/grp/sub/repo"],
     ["local:///mnt/local-repos/probe", "local:/mnt/local-repos/probe"],
+    ["git@forgejo.internal:/repos/infra.git", "forgejo.internal/repos/infra"],
   ])("%s → %s", (input, want) => expect(normalizeRepoUrl(input)).toBe(want));
   it("returns undefined for empty / garbage", () => {
     expect(normalizeRepoUrl("")).toBeUndefined(); expect(normalizeRepoUrl(null)).toBeUndefined(); expect(normalizeRepoUrl("not a url")).toBeUndefined();
+  });
+  it("guards Windows drive paths from scp-URL parsing", () => {
+    expect(normalizeRepoUrl("C:\\Users\\x\\repo")).toBeUndefined();
+    expect(normalizeRepoUrl("c:/x/repo")).toBeUndefined();
+    expect(normalizeRepoUrl("git@github.com:acme/infra.git")).toBe("github.com/acme/infra");
   });
 });
 
