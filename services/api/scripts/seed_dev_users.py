@@ -21,6 +21,10 @@ production bootstrap path (`TDT_BOOTSTRAP_SEED_USERS=true`) does, so a
 production deploy never creates a well-known, publicly-documented password
 for a superadmin account. Capture the printed passwords from the deploy
 logs; they are not stored or shown again.
+
+`SEED_PASSWORD=<value>` sets one known password for all three users instead
+(for provisioners that already hold the secret); it takes precedence over
+SEED_RANDOM_PASSWORDS.
 """
 from __future__ import annotations
 
@@ -54,10 +58,17 @@ def _random_passwords_enabled() -> bool:
 
 
 def _build_dev_users() -> tuple[tuple[str, str, str], ...]:
-    """(email, password, role) triples. Random passwords when
-    SEED_RANDOM_PASSWORDS=true — see module docstring. The password is only
-    ever applied when a user row is freshly created (see seed() below); an
-    existing user's password is never touched, random-mode or not."""
+    """(email, password, role) triples.
+
+    Precedence: SEED_PASSWORD (one operator-supplied password for every seeded
+    user — used by unattended installs whose provisioner already holds the
+    secret, e.g. the Proxmox cloud-init first boot) → SEED_RANDOM_PASSWORDS=true
+    (fresh random per user, printed once) → the documented dev `password123`.
+    The password is only ever applied when a user row is freshly created (see
+    seed() below); an existing user's password is never touched."""
+    fixed = os.environ.get("SEED_PASSWORD", "").strip()
+    if fixed:
+        return tuple((email, fixed, role) for email, role in DEV_EMAILS_ROLES)
     if not _random_passwords_enabled():
         return tuple((email, "password123", role) for email, role in DEV_EMAILS_ROLES)
     return tuple((email, secrets.token_urlsafe(18), role) for email, role in DEV_EMAILS_ROLES)
