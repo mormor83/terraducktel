@@ -7,7 +7,11 @@ export class EventEmitter<T> {
   dispose() { this.listeners = []; }
 }
 export class ThemeColor { constructor(public id: string) {} }
-export class ThemeIcon { constructor(public id: string, public color?: ThemeColor) {} }
+export class ThemeIcon {
+  static readonly Folder = new ThemeIcon("folder");
+  static readonly File = new ThemeIcon("file");
+  constructor(public id: string, public color?: ThemeColor) {}
+}
 export enum TreeItemCollapsibleState { None = 0, Collapsed = 1, Expanded = 2 }
 export class TreeItem {
   label?: string; description?: string; tooltip?: unknown; contextValue?: string; iconPath?: unknown; command?: unknown; id?: string;
