@@ -352,17 +352,17 @@ structurally (must be a `service_account` key) and its embedded `project_id`
 must match — mismatch → **422**. `project_id` is unique per BU — duplicate → **409**.
 Set `state_bucket` to enable **GCS** as a Terraform state backend for workspaces
 flagged `state_backend=gcs`. Workspaces at `gcp/project-<id>/<region>/<stack>`
-auto-link to the matching project on import.
+auto-link to the matching project on import. Proxmox workspaces similarly auto-link
+when at `proxmox/cluster-<slug>/<node>/<stack>`, with the node name (e.g. `pve`, `pve2`)
+read from the path by the UI; `state_backend` stays `s3`.
 
 ---
 
 ## Proxmox VE Clusters — `/api/v1/proxmox-clusters`
 
-Encrypted-at-rest Proxmox VE API tokens and optional SSH private keys for
-orchestrating infrastructure across Proxmox hosts. Mirrors AWS Accounts / Azure
-Subscriptions / GCP Projects. Workspaces that target the `proxmox` provider link
-one of these; the executor writes credentials to a temp file and exports them
-at run time.
+Encrypted-at-rest Proxmox VE API tokens, mirroring the other providers.
+Workspaces that target `bpg/proxmox` or `Telmate/proxmox` link one of these;
+the executor exports both providers' env-var vocabularies from the one token.
 
 | Method | Path | Description | Min role | BU |
 |---|---|---|---|---|
@@ -372,7 +372,17 @@ at run time.
 | DELETE | `/proxmox-clusters/{cluster_pk}` | Delete a cluster row. | admin | — |
 | POST | `/proxmox-clusters/{cluster_pk}/test` | Validate the API token by probing `/api2/json/version`. | admin | — |
 
-**POST /proxmox-clusters** body: `{slug, name, description?, endpoint, api_token_id, api_token_secret, ssh_username?, ssh_private_key?, tls_insecure?, ca_cert_pem?, color?}`. The `slug` is a unique natural key (3–40 chars; pattern: `^[a-z][a-z0-9-]{1,38}[a-z0-9]$`) — duplicate → **409**. The `endpoint` must be an HTTPS URL. The `api_token_id` must follow the format `user@realm!tokenid` and cannot contain `=` (to prevent pasting "id=secret" by mistake). Exactly one of `ssh_username` and `ssh_private_key` can be set (if one is set, both must be provided; pass empty string to clear on update). `ca_cert_pem` is optional and must be a valid PEM-encoded certificate block if provided.
+**POST /proxmox-clusters** body: `{slug, name, description?, endpoint,
+api_token_id, api_token_secret, ssh_username?, ssh_private_key?,
+tls_insecure?, ca_cert_pem?, color?}`. `slug` matches
+`^[a-z][a-z0-9-]{1,38}[a-z0-9]$` and is unique per BU (**409** on duplicate).
+`endpoint` must be `https://` (trailing `/api2/json` is stripped).
+`api_token_id` is `user@realm!tokenid`; an `=` in it is rejected (**422**) so a
+pasted `id=secret` pair never lands in a plaintext column. `ssh_private_key`
+requires `ssh_username`. Responses carry `token_secret_masked_tail` and
+`has_ssh_key` in place of the secrets. Workspaces at
+`proxmox/cluster-<slug>/<node>/<stack>` auto-link to the matching cluster on
+import; `state_backend` stays `s3`.
 
 **POST .../test** writes the decrypted credentials to internal memory, probes
 the Proxmox VE cluster API and always returns `{ok, detail?, version?}` —

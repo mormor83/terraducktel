@@ -117,13 +117,14 @@ forward-only (`services/api/alembic/versions/NNN_*.py`).
 | `AwsAccount` | `aws_accounts` | One row per AWS account onboarded to TDT: 12-digit `account_id`, a dedicated `state_bucket`, and Fernet-encrypted access key/secret. Unique per `(business_unit_id, account_id)`. |
 | `AzureSubscription` | `azure_subscriptions` | Mirrors `AwsAccount` for Azure: `subscription_id`, `tenant_id`, `client_id` + encrypted service-principal secret. Optional `state_storage_account`/`state_container` enable an **Azure Blob** state backend (state written via the same SP over AAD) — otherwise Azure workspaces keep their state in S3. |
 | `GcpProject` | `gcp_projects` | Mirrors `AwsAccount` for GCP: `project_id`, `client_email` + Fernet-encrypted service-account key JSON. Optional `state_bucket`/`state_prefix` enable a **GCS** state backend. Unique per `(business_unit_id, project_id)`. |
+| `ProxmoxCluster` | `proxmox_clusters` | Proxmox VE as a provider: operator-chosen `slug` (natural key; Proxmox has no global cluster id), `endpoint`, `api_token_id` + Fernet-encrypted token secret, optional encrypted SSH private key + `ssh_username` (bpg file-upload resources), `tls_insecure` flag, optional `ca_cert_pem`. No state backend — linked workspaces stay on S3. Unique per `(business_unit_id, slug)`. |
 | `K8sCluster` | `k8s_clusters` | One row per Kubernetes cluster for Helm workspaces: `name`, optional `server_url`, `default_namespace`, encrypted `kubeconfig`, optional `aws_account_id` (for EKS clusters whose kubeconfig auths via `aws eks get-token`). |
 
 ### Workspaces & runs
 
 | Model | Table | What |
 |---|---|---|
-| `Workspace` | `workspaces` | One Terraform leaf module or one Helm chart. Canonical identity is `(business_unit_id, aws_account_id, region, environment, tf_working_dir)`. Carries `repo_url`/`repo_ref` (Git source), `kind` (`terraform` default or `helm`), `cluster_id` (helm target), `azure_subscription_id` / `gcp_project_id` (optional Azure/GCP targets), `state_backend` (`s3` default \| `azureblob` \| `gcs`), `drift_status`, `path_status` (`ok`/`orphaned`/`unknown` — tracks whether the leaf still exists at `repo_ref`), `webhook_enabled`, `tags` (free-form key/value JSON; keys lowercased on write). Tags are a JSON column rather than a join table — at this fleet size a dict scan matches what an index would give, and it keeps tags atomic with the row so there is no orphan cleanup on delete. |
+| `Workspace` | `workspaces` | One Terraform leaf module or one Helm chart. Canonical identity is `(business_unit_id, aws_account_id, region, environment, tf_working_dir)`. Carries `repo_url`/`repo_ref` (Git source), `kind` (`terraform` default or `helm`), `cluster_id` (helm target), `azure_subscription_id` / `gcp_project_id` / `proxmox_cluster_id` (optional Azure/GCP/Proxmox targets), `state_backend` (`s3` default \| `azureblob` \| `gcs`), `drift_status`, `path_status` (`ok`/`orphaned`/`unknown` — tracks whether the leaf still exists at `repo_ref`), `webhook_enabled`, `tags` (free-form key/value JSON; keys lowercased on write). Tags are a JSON column rather than a join table — at this fleet size a dict scan matches what an index would give, and it keeps tags atomic with the row so there is no orphan cleanup on delete. |
 | `Run` | `runs` | One plan/apply/destroy execution. FSM `status` (see [§4](#4-the-run-fsm)), captured `branch`, `plan_output`/`plan_json`, base64 `tfplan_b64` (the exact binary re-applied post-approval), encrypted `variables_encrypted` (per-run TF_VAR overrides), `policy_status`, `auto_approve_if_no_changes`/`auto_approve_skip_apply`. |
 | `RunStep` | `run_steps` | Per-step timeline row (Git Clone → Checkov → Plan → OPA → Cost → Awaiting Approval → Apply → …), kind-aware (Terraform vs. Helm step lists live in `run_step.py`). |
 | `RunArtifact` | `run_artifacts` | Blob output attached to a run (plan output, logs, checkov report). |
@@ -347,15 +348,16 @@ deployment fails loudly instead of silently using a predictable key.
 
 **Derivation:** each domain (AWS credentials, Azure credentials, GCP
 credentials, Kubernetes kubeconfigs, generic `config` secrets,
-workspace/global variables) derives its **own** Fernet key from the same root
+workspace/global variables, Proxmox credentials) derives its **own** Fernet key from the same root
 key via HKDF-SHA256 with a **distinct, hardcoded salt** per domain (e.g.
 `b"terraducktel-aws-credentials-v1"`, `b"terraducktel-config-v1"`,
 `b"terraducktel-azure-credentials-v1"`, `b"terraducktel-gcp-credentials-v1"`,
+`b"terraducktel-proxmox-credentials-v1"`,
 `b"terraducktel-variables-v1"`). This means a ciphertext leaked from one
 domain can't be replayed or confused with another, and each domain can rotate
 its salt independently in a future migration without touching the root key.
 The pattern is identical everywhere it appears — `aws_account_service.py`,
-`azure_subscription_service.py`, `gcp_project_service.py`, `cluster_service.py`,
+`azure_subscription_service.py`, `gcp_project_service.py`, `proxmox_cluster_service.py`, `cluster_service.py`,
 `config_service.py`, `variable_service.py` — new encrypted domains should copy
 it rather than invent a new scheme.
 
@@ -363,6 +365,7 @@ it rather than invent a new scheme.
 - AWS access key / secret access key (`aws_accounts`).
 - Azure service-principal secret (`azure_subscriptions`).
 - GCP service-account key JSON (`gcp_projects`).
+- Proxmox API token secret and optional SSH private key (`proxmox_clusters`).
 - Kubernetes kubeconfig (`k8s_clusters`).
 - Any `config` row with `is_secret=True` (GitHub PAT, Slack bot token,
   Infracost API key, webhook secrets, `JWT_SECRET` itself once persisted).
@@ -444,6 +447,14 @@ env var:
 2. Load any per-workspace `terraducktel.yaml` override (Terraform version
    pin, Helm chart config for helm workspaces).
 3. Load merged variables (`global ← workspace ← run`), decrypted once.
+
+   Provider credentials are injected per linked account: AWS keys, Azure
+   `ARM_*`, GCP `GOOGLE_APPLICATION_CREDENTIALS`, and for Proxmox a canonical
+   `TDT_PROXMOX_*` set that the entrypoint fans out to **both**
+   `bpg/proxmox` (`PROXMOX_VE_*`) and `Telmate/proxmox` (`PM_*`) so one stored
+   token serves either provider. A custom CA is merged with the system bundle
+   into `SSL_CERT_FILE` (Go replaces, not extends, its root pool).
+
 4. **Checkov** scan against the source HCL — a hard gate, configurable via
    Settings → Checkov mode. Runs *before* `terraform init`.
 5. `terraform init` against the HTTP state backend, then
