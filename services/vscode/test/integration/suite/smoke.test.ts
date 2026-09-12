@@ -6,10 +6,10 @@ suite("Terraducktel extension smoke", () => {
     const ext = vscode.extensions.getExtension("terraducktel.terraducktel-vscode")!;
     assert.ok(ext, "extension not found");
     const cfg = vscode.workspace.getConfiguration("terraducktel");
-    await cfg.update("profiles", [{ name: "stub", url: process.env.TDT_STUB_URL, bu: "b" }], vscode.ConfigurationTarget.Global);
-    await cfg.update("activeProfile", "stub", vscode.ConfigurationTarget.Global);
+    await cfg.update("profiles", { stub: process.env.TDT_STUB_URL }, vscode.ConfigurationTarget.Global);
     await ext.activate();
-    // Sign in without UI: store the API key the way the sign-in command would.
+    // Sign in without UI: pick the profile and store the API key the way the sign-in command would.
+    await ext.exports?.__test?.setActiveProfile?.("stub");
     await ext.exports?.__test?.signInWithApiKey?.("tdt_smoke");
     await new Promise((r) => setTimeout(r, 1500));
     const names = await ext.exports.__test.workspaceNames();

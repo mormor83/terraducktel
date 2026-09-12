@@ -9,6 +9,7 @@ import { RunOutputManager } from "./output/runOutput";
 import { PlanDocumentProvider } from "./output/planDocument";
 import { Session } from "./session";
 import { RunNode } from "./views/nodes";
+import { ProfileStatus } from "./views/profileStatus";
 import { RunsTree } from "./views/runsTree";
 import { WorkspacesTree } from "./views/workspacesTree";
 import { VIEW_RUNS, VIEW_WORKSPACES } from "./ids";
@@ -23,6 +24,7 @@ export interface TestSurface {
     workspaceNames: () => Promise<string[]>;
     runIds: () => Promise<string[]>;
     triggerPlan: (id: string) => ReturnType<import("./api/client").TdtClient["triggerRun"]>;
+    setActiveProfile: (name: string) => Promise<void>;
   };
 }
 
@@ -70,7 +72,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
   const { watch } = registerRunCommands(context, session, out, plans, (r) => approvals.markSeen(r.id));
   registerWorkspaceCommands(context, session, watch);
   const status = new EditorStatus(session, { watch, plans, reveal: (id) => wsTree.revealWorkspace(wsView, id) });
-  context.subscriptions.push(status);
+  const profileStatus = new ProfileStatus(session);
+  context.subscriptions.push(status, profileStatus);
 
   // A hand-edited settings.json can put a string (or anything) in a `number` setting; VS Code
   // hands it straight back, and NaN would otherwise floor to NaN and disable the poll silently.
@@ -110,6 +113,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
         await session.store.refresh();
         return run;
       },
+      setActiveProfile: (name) => session.setActiveProfile(name),
     },
   };
 }

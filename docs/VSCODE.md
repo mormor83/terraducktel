@@ -17,20 +17,55 @@ code --install-extension terraducktel-vscode.vsix
 
 ## Configure a profile
 
-Settings → Terraducktel → Profiles (or `settings.json`):
+Since 0.3.1 profiles are name→url maps, so every row renders natively in
+**Settings → Extensions → Terraducktel** (no JSON array to hand-edit):
+
+- `terraducktel.profiles` — profile name → API origin.
+- `terraducktel.uiUrls` — profile name → web UI origin, only when it differs
+  from the API origin (as in the dev compose stack).
+- `terraducktel.insecureTlsProfiles` — profile names that skip TLS
+  certificate verification (self-signed dev stacks only).
+
+The easiest way in is the **Terraducktel: Add profile…** command: it prompts
+for a name (`^[a-z0-9][a-z0-9._-]{0,39}$`), the API origin, an optional UI
+origin, and whether to skip TLS verification, writes all three settings at
+User scope, makes the new profile active, and offers to sign in immediately.
+**Terraducktel: Remove profile…** is the inverse — quick pick, a confirm
+modal, then it clears the profile from all three settings and deletes its
+stored credential.
+
+The active profile is **not** a setting anymore: use
+**Terraducktel: Switch profile** (the sidebar's title-bar `$(server)` button,
+or the profile status bar item) to pick which one is active. It's kept in
+the extension's global state, per VS Code installation, not in
+`settings.json`.
+
+`settings.json` equivalent of the map form:
 
 ```json
-"terraducktel.profiles": [
-  { "name": "local", "url": "http://localhost:8001", "uiUrl": "http://localhost:3001", "bu": "default" },
-  { "name": "prod",  "url": "https://tdt.example.com", "bu": "platform" }
-],
-"terraducktel.activeProfile": "local"
+"terraducktel.profiles": {
+  "local": "http://localhost:8001",
+  "prod":  "https://tdt.example.com"
+},
+"terraducktel.uiUrls": {
+  "local": "http://localhost:3001"
+},
+"terraducktel.insecureTlsProfiles": []
 ```
 
-`url` is the API origin; `uiUrl` is only needed when the web UI lives on a
-different origin (as in the dev compose stack). `insecureTls: true` skips
-certificate verification for a self-signed dev stack and shows a warning in
-the tree while active.
+The legacy array form (`terraducktel.profiles: [{name, url, uiUrl?, bu?,
+insecureTls?}]`, from before 0.3.1) is still read for backward compatibility
+and merges with the map form if both are somehow present (the map wins for a
+same-named profile) — but it no longer renders as editable rows in the
+Settings UI, so prefer the map form or the wizard for anything new.
+`terraducktel.activeProfile` is deprecated and read only once, to migrate a
+pre-0.3.1 value into the new global-state-backed active profile.
+
+The business unit is chosen in-app (**Switch business unit**) and remembered
+per profile; the old per-profile `bu` field is migrated automatically the
+first time profiles are rewritten (by **Add profile…** or **Remove
+profile…** — the map schema has no room for a `bu` column, so it can't stay
+in settings, but nothing already-remembered is lost).
 
 ## Sign in
 
@@ -58,7 +93,8 @@ Nothing secret is written to settings or logs.
   the right-click menu.
 - **Approve…** shows `+add ~change -destroy ±replace` from the plan graph and
   needs an explicit click; **Destroy…** asks you to type the workspace name.
-- Title-bar buttons: refresh, switch business unit.
+- Title-bar buttons: switch profile (only shown once at least one profile
+  exists), refresh, switch business unit.
 
 Settings: `refreshIntervalSeconds` (default 30), `runsLimit` (200), `trace`
 (request metadata to the *Terraducktel* output channel; never credentials).
@@ -137,6 +173,11 @@ waiting for git. Mapping works only inside a git checkout.
 
 The `terraducktel.statusBar.enabled` setting (default true) toggles the status
 bar item globally.
+
+A second, compact status bar item (left of the current-file one) shows the
+active profile — `$(server) <profile>`, plus ` · <bu>` once signed in with a
+business unit set. Click it to run **Terraducktel: Switch profile**. It's
+hidden entirely until at least one profile exists.
 
 ## Development
 

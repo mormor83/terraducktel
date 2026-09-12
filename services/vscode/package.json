@@ -29,14 +29,21 @@
     "viewsWelcome": [
       {
         "view": "terraducktel.workspaces",
-        "contents": "Not signed in to Terraducktel.\n[Sign in](command:terraducktel.signIn)\n\nAdd a profile under Settings → Terraducktel if you have none.",
-        "when": "!terraducktel.signedIn"
+        "contents": "No Terraducktel profile yet.\n[Add profile…](command:terraducktel.addProfile)",
+        "when": "!terraducktel.signedIn && !terraducktel.hasProfiles"
+      },
+      {
+        "view": "terraducktel.workspaces",
+        "contents": "Not signed in to Terraducktel.\n[Sign in](command:terraducktel.signIn)",
+        "when": "!terraducktel.signedIn && terraducktel.hasProfiles"
       }
     ],
     "commands": [
       { "command": "terraducktel.signIn", "title": "Sign in", "category": "Terraducktel" },
       { "command": "terraducktel.signOut", "title": "Sign out", "category": "Terraducktel" },
-      { "command": "terraducktel.switchProfile", "title": "Switch profile", "category": "Terraducktel" },
+      { "command": "terraducktel.switchProfile", "title": "Switch profile", "category": "Terraducktel", "icon": "$(server)" },
+      { "command": "terraducktel.addProfile", "title": "Add profile…", "category": "Terraducktel" },
+      { "command": "terraducktel.removeProfile", "title": "Remove profile…", "category": "Terraducktel" },
       { "command": "terraducktel.switchBusinessUnit", "title": "Switch business unit", "category": "Terraducktel", "icon": "$(organization)" },
       { "command": "terraducktel.refresh", "title": "Refresh", "category": "Terraducktel", "icon": "$(refresh)" },
       { "command": "terraducktel.plan", "title": "Plan", "category": "Terraducktel", "icon": "$(play)" },
@@ -57,6 +64,7 @@
     ],
     "menus": {
       "view/title": [
+        { "command": "terraducktel.switchProfile", "when": "view == terraducktel.workspaces && terraducktel.hasProfiles", "group": "navigation@0" },
         { "command": "terraducktel.refresh", "when": "view == terraducktel.workspaces || view == terraducktel.runs", "group": "navigation@1" },
         { "command": "terraducktel.switchBusinessUnit", "when": "view == terraducktel.workspaces && terraducktel.signedIn", "group": "navigation@2" }
       ],
@@ -106,22 +114,29 @@
       "title": "Terraducktel",
       "properties": {
         "terraducktel.profiles": {
-          "type": "array",
-          "default": [],
-          "markdownDescription": "Deployments you can sign in to. Mirrors the `tdt` CLI profile shape.",
-          "items": {
-            "type": "object",
-            "required": ["name", "url"],
-            "properties": {
-              "name": { "type": "string", "description": "Profile name, e.g. prod." },
-              "url": { "type": "string", "description": "API origin, e.g. https://tdt.example.com or http://localhost:8001." },
-              "uiUrl": { "type": "string", "description": "Web UI origin for 'Open in browser'. Defaults to url with a trailing /api removed." },
-              "bu": { "type": "string", "description": "Default business-unit slug." },
-              "insecureTls": { "type": "boolean", "default": false, "description": "Skip TLS certificate verification (self-signed dev stacks only)." }
-            }
-          }
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "markdownDescription": "Profile name → API origin, e.g. `prod` → `https://tdt.example.com`. Add rows here or run **Terraducktel: Add profile…**."
         },
-        "terraducktel.activeProfile": { "type": "string", "default": "", "description": "Name of the profile to use." },
+        "terraducktel.uiUrls": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "markdownDescription": "Profile name → web UI origin, only when the UI is served from a different origin than the API (e.g. the dev compose stack: `http://localhost:3001`)."
+        },
+        "terraducktel.insecureTlsProfiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Profile names for which TLS certificate verification is skipped (self-signed dev stacks only)."
+        },
+        "terraducktel.activeProfile": {
+          "type": "string",
+          "default": "",
+          "description": "Name of the profile to use.",
+          "deprecationMessage": "The active profile is chosen with 'Terraducktel: Switch profile' (sidebar title button / status bar). This setting is only read once to migrate."
+        },
         "terraducktel.refreshIntervalSeconds": { "type": "number", "default": 30, "minimum": 5, "description": "How often the sidebar polls while visible." },
         "terraducktel.runsLimit": { "type": "number", "default": 200, "minimum": 1, "maximum": 1000, "description": "How many recent runs to fetch." },
         "terraducktel.trace": { "type": "boolean", "default": false, "description": "Log request/response metadata (never credentials) to the Terraducktel output channel." },

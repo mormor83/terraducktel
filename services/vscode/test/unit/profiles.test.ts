@@ -66,6 +66,45 @@ describe("uiUrlFor", () => {
   });
 });
 
+describe("readProfiles — map form (0.3.1 Settings-UI-native shape)", () => {
+  it("reads name->url map entries and merges uiUrls / insecureList", () => {
+    expect(readProfiles(
+      { prod: "https://tdt.example.com///", staging: "https://staging.example.com" },
+      { prod: "https://ui.example.com///" },
+      ["staging"],
+    )).toEqual([
+      { name: "prod", url: "https://tdt.example.com", uiUrl: "https://ui.example.com", insecureTls: false },
+      { name: "staging", url: "https://staging.example.com", uiUrl: undefined, insecureTls: true },
+    ]);
+  });
+
+  it("drops map entries with a blank name or a non-http(s) url", () => {
+    expect(readProfiles({ "": "https://a", b: "ftp://x", c: "not-a-url" })).toEqual([]);
+  });
+
+  it("sorts profiles by name", () => {
+    expect(readProfiles({ zeta: "https://z", alpha: "https://a" }).map((p) => p.name)).toEqual(["alpha", "zeta"]);
+  });
+
+  it("still reads the legacy array form (no uiUrls/insecureList args)", () => {
+    expect(readProfiles([{ name: "prod", url: "https://a" }])).toEqual([
+      { name: "prod", url: "https://a", uiUrl: undefined, bu: undefined, insecureTls: false },
+    ]);
+  });
+
+  it("when both a legacy array and map entries are present in the same raw value (VS Code's " +
+     "cross-scope object merge of an un-migrated array with new map entries), the map wins for " +
+     "a same-named profile and both are returned merged", () => {
+    // Simulates what VS Code produces merging an old User-scope array with a new Workspace-scope
+    // map: own properties "0" (the legacy row) and "prod" (the new map entry) on one object.
+    const raw = { 0: { name: "prod", url: "https://legacy-prod" }, 1: { name: "legacy-only", url: "https://legacy-only" }, prod: "https://new-prod" };
+    expect(readProfiles(raw)).toEqual([
+      { name: "legacy-only", url: "https://legacy-only", uiUrl: undefined, bu: undefined, insecureTls: false },
+      { name: "prod", url: "https://new-prod", uiUrl: undefined, insecureTls: false },
+    ]);
+  });
+});
+
 describe("pickActive", () => {
   const profiles = [
     { name: "prod", url: "https://a" },

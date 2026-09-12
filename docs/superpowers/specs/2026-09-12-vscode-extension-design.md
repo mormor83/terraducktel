@@ -98,6 +98,25 @@ token.
 `GET /business-units` and switches. The client sends `X-Business-Unit: <slug>`
 on every request. Superadmins get an `all` entry.
 
+**Profiles UX (0.3.1)** — `terraducktel.profiles` changed shape from an array
+of `{name,url,uiUrl?,bu?,insecureTls?}` objects to a `{name: url}` map (plus
+sibling `terraducktel.uiUrls` map and `terraducktel.insecureTlsProfiles`
+array), because the Settings UI cannot render an object-array with per-row
+fields or a dynamic dropdown for "which one is active" — a plain
+`additionalProperties: {type:"string"}` map, in contrast, renders as editable
+name/value rows out of the box. `readProfiles()` accepts both shapes and
+merges them (map wins on a same-named collision) so an un-migrated legacy
+value keeps working. The active profile moved out of settings entirely, into
+`context.globalState` (`terraducktel.activeProfile` key, same name as the
+old — now deprecated — setting, which is read exactly once to migrate a
+pre-0.3.1 value): a *setting* can't represent "pick one of these dynamic
+values" without becoming an enum keyed to editing whichever settings.json
+scope wins, whereas the **Terraducktel: Switch profile** command (sidebar
+title button / status bar item) is: a state value with a clear write path
+that doesn't require the user to know the setting's name. `addProfile` /
+`removeProfile` commands exist so the whole flow works without ever opening
+`settings.json` by hand.
+
 ## 3. Milestone A — sidebar
 
 **Workspaces view** (`terraducktel.workspaces`) — grouped exactly as the web

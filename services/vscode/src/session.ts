@@ -6,7 +6,7 @@ import { pickActive, readProfiles, uiUrlFor, type Profile } from "./auth/profile
 import { runLoopbackLogin } from "./auth/sso";
 import type { SecretStore } from "./auth/secrets";
 import { Store } from "./state/store";
-import { CTX_CAN_WRITE, CTX_SIGNED_IN } from "./ids";
+import { CTX_CAN_WRITE, CTX_HAS_PROFILES, CTX_SIGNED_IN, GLOBALSTATE_ACTIVE_PROFILE, GLOBALSTATE_ACTIVE_PROFILE_MIGRATED } from "./ids";
 
 /** vscode.SecretStorage returns Thenables, not Promises — adapt it to the testable SecretStore shape. */
 function secretsAdapter(secrets: vscode.SecretStorage): SecretStore {
@@ -23,6 +23,9 @@ export class Session implements vscode.Disposable {
   tokens: TokenManager | undefined;
   client: TdtClient | undefined;
   bu = "";
+  /** Mirrors the `terraducktel.hasProfiles` context key; used by `viewsWelcome` to tell "no
+   *  profiles yet" from "have profiles, just not signed in". */
+  hasProfiles = false;
   readonly store: Store;
   private changed = new vscode.EventEmitter<void>();
   readonly onDidChange = this.changed.event;
@@ -47,7 +50,7 @@ export class Session implements vscode.Disposable {
       // Only a profile/active-profile change invalidates the session. `refreshIntervalSeconds`
       // just re-arms the timer; `runsLimit` and `trace` are read live on every use.
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration("terraducktel.profiles") || e.affectsConfiguration("terraducktel.activeProfile")) { void this.reload(); return; }
+        if (["terraducktel.profiles", "terraducktel.uiUrls", "terraducktel.insecureTlsProfiles", "terraducktel.activeProfile"].some((k) => e.affectsConfiguration(k))) { void this.reload(); return; }
         if (e.affectsConfiguration("terraducktel.refreshIntervalSeconds") && this.profile) this.store.start(this.pollIntervalMs());
       }));
   }
@@ -68,11 +71,16 @@ export class Session implements vscode.Disposable {
     for (const d of this.cycle) d.dispose();
     this.cycle = [];
     this.store.stop();
-    const profiles = readProfiles(this.cfg().get("profiles"));
-    const next = pickActive(profiles, this.cfg().get<string>("activeProfile"));
+    const profiles = readProfiles(this.cfg().get("profiles"), this.cfg().get("uiUrls"), this.cfg().get("insecureTlsProfiles"));
+    this.hasProfiles = profiles.length > 0;
+    const next = pickActive(profiles, await this.resolveActiveProfileName(profiles));
     this.profile = next;
     if (!next) { this.tokens = undefined; this.client = undefined; this.bu = ""; this.store.clear(); await this.publishContexts(); return; }
-    this.bu = this.ctx.workspaceState.get<string>(`bu.${next.name}`) ?? next.bu ?? "";
+    // Per-folder choice (workspaceState) wins, then the cross-window choice `setBu()` also
+    // records in globalState, then whatever the legacy per-profile `bu` setting carried (migrated
+    // into globalState by `migrateLegacyBu()` the first time profile settings are rewritten —
+    // this fallback stays for a profile that was never touched by either).
+    this.bu = this.ctx.workspaceState.get<string>(`bu.${next.name}`) ?? this.ctx.globalState.get<string>(`bu.${next.name}`) ?? next.bu ?? "";
     this.tokens = new TokenManager(secretsAdapter(this.ctx.secrets), next.name);
     await this.tokens.restore();
     if (gen !== this.reloadGen) return;       // a newer reload() took over while we read secrets
@@ -104,12 +112,40 @@ export class Session implements vscode.Disposable {
   private async publishContexts() {
     await vscode.commands.executeCommand("setContext", CTX_SIGNED_IN, !!this.tokens?.isSignedIn());
     await vscode.commands.executeCommand("setContext", CTX_CAN_WRITE, this.canWrite());
+    await vscode.commands.executeCommand("setContext", CTX_HAS_PROFILES, this.hasProfiles);
     this.changed.fire();
+  }
+
+  /** Active profile resolution order: `context.globalState` (set by `setActiveProfile`, i.e. the
+   *  "Switch profile" command) when it names an existing profile → else the deprecated
+   *  `terraducktel.activeProfile` setting, consulted and migrated into globalState AT MOST ONCE
+   *  ever (guarded by `GLOBALSTATE_ACTIVE_PROFILE_MIGRATED`, so a later reload — e.g. after the
+   *  migrated profile is removed — falls straight through to "first by name" instead of
+   *  re-reading a setting that may still hold the old value) → else the first profile by name. */
+  private async resolveActiveProfileName(profiles: Profile[]): Promise<string | undefined> {
+    const stored = this.ctx.globalState.get<string>(GLOBALSTATE_ACTIVE_PROFILE);
+    if (stored && profiles.some((p) => p.name === stored)) return stored;
+    if (this.ctx.globalState.get<boolean>(GLOBALSTATE_ACTIVE_PROFILE_MIGRATED)) return undefined;
+    const legacy = this.cfg().get<string>("activeProfile");
+    await this.ctx.globalState.update(GLOBALSTATE_ACTIVE_PROFILE_MIGRATED, true);
+    if (legacy) { await this.ctx.globalState.update(GLOBALSTATE_ACTIVE_PROFILE, legacy); return legacy; }
+    return undefined;
+  }
+
+  /** Writes the active profile to `context.globalState` (the "Switch profile" command / the
+   *  profile status-bar item's click target) and reloads the session around it. */
+  async setActiveProfile(name: string): Promise<void> {
+    await this.ctx.globalState.update(GLOBALSTATE_ACTIVE_PROFILE, name);
+    await this.reload();
   }
 
   async setBu(slug: string) {
     if (!this.profile || !this.client) return;
-    this.bu = slug; await this.ctx.workspaceState.update(`bu.${this.profile.name}`, slug);
+    this.bu = slug;
+    // workspaceState is the per-folder choice; globalState mirrors it so the choice also survives
+    // in a NEW window that has never opened this folder (or opened no folder at all).
+    await this.ctx.workspaceState.update(`bu.${this.profile.name}`, slug);
+    await this.ctx.globalState.update(`bu.${this.profile.name}`, slug);
     this.client = this.client.withBu(slug); this.tokens?.attach(this.client);
     this.changed.fire(); await this.store.refresh();
   }
