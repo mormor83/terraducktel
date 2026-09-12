@@ -7,3 +7,5 @@ export const PLAN_SCHEME = "tdt-plan";
 export const CTX_SIGNED_IN = "terraducktel.signedIn";
 export const CTX_CAN_WRITE = "terraducktel.canWrite";
 export const CTX_FILE_MAPPED = "terraducktel.currentFileMapped";
+export const STATUS_BAR_CURRENT_FILE = "terraducktel.currentFile";
+export const CMD_CURRENT_FILE_ACTIONS = "terraducktel.currentFileActions";

@@ -1,36 +1,45 @@
 // services/vscode/src/editor/status.ts
 import * as vscode from "vscode";
+import * as fs from "node:fs";
 import type { Session } from "../session";
 import type { Run, Workspace } from "../api/types";
 import { GitProbe, type GitInfo } from "./git";
 import { matchWorkspace, relativeDir } from "./mapping";
 import { runCommandFor } from "../commands/workspace";
 import type { PlanDocumentProvider } from "../output/planDocument";
-import { CTX_FILE_MAPPED } from "../ids";
+import { CTX_FILE_MAPPED, CMD_CURRENT_FILE_ACTIONS, STATUS_BAR_CURRENT_FILE } from "../ids";
 import { wrap } from "../commands/auth";
 
 const TF_LANGS = new Set(["terraform", "terraform-vars", "hcl"]);
 const isTfFile = (doc: vscode.TextDocument) => doc.uri.scheme === "file" && (TF_LANGS.has(doc.languageId) || /\.(tf|tfvars|hcl)$/i.test(doc.uri.fsPath));
 
-export interface CurrentFile { ws: Workspace; git?: GitInfo; exact: boolean }
+/** Symlinked checkouts (macOS /tmp, a `~/code` symlink into another volume, …) mean the editor's
+ *  path and `git rev-parse --show-toplevel`'s realpath output can disagree on the prefix, which
+ *  makes `relativeDir` fail to strip the root and return undefined. Resolve once up front and use
+ *  the resolved path for both the git probe and the mapping — never throws. */
+const resolvePath = (p: string) => fs.promises.realpath(p).catch(() => p);
+
+export interface CurrentFile { ws: Workspace; git?: GitInfo; exact: boolean; resolvedPath: string }
 
 /** One status-bar item that says which TDT workspace the active Terraform file belongs to. */
 export class EditorStatus implements vscode.Disposable {
   private item: vscode.StatusBarItem;
-  private git = new GitProbe();
+  private git: GitProbe;
   private cur: CurrentFile | undefined;
   private subs: vscode.Disposable[] = [];
   private seq = 0;
 
-  constructor(private readonly s: Session, private readonly deps: { watch: (r: Run) => void; plans: PlanDocumentProvider; reveal: (wsId: string) => Promise<void> }) {
-    this.item = vscode.window.createStatusBarItem("terraducktel.currentFile", vscode.StatusBarAlignment.Left, 50);
-    this.item.name = "Terraducktel workspace"; this.item.command = "terraducktel.currentFileActions";
+  constructor(private readonly s: Session, private readonly deps: { watch: (r: Run) => void; plans: PlanDocumentProvider; reveal: (wsId: string) => Promise<void>; git?: GitProbe }) {
+    this.git = deps.git ?? new GitProbe();
+    this.item = vscode.window.createStatusBarItem(STATUS_BAR_CURRENT_FILE, vscode.StatusBarAlignment.Left, 50);
+    this.item.name = "Terraducktel workspace"; this.item.command = CMD_CURRENT_FILE_ACTIONS;
     this.subs.push(this.item,
       vscode.window.onDidChangeActiveTextEditor(() => void this.refresh()),
-      vscode.workspace.onDidSaveTextDocument(() => this.git.invalidate()),           // branch may have changed via a commit
+      // No save listener here: the 10s GitProbe TTL bounds how stale a cached branch can get for
+      // display, and planCurrent() below re-probes fresh right before it would matter (a pin).
       s.store.onDidChange(() => void this.refresh()), s.onDidChange(() => void this.refresh()),
       vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration("terraducktel.statusBar")) void this.refresh(); }),
-      vscode.commands.registerCommand("terraducktel.currentFileActions", wrap(() => this.actions())),
+      vscode.commands.registerCommand(CMD_CURRENT_FILE_ACTIONS, wrap(() => this.actions())),
       vscode.commands.registerCommand("terraducktel.planCurrentFile", wrap(() => this.planCurrent())),
       vscode.commands.registerCommand("terraducktel.revealCurrentWorkspace", wrap(async () => { if (this.cur) await this.deps.reveal(this.cur.ws.id); })),
     );
@@ -43,11 +52,13 @@ export class EditorStatus implements vscode.Disposable {
     const enabled = vscode.workspace.getConfiguration("terraducktel").get<boolean>("statusBar.enabled", true);
     const doc = vscode.window.activeTextEditor?.document;
     if (!enabled || !doc || !isTfFile(doc) || !this.s.tokens?.isSignedIn()) { this.set(undefined, undefined, false); return; }
-    const git = await this.git.info(doc.uri.fsPath);
+    const resolved = await resolvePath(doc.uri.fsPath);
+    if (my !== this.seq) return;                                            // a newer refresh superseded this one
+    const git = await this.git.info(resolved);
     if (my !== this.seq) return;                                            // a newer refresh superseded this one
     let match: ReturnType<typeof matchWorkspace>;
-    if (git) { const rel = relativeDir(git.root, doc.uri.fsPath); if (rel !== undefined) match = matchWorkspace(this.s.store.workspaces, { relativeDir: rel, remoteUrl: git.remoteUrl }); }
-    this.set(match ? { ws: match.ws, git, exact: match.exact } : undefined, git, true);
+    if (git) { const rel = relativeDir(git.root, resolved); if (rel !== undefined) match = matchWorkspace(this.s.store.workspaces, { relativeDir: rel, remoteUrl: git.remoteUrl }); }
+    this.set(match ? { ws: match.ws, git, exact: match.exact, resolvedPath: resolved } : undefined, git, true);
   }
 
   private set(cur: CurrentFile | undefined, git: GitInfo | undefined, showUnmapped: boolean) {
@@ -81,7 +92,12 @@ export class EditorStatus implements vscode.Disposable {
 
   private async planCurrent() {
     if (!this.cur) { void vscode.window.showInformationMessage("Terraducktel: the active file is not inside an imported workspace."); return; }
-    const { ws, git } = this.cur;
+    const { ws } = this.cur;
+    // A terminal `git checkout` fires no editor event, so `this.cur.git` (from the last refresh())
+    // can be stale — and a stale branch here would pin the WRONG branch on the server. Force a
+    // fresh probe right before deciding, falling back to the cached value only if it fails.
+    let git = this.cur.git;
+    if (git) { this.git.invalidate(git.root); git = (await this.git.info(this.cur.resolvedPath)) ?? git; }
     let branch: string | undefined;
     if (git?.branch && git.branch !== ws.repo_ref) {
       const pick = await vscode.window.showQuickPick([

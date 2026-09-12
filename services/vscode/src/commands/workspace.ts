@@ -28,7 +28,15 @@ export async function runCommandFor(s: Session, ws: Workspace, command: "plan" |
     if (typed !== ws.name) return;
   }
   if (opts.branch && opts.branch !== ws.repo_ref) await c.updateWorkspace(ws.id, { repo_ref: opts.branch });
-  const run = await c.triggerRun(ws.id, { command });
+  let run: Run;
+  try {
+    run = await c.triggerRun(ws.id, { command });
+  } catch (e) {
+    // The pin already landed server-side; say so, or a failed apply/destroy trigger reads as if
+    // nothing happened at all when in fact the workspace's tracked branch just changed.
+    if (opts.branch && opts.branch !== ws.repo_ref) throw new Error(`pinned to ${opts.branch}, but ${command} failed: ${e instanceof Error ? e.message : String(e)}`);
+    throw e;
+  }
   void vscode.window.showInformationMessage(`TDT: ${command} started on ${ws.name} (${run.id.slice(0, 8)}).`);
   await s.store.refresh();
   watch(run);

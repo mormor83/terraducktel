@@ -99,7 +99,7 @@
         { "command": "terraducktel.planCurrentFile", "when": "terraducktel.signedIn" }
       ],
       "editor/title": [
-        { "command": "terraducktel.planCurrentFile", "when": "terraducktel.currentFileMapped && terraducktel.canWrite", "group": "navigation" }
+        { "command": "terraducktel.planCurrentFile", "when": "terraducktel.currentFileMapped && terraducktel.canWrite && resourceExtname =~ /\\.(tf|tfvars|hcl)$/", "group": "navigation" }
       ]
     },
     "configuration": {

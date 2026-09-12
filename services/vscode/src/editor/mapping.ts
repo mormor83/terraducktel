@@ -13,7 +13,13 @@ export function normalizeRepoUrl(url: string | null | undefined): string | undef
   if (scp) u = `ssh://${scp[1]}/${scp[2]}`;
   let host: string, p: string;
   // Repo paths are case-insensitive for routing/uniqueness on GitHub, GitLab and Gitea/Forgejo, so compare them case-folded like the host.
-  try { const parsed = new URL(u); host = parsed.host.toLowerCase(); p = parsed.pathname.toLowerCase(); } catch { return undefined; }
+  try {
+    const parsed = new URL(u);
+    // ssh's default port (22) is implicit in the scp-like form (git@host:org/repo), so an
+    // explicit `ssh://host:22/...` must normalize the same way, not compare unequal on the port.
+    host = (parsed.protocol === "ssh:" && parsed.port === "22" ? parsed.hostname : parsed.host).toLowerCase();
+    p = parsed.pathname.toLowerCase();
+  } catch { return undefined; }
   if (!host) return undefined;
   p = p.replace(/\/+$/, "").replace(/\.git$/i, "").replace(/^\/+/, "");
   if (!p) return undefined;
@@ -23,17 +29,20 @@ export function normalizeRepoUrl(url: string | null | undefined): string | undef
 /** Directory of `filePath` relative to `gitRoot`, posix-separated; "" at the root; undefined when outside. */
 export function relativeDir(gitRoot: string, filePath: string): string | undefined {
   const rel = path.relative(gitRoot, path.dirname(filePath));
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
+  // Only ".." or ".."+sep means "outside the root" — a directory literally named "..foo" also
+  // starts with "..", but is a normal child (path.relative never returns leading "..." runs).
+  if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return undefined;
   return rel.split(path.sep).join("/");
 }
 
 const isPrefix = (dir: string, wd: string) => dir === wd || dir.startsWith(wd.replace(/\/+$/, "") + "/");
+const normalizeWd = (wd: string | null | undefined) => (wd ?? "").replace(/^(?:\.\/)+/, "").replace(/^\/+|\/+$/g, "");
 
 /** Longest `tf_working_dir` prefix among workspaces whose repo matches; see Global Constraints for the fallback rules. */
 export function matchWorkspace(workspaces: Workspace[], q: { relativeDir: string; remoteUrl?: string }): { ws: Workspace; exact: boolean } | undefined {
   const remote = normalizeRepoUrl(q.remoteUrl);
   const candidates = workspaces.filter((w) => {
-    const wd = (w.tf_working_dir ?? "").replace(/^\/+|\/+$/g, "");
+    const wd = normalizeWd(w.tf_working_dir);
     if (!wd || wd === "." || !isPrefix(q.relativeDir, wd)) return false;
     const wsRepo = normalizeRepoUrl(w.repo_url);
     if (wsRepo?.startsWith("local:")) return true;            // local checkouts match by path alone
@@ -41,9 +50,9 @@ export function matchWorkspace(workspaces: Workspace[], q: { relativeDir: string
     return true;                                               // unknown remote: path only, resolved below
   });
   if (!candidates.length) return undefined;
-  const longest = Math.max(...candidates.map((w) => w.tf_working_dir.length));
-  const best = candidates.filter((w) => w.tf_working_dir.length === longest);
+  const longest = Math.max(...candidates.map((w) => normalizeWd(w.tf_working_dir).length));
+  const best = candidates.filter((w) => normalizeWd(w.tf_working_dir).length === longest);
   if (best.length !== 1) return undefined;                     // ambiguous (typically unknown remote + same path in two repos)
   const ws = best[0];
-  return { ws, exact: ws.tf_working_dir.replace(/^\/+|\/+$/g, "") === q.relativeDir };
+  return { ws, exact: normalizeWd(ws.tf_working_dir) === q.relativeDir };
 }
