@@ -58,6 +58,26 @@ describe("ApprovalWatcher", () => {
     expect(max).toBe(1); expect(notices).toEqual([]);
   });
 
+  it("keeps notifying and polling when notify() throws", async () => {
+    let awaiting = [run("r1"), run("r2", "w2")];
+    srv.on("GET", "/api/v1/runs", (_q, _b, res) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(awaiting)); });
+    srv.json("GET", /^\/api\/v1\/runs\/r\d+\/graph$/, 200, { nodes: [], edges: [], summary: {} });
+    const seen = memStore();
+    let calls = 0;
+    const w = new ApprovalWatcher({
+      client: () => client,
+      workspaceName: (id) => (id === "w1" ? "vpc" : id),
+      notify: (n) => { calls++; if (calls === 1) throw new Error("boom"); notices.push(n); },
+      seen, now: () => now,
+    });
+    await w.poll();
+    expect(notices.map((n) => n.run.id)).toEqual(["r2"]);   // r1's notify() threw, r2 still notified
+    notices = [];
+    awaiting = [run("r1"), run("r2", "w2"), run("r3", "w2")];
+    await w.poll();                                          // the next poll() still runs
+    expect(notices.map((n) => n.run.id)).toEqual(["r3"]);
+  });
+
   it("does nothing without a client, and start(0) stops the timer", async () => {
     const w = new ApprovalWatcher({ client: () => undefined, workspaceName: (x) => x, notify: (n) => notices.push(n), seen: memStore(), now: () => now });
     await w.poll(); expect(notices).toEqual([]); expect(srv.calls.length).toBe(0);

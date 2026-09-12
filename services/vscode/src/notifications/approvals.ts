@@ -26,19 +26,39 @@ export class ApprovalWatcher {
     await this.d.seen.set(seen);
   }
   poll(): Promise<void> { if (!this.inflight) this.inflight = this.doPoll().finally(() => { this.inflight = null; }); return this.inflight; }
+  private trace(l: string) { this.d.trace?.(l); }
   private async doPoll(): Promise<void> {
     const runs = await this.fetchAwaiting(); if (!runs) return;
     const seen = this.seen(); const fresh = runs.filter((r) => !(r.id in seen)); const t = this.now();
     for (const r of fresh) seen[r.id] = t;
-    if (fresh.length || Object.keys(seen).length !== Object.keys(this.d.seen.get() ?? {}).length) await this.d.seen.set(seen);
+    if (fresh.length || Object.keys(seen).length !== Object.keys(this.d.seen.get() ?? {}).length) {
+      // A rejecting persistence call must not stop the runs below from being notified, nor
+      // take down the poll loop that called us.
+      try { await this.d.seen.set(seen); }
+      catch (e) { this.trace(`approvals seen.set failed: ${e instanceof Error ? e.message : String(e)}`); }
+    }
     const c = this.d.client();
     for (const r of fresh) {
       let summary: GraphSummary | undefined;
-      try { summary = c ? (await c.getGraph(r.id)).summary : undefined; } catch { summary = undefined; }
-      this.d.notify({ run: r, workspaceName: this.d.workspaceName(r.workspace_id), summary });
+      try { summary = c ? (await c.getGraph(r.id)).summary : undefined; }
+      catch (e) { summary = undefined; this.trace(`approvals getGraph failed: ${e instanceof Error ? e.message : String(e)}`); }
+      // One run's notify() throwing (e.g. a flaky showInformationMessage) must not swallow the
+      // rest of this batch — each run gets its own try/catch.
+      try { this.d.notify({ run: r, workspaceName: this.d.workspaceName(r.workspace_id), summary }); }
+      catch (e) { this.trace(`approvals notify failed: ${e instanceof Error ? e.message : String(e)}`); }
     }
   }
-  start(intervalMs: number) { this.stop(); if (intervalMs <= 0) return; const tick = async () => { await this.poll(); this.timer = setTimeout(tick, intervalMs); }; this.timer = setTimeout(tick, intervalMs); }
+  start(intervalMs: number) {
+    this.stop(); if (intervalMs <= 0) return;
+    const tick = async () => {
+      // The loop must keep ticking even if this poll rejected outright (fetchAwaiting already
+      // swallows its own errors, but guard the whole call in case a future change doesn't).
+      try { await this.poll(); }
+      catch (e) { this.trace(`approvals poll failed: ${e instanceof Error ? e.message : String(e)}`); }
+      this.timer = setTimeout(tick, intervalMs);
+    };
+    this.timer = setTimeout(tick, intervalMs);
+  }
   stop() { if (this.timer) clearTimeout(this.timer); this.timer = undefined; }
   dispose() { this.stop(); }
 }
