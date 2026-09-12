@@ -63,6 +63,29 @@ Nothing secret is written to settings or logs.
 Settings: `refreshIntervalSeconds` (default 30), `runsLimit` (200), `trace`
 (request metadata to the *Terraducktel* output channel; never credentials).
 
+## Approval notifications
+
+While signed in, the extension polls `GET /runs?status=awaiting_approval` for
+the active business unit every `terraducktel.approvals.pollSeconds` (default
+60; values below 15 are treated as 15; 0 disables polling entirely). Polling
+runs regardless of whether the sidebar is visible, and stops while signed out.
+
+Each run newly seen awaiting approval raises a notification: `TDT: <workspace>
+<command> is awaiting approval (+add ~change -destroy).` with **Approve…**,
+**Reject…** and **Open** actions — each delegates to the same command the
+sidebar's context menu uses (Approve still goes through the confirmation
+modal; nothing is applied from the notification click alone). A run is
+notified at most once per 24 hours: the set of already-notified run ids is
+kept in extension global state, so it survives a window reload.
+
+On sign-in (or switching business unit) nothing fires for runs that are
+already awaiting approval at that moment — they're recorded as seen
+immediately so you aren't sprayed with a backlog of notifications; the Runs
+view's badge count still reflects them. Only runs that newly enter
+`awaiting_approval` afterwards produce a notification.
+
+Setting: `terraducktel.approvals.pollSeconds` (default 60, 0 disables).
+
 ## Editor integration
 
 While editing a `.tf`, `.tfvars`, or `.hcl` file, a status bar item shows the

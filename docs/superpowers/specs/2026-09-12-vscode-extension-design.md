@@ -224,6 +224,26 @@ not an oversight — revisit them by name rather than re-deriving them.
   notification click alone.
 - A count badge on the Runs view reflects pending approvals.
 
+Milestone C notes (deliberate choices):
+- **Prime-on-sign-in:** the watcher `prime()`s once per profile+BU right
+  after sign-in / a BU switch, recording everything already awaiting
+  approval as seen without notifying — so reconnecting to a deployment with
+  an existing backlog never sprays a wall of notifications. The Runs badge
+  still shows the backlog count.
+- **24 h dedupe in `globalState`:** notified run ids are timestamped and
+  kept in extension global state (not just in memory), so a window reload
+  doesn't re-notify; entries older than 24 h are pruned on read.
+- **Polling independent of sidebar visibility, off while signed out:**
+  unlike the tree store's poll (gated on view visibility), the approval
+  poll runs whenever the session is signed in, whether or not either tree
+  is on screen — signed out, it's stopped.
+- **Minimum 15 s:** `terraducktel.approvals.pollSeconds` floors any
+  positive value at 15 s; only `0` disables the poll outright.
+- **Failures are silent:** a failed poll, a failed graph fetch, or a
+  rejecting `notify()`/persistence call is traced (`terraducktel.trace`)
+  and otherwise swallowed — it never surfaces an error toast and never
+  kills the polling loop.
+
 ## 7. Contract, security, error handling
 
 - `services/vscode/api_contract.json` lists every `{method, path, used_by}`

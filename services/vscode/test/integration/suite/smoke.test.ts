@@ -27,4 +27,9 @@ suite("Terraducktel extension smoke", () => {
     assert.ok(commands.includes("terraducktel.planCurrentFile"), "terraducktel.planCurrentFile command not registered");
     assert.ok(commands.includes("terraducktel.revealCurrentWorkspace"), "terraducktel.revealCurrentWorkspace command not registered");
   });
+
+  test("declares the approvals poll setting with a 60s default", () => {
+    const inspect = vscode.workspace.getConfiguration("terraducktel").inspect<number>("approvals.pollSeconds");
+    assert.strictEqual(inspect?.defaultValue, 60);
+  });
 });

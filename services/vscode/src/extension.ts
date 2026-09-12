@@ -3,9 +3,11 @@ import { registerAuthCommands } from "./commands/auth";
 import { registerRunCommands } from "./commands/run";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { EditorStatus } from "./editor/status";
+import { ApprovalWatcher } from "./notifications/approvals";
 import { RunOutputManager } from "./output/runOutput";
 import { PlanDocumentProvider } from "./output/planDocument";
 import { Session } from "./session";
+import { RunNode } from "./views/nodes";
 import { RunsTree } from "./views/runsTree";
 import { WorkspacesTree } from "./views/workspacesTree";
 import { VIEW_RUNS, VIEW_WORKSPACES } from "./ids";
@@ -48,6 +50,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
   registerWorkspaceCommands(context, session, watch);
   const status = new EditorStatus(session, { watch, plans, reveal: (id) => wsTree.revealWorkspace(wsView, id) });
   context.subscriptions.push(status);
+
+  const seenStore = { get: () => context.globalState.get<Record<string, number>>("terraducktel.approvals.seen"), set: (v: Record<string, number>) => Promise.resolve(context.globalState.update("terraducktel.approvals.seen", v)) };
+  const approvals = new ApprovalWatcher({
+    client: () => (session.tokens?.isSignedIn() ? session.client : undefined),
+    workspaceName: (id) => session.store.workspace(id)?.name ?? id.slice(0, 8),
+    seen: seenStore,
+    trace: (l) => { if (vscode.workspace.getConfiguration("terraducktel").get<boolean>("trace")) session.log.appendLine(l); },
+    notify: ({ run, workspaceName, summary }) => {
+      const s = summary ? ` (+${summary.add ?? 0} ~${summary.change ?? 0} -${summary.destroy ?? 0})` : "";
+      void vscode.window.showInformationMessage(`TDT: ${workspaceName} ${run.command} is awaiting approval${s}.`, "Approve…", "Reject…", "Open").then((a) => {
+        const node = new RunNode(run, { showWorkspace: workspaceName });
+        if (a === "Approve…") void vscode.commands.executeCommand("terraducktel.approve", node);
+        else if (a === "Reject…") void vscode.commands.executeCommand("terraducktel.reject", node);
+        else if (a === "Open") void vscode.commands.executeCommand("terraducktel.openInBrowser", node);
+      });
+    },
+  });
+  context.subscriptions.push(approvals);
+  const approvalsInterval = () => { const s = vscode.workspace.getConfiguration("terraducktel").get<number>("approvals.pollSeconds", 60); return s <= 0 ? 0 : Math.max(15, s) * 1000; };
+  let primedFor: string | undefined;
+  const rearm = async () => {
+    const key = session.tokens?.isSignedIn() ? `${session.profile?.name}:${session.bu}` : undefined;
+    if (!key) { approvals.stop(); primedFor = undefined; return; }
+    if (primedFor !== key) { primedFor = key; await approvals.prime(); }   // never spray the backlog after sign-in / BU switch
+    approvals.start(approvalsInterval());
+  };
+  context.subscriptions.push(session.onDidChange(() => void rearm()),
+    vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration("terraducktel.approvals")) void rearm(); }));
+  void rearm();
+
   await session.reload();
   return {
     __test: {
