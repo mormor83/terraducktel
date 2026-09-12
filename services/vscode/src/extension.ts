@@ -1,5 +1,9 @@
 import * as vscode from "vscode";
 import { registerAuthCommands } from "./commands/auth";
+import { registerRunCommands } from "./commands/run";
+import { registerWorkspaceCommands } from "./commands/workspace";
+import { RunOutputManager } from "./output/runOutput";
+import { PlanDocumentProvider } from "./output/planDocument";
 import { Session } from "./session";
 import { RunsTree } from "./views/runsTree";
 import { WorkspacesTree } from "./views/workspacesTree";
@@ -16,6 +20,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(wsView.onDidChangeVisibility(onVis), runsView.onDidChangeVisibility(onVis));
   session.store.onDidChange(() => { const n = session.store.runs.filter((r) => r.status === "awaiting_approval").length; runsView.badge = n ? { value: n, tooltip: `${n} run(s) awaiting approval` } : undefined; });
   registerAuthCommands(context, session);
+  const out = new RunOutputManager(); const plans = new PlanDocumentProvider(() => session.client);
+  context.subscriptions.push(out, plans);
+  const { watch } = registerRunCommands(context, session, out, plans);
+  registerWorkspaceCommands(context, session, watch);
   await session.reload();
 }
 export function deactivate(): void {}
