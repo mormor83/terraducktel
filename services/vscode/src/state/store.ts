@@ -12,6 +12,10 @@ export class Store {
   consecutiveFailures = 0;
   private inflight: Promise<void> | null = null;
   private timer: NodeJS.Timeout | undefined;
+  /** Whether a view is on screen. The timer keeps ticking while inactive but skips the network:
+   *  polling a sidebar nobody is looking at is pure load on the API. Manual `refresh()` (the
+   *  title-bar button, a command, a just-landed run) is never gated by this. */
+  private active = true;
   private changed = new EventEmitter<void>();
   readonly onDidChange = this.changed.event;
 
@@ -54,10 +58,14 @@ export class Store {
   }
   clear() { this.workspaces = []; this.runs = []; this.byWs.clear(); this.lastError = undefined; this.consecutiveFailures = 0; this.changed.fire(); }
 
-  /** Poll every `intervalMs`; after 3 consecutive failures stretch to 5 minutes until one succeeds. */
+  setActive(active: boolean) { this.active = active; }
+  isActive() { return this.active; }
+
+  /** Poll every `intervalMs` while a view is visible; after 3 consecutive failures stretch to
+   *  5 minutes until one succeeds. */
   start(intervalMs: number) {
     this.stop();
-    const tick = async () => { await this.refresh(); const wait = this.consecutiveFailures >= 3 ? 5 * 60_000 : intervalMs; this.timer = setTimeout(tick, wait); };
+    const tick = async () => { if (this.active) await this.refresh(); const wait = this.consecutiveFailures >= 3 ? 5 * 60_000 : intervalMs; this.timer = setTimeout(tick, wait); };
     this.timer = setTimeout(tick, intervalMs);
   }
   stop() { if (this.timer) clearTimeout(this.timer); this.timer = undefined; }

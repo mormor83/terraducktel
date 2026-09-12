@@ -63,6 +63,39 @@ describe("Store", () => {
     await srvB.stop();
   });
 
+  it("makes no request and clears the snapshot when the client getter returns undefined", async () => {
+    srv.json("GET", "/api/v1/workspaces", 200, [{ id: "w1", name: "a" }]);
+    srv.json("GET", "/api/v1/runs", 200, [{ id: "r1", workspace_id: "w1", status: "planned" }]);
+    const client = new TdtClient({ baseUrl: url, bu: "default", tokens });
+    let signedIn = true;
+    const s = new Store(() => (signedIn ? client : undefined), () => ({ runsLimit: 50 }));
+    await s.refresh();
+    expect(s.workspaces.length).toBe(1);
+    const before = srv.calls.length;
+
+    signedIn = false;                       // e.g. the session expired
+    await s.refresh();
+    expect(s.workspaces).toEqual([]); expect(s.runs).toEqual([]); expect(s.runsFor("w1")).toEqual([]);
+    expect(srv.calls.length).toBe(before);  // nothing was sent without a credential
+  });
+
+  it("the timer skips the network while inactive and polls again once active", async () => {
+    srv.json("GET", "/api/v1/workspaces", 200, []);
+    srv.json("GET", "/api/v1/runs", 200, []);
+    const client = new TdtClient({ baseUrl: url, bu: "default", tokens });
+    const s = new Store(() => client, () => ({ runsLimit: 50 }));
+    s.setActive(false);
+    s.start(10);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(srv.calls.length).toBe(0);
+    await s.refresh();                       // manual refresh is never gated by visibility
+    expect(srv.calls.length).toBe(2);
+    s.setActive(true);
+    await new Promise((r) => setTimeout(r, 60));
+    s.stop();
+    expect(srv.calls.length).toBeGreaterThan(2);
+  });
+
   it("reads runsLimit live from the options getter on each refresh", async () => {
     srv.json("GET", "/api/v1/workspaces", 200, []);
     srv.json("GET", "/api/v1/runs", 200, []);
