@@ -52,8 +52,10 @@ Nothing secret is written to settings or logs.
   Right-click for Plan / Apply… / Destroy… / Set tracked branch / Sync from
   repo / Open in browser / Copy id.
 - **Runs** view: newest first, awaiting-approval on top (badge = count).
-  Click a run to watch its steps in an output channel; use the inline icons
-  for plan output, Approve…, Reject.
+  Click a run to watch its steps in an output channel, or expand it to see its
+  steps with status icons and durations. Inline icons: watch, plan output and
+  (for a run awaiting approval) Approve…; **Reject…** and **Cancel run** are on
+  the right-click menu.
 - **Approve…** shows `+add ~change -destroy ±replace` from the plan graph and
   needs an explicit click; **Destroy…** asks you to type the workspace name.
 - Title-bar buttons: refresh, switch business unit.

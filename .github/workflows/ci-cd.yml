@@ -176,7 +176,7 @@ jobs:
   # ── release: cut the tag BEFORE the image tag is computed ──────────────────
   release:
     name: Create GitHub Release
-    needs: [api-tests, cli-tests, ui, release-version]
+    needs: [api-tests, cli-tests, ui, vscode, release-version]
     # Three ways in: a push to the repo's own default branch (auto-computed
     # from conventional commits), an explicit `v*.*.*` tag push, or a manual
     # dispatch. `branches: [main, dev]` above covers the public (`main`) and
@@ -239,7 +239,7 @@ jobs:
   # ── docs site: publish docs/ to gh-pages under /docs/ ──────────────────────
   docs:
     name: Publish docs
-    needs: [api-tests, cli-tests, ui, release-version]
+    needs: [api-tests, cli-tests, ui, vscode, release-version]
     # Only from the repo's own default branch. A PR must still *build* the docs
     # (the build step below runs on PRs via `mkdocs build --strict`), but only a
     # merge publishes.

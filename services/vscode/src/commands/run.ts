@@ -77,7 +77,7 @@ export function registerRunCommands(ctx: vscode.ExtensionContext, s: Session, ou
       "terraducktel.cancelRun",
       wrap(async (arg) => {
         const c = s.requireClient();
-        const r = await asRun(s, arg, (x) => ["pending", "running", "planning", "planned", "awaiting_approval"].includes(x.status));
+        const r = await asRun(s, arg, (x) => ["pending", "running", "planning", "awaiting_approval"].includes(x.status));
         if (!r) return;
         await c.cancel(r.id);
         await s.store.refresh();

@@ -71,7 +71,7 @@
         { "command": "terraducktel.approve", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "inline@3" },
         { "command": "terraducktel.approve", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "1_gate@1" },
         { "command": "terraducktel.reject", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "1_gate@2" },
-        { "command": "terraducktel.cancelRun", "when": "viewItem =~ /^run\\.(pending|running|planning|planned|awaiting_approval)$/ && terraducktel.canWrite", "group": "1_gate@3" },
+        { "command": "terraducktel.cancelRun", "when": "viewItem =~ /^run\\.(pending|running|planning|awaiting_approval)$/ && terraducktel.canWrite", "group": "1_gate@3" },
         { "command": "terraducktel.watchRun", "when": "viewItem =~ /^run/", "group": "2_view@1" },
         { "command": "terraducktel.showPlan", "when": "viewItem =~ /^run/", "group": "2_view@2" },
         { "command": "terraducktel.openInBrowser", "when": "viewItem =~ /^run/", "group": "3_nav@1" },
@@ -81,6 +81,14 @@
         { "command": "terraducktel.plan", "when": "terraducktel.signedIn" },
         { "command": "terraducktel.apply", "when": "terraducktel.signedIn" },
         { "command": "terraducktel.destroy", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.watchRun", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.showPlan", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.approve", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.reject", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.cancelRun", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.setBranch", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.syncWorkspace", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.switchBusinessUnit", "when": "terraducktel.signedIn" },
         { "command": "terraducktel.copyId", "when": "false" },
         { "command": "terraducktel.openInBrowser", "when": "false" }
       ]
@@ -118,7 +126,7 @@
     "test": "vitest run",
     "test:integration": "npm run build && node ./out-test/integration/runTest.js",
     "pretest:integration": "tsc -p tsconfig.test.json",
-    "package": "npm run build && vsce package --no-dependencies --out terraducktel-vscode.vsix"
+    "package": "npm run build && vsce package --no-dependencies --skip-license --out terraducktel-vscode.vsix"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.9",

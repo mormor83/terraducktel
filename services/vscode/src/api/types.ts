@@ -3,7 +3,7 @@ export interface TokenPair { access_token: string; refresh_token: string; token_
 export interface BusinessUnit { id: string; slug: string; name: string }
 export interface Workspace {
   id: string; business_unit_id: string; name: string; environment: string;
-  aws_account_id: string; region: string; repo_url?: string | null; tf_working_dir: string;
+  aws_account_id: string | null; region: string; repo_url?: string | null; tf_working_dir: string;
   repo_ref: string; kind: string; cluster_id?: string | null; tags: Record<string, string>;
   drift_status: string; path_status: string; azure_subscription_id?: string | null;
   gcp_project_id?: string | null; state_backend: string; created_at?: string | null;

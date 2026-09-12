@@ -7,7 +7,6 @@
     { "method": "POST", "path": "/auth/refresh", "used_by": "automatic token refresh" },
     { "method": "GET", "path": "/business-units", "used_by": "Switch business unit" },
     { "method": "GET", "path": "/workspaces", "used_by": "Workspaces view" },
-    { "method": "GET", "path": "/workspaces/{workspace_id}", "used_by": "workspace tooltip refresh" },
     { "method": "PUT", "path": "/workspaces/{workspace_id}", "used_by": "Set tracked branch" },
     { "method": "GET", "path": "/workspaces/{workspace_id}/branches", "used_by": "Set tracked branch (picker)" },
     { "method": "POST", "path": "/workspaces/{workspace_id}/sync", "used_by": "Sync from repo" },
