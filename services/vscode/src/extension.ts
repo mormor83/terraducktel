@@ -47,11 +47,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
   registerAuthCommands(context, session);
   const out = new RunOutputManager(); const plans = new PlanDocumentProvider(() => session.client);
   context.subscriptions.push(out, plans);
-  const { watch } = registerRunCommands(context, session, out, plans);
-  registerWorkspaceCommands(context, session, watch);
-  const status = new EditorStatus(session, { watch, plans, reveal: (id) => wsTree.revealWorkspace(wsView, id) });
-  context.subscriptions.push(status);
-
   const seenStore = { get: () => context.globalState.get<Record<string, number>>("terraducktel.approvals.seen"), set: (v: Record<string, number>) => Promise.resolve(context.globalState.update("terraducktel.approvals.seen", v)) };
   const approvals = new ApprovalWatcher({
     client: () => (session.tokens?.isSignedIn() ? session.client : undefined),
@@ -69,7 +64,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
     },
   });
   context.subscriptions.push(approvals);
-  const approvalsInterval = () => { const s = vscode.workspace.getConfiguration("terraducktel").get<number>("approvals.pollSeconds", 60); return s <= 0 ? 0 : Math.max(15, s) * 1000; };
+
+  // The run-output tail already announces a run it was following into awaiting_approval; tell
+  // the watcher so the poll loop stays quiet about that one.
+  const { watch } = registerRunCommands(context, session, out, plans, (r) => approvals.markSeen(r.id));
+  registerWorkspaceCommands(context, session, watch);
+  const status = new EditorStatus(session, { watch, plans, reveal: (id) => wsTree.revealWorkspace(wsView, id) });
+  context.subscriptions.push(status);
+
+  // A hand-edited settings.json can put a string (or anything) in a `number` setting; VS Code
+  // hands it straight back, and NaN would otherwise floor to NaN and disable the poll silently.
+  const approvalsInterval = () => {
+    const s = Number(vscode.workspace.getConfiguration("terraducktel").get("approvals.pollSeconds", 60));
+    const secs = Number.isFinite(s) ? s : 60;
+    return secs <= 0 ? 0 : Math.max(15, secs) * 1000;
+  };
   const rearm = createRearm({
     key: () => (session.tokens?.isSignedIn() ? `${session.profile?.name}:${session.bu}` : undefined),
     prime: () => approvals.prime(),

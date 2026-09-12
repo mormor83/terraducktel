@@ -239,6 +239,17 @@ Milestone C notes (deliberate choices):
   is on screen — signed out, it's stopped.
 - **Minimum 15 s:** `terraducktel.approvals.pollSeconds` floors any
   positive value at 15 s; only `0` disables the poll outright.
+- **Silent until primed:** the watcher notifies nothing until the current
+  backlog has actually been recorded as seen. If `prime()` fails (network
+  down at wake-up) or a poll's response beats a concurrent `prime()`'s, that
+  poll records what it fetched and stays quiet — so a failed prime degrades
+  to "one silent poll", never to a wall of notifications. A key change
+  (`stop()` before `prime()`) also parks the previous session's timer so it
+  cannot poll during the prime.
+- **Tail-toast dedupe:** a run this window started and followed raises the
+  run-output tail's "awaiting approval" toast; the tail marks that run seen
+  before showing it, so the background poll never announces the same run a
+  second time.
 - **Failures are silent:** a failed poll, a failed graph fetch, or a
   rejecting `notify()`/persistence call is traced (`terraducktel.trace`)
   and otherwise swallowed — it never surfaces an error toast and never

@@ -76,7 +76,13 @@ Each run newly seen awaiting approval raises a notification: `TDT: <workspace>
 sidebar's context menu uses (Approve still goes through the confirmation
 modal; nothing is applied from the notification click alone). A run is
 notified at most once per 24 hours: the set of already-notified run ids is
-kept in extension global state, so it survives a window reload.
+kept in extension global state, so it survives a window reload. Each VS Code
+window polls and notifies independently, and a run still awaiting approval
+24 hours later is announced once more — an intended reminder, not a duplicate.
+
+A plan you start from VS Code is announced by the run output's own "awaiting
+approval" toast only: the run is marked as seen the moment that toast goes up,
+so the background poll does not raise a second notification for it.
 
 On sign-in (or switching business unit) nothing fires for runs that are
 already awaiting approval at that moment — they're recorded as seen
