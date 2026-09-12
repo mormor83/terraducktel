@@ -111,13 +111,19 @@ tracked branch. Tooltip: id, `tf_working_dir`, repo, environment, tags.
 
 **Runs view** (`terraducktel.runs`) — recent runs for the BU, newest first,
 filterable by status (awaiting approval first). Each run expands to its steps
-with status icons.
+with status icons (`GET /runs/{id}/steps?include_output=false`, fetched lazily
+on expand and cached per run once the run reaches a terminal status). The
+status *filter* is deferred past milestone A — see the deviations below.
 
-**Data** — `state/store.ts` polls `GET /workspaces`, `GET /runs?limit=200`
-and `GET /drift/summary` every `terraducktel.refreshIntervalSeconds` (default
-30) while a view is visible, and on demand via a refresh button. One in-flight
-poll at a time; backs off to 5 minutes after three consecutive failures and
-shows a warning item at the top of the tree.
+**Data** — `state/store.ts` polls `GET /workspaces` and `GET /runs?limit=200`
+every `terraducktel.refreshIntervalSeconds` (default 30) while a view is
+visible, and on demand via a refresh button. One in-flight poll at a time;
+backs off to 5 minutes after three consecutive failures and shows a warning
+item at the top of the tree. Polling is gated twice over: the timer skips the
+network while neither view is visible (`Store.setActive`), and the store's
+client getter yields `undefined` while signed out, so a signed-out window is
+silent rather than issuing credential-less requests. Drift comes from each
+workspace's own `drift_status`; `GET /drift/summary` is not called.
 
 **Context menu actions** — workspace: Plan, Apply, Destroy, Set branch, Sync
 from repo, Open in browser, Copy id. Run: Show steps, Show plan, Approve,
@@ -138,15 +144,45 @@ non-terminal, appending only new steps/output. Terminal states stop the poll
 and print a one-line summary. `Terraducktel: Watch run…` attaches to any run.
 
 **Plan output** → `GET /runs/{id}/plan` rendered as a read-only virtual
-document `tdt-plan:<run id>` with the `terraform` language id when available
-and a small diff decorator (`+`/`-`/`~` line colouring via
-`editorGutter`-style decorations). Opened automatically when a plan reaches
-`awaiting_approval` from the extension, or on demand.
+document `tdt-plan:<label>.tfplan.txt?run=<run id>` with the `terraform`
+language id when available (best-effort `setTextDocumentLanguage`, silently
+skipped when no Terraform grammar is installed) and a small diff decorator
+(`+`/`-`/`~` line colouring via `editorGutter`-style decorations). The content
+provider is async and re-fetches by the URI's `run` query when its cache is
+cold, so a plan tab restored on the next window reload loads rather than
+sticking on "(loading…)". Offered — not force-opened — when a plan reaches
+`awaiting_approval` from the extension; also available on demand.
 
 **Approve / Reject** → before `POST /runs/{id}/approve`, fetch
 `GET /runs/{id}/graph` and show a modal: "Apply N to add, N to change, N to
 destroy, N to replace on <workspace>?" with Approve / Show plan / Cancel.
 Reject prompts for an optional reason. Both refresh the trees afterwards.
+Cancel is offered only for `pending | running | planning | awaiting_approval`;
+a `planned` run has nothing left to cancel.
+
+## Milestone A deviations
+
+Shipped deliberately differently from the sections above. Each is a decision,
+not an oversight — revisit them by name rather than re-deriving them.
+
+1. **Runs-view status filter deferred.** §3 promises a status filter; milestone
+   A ships a fixed sort instead (awaiting-approval → active → landed, newest
+   first within a status, unknown statuses last) plus the approval-count badge.
+   A filter only earns its keep once a BU's run list is long enough to hide
+   things in, and the sort answers "what needs me?" on its own.
+2. **The plan is offered, never force-opened.** §4 said "opened automatically"
+   when a watched run reaches `awaiting_approval`. Stealing the active editor
+   from someone mid-edit is hostile, so the landing toast carries a **Show
+   plan** action (alongside **Approve…**) and the document opens on a click.
+3. **Unlinked non-AWS workspaces group under their top folder, not "AWS
+   global".** The web tree buckets a workspace with no recognised provider
+   under the AWS `global` account. `state/grouping.ts` instead classifies it as
+   `other` and labels the group with its top path segment (e.g.
+   `cloudflare/…` → **cloudflare**). Same inputs, more honest label; the AWS
+   fixtures in `grouping.test.ts` still mirror `paths.test.ts` exactly.
+4. **`GET /drift/summary` is not called.** §3 listed it as a third poll. Every
+   workspace row already carries `drift_status` from `GET /workspaces`, so the
+   extra request bought nothing but load. It is not in `api_contract.json`.
 
 ## 5. Milestone B — editor ↔ workspace mapping
 
@@ -178,11 +214,20 @@ Reject prompts for an optional reason. Both refresh the trees afterwards.
 ## 7. Contract, security, error handling
 
 - `services/vscode/api_contract.json` lists every `{method, path, used_by}`
-  the extension calls (initially: the auth four, `/business-units`,
-  `/workspaces` list/get/put, `/workspaces/{id}/branches`, `/workspaces/{id}/sync`,
-  `/workspaces/{id}/runs`, `/runs` list/get/steps/graph/plan/approve/reject/cancel,
-  `/drift/summary`). `services/api/tests/test_vscode_api_contract.py` is a
-  copy of the CLI guard pointed at this file.
+  the extension calls — the auth four, `/business-units`, `/workspaces`
+  list/put, `/workspaces/{id}/branches`, `/workspaces/{id}/sync`,
+  `/workspaces/{id}/runs`, `/runs` list/get/steps/graph/plan/approve/reject/cancel.
+  `services/api/tests/test_vscode_api_contract.py` is a copy of the CLI guard
+  pointed at this file. The file is the *used* surface, not a wish list: the
+  single-workspace `GET /workspaces/{id}` and `/drift/summary` are both absent
+  because nothing calls them (the list response carries everything the tree
+  renders).
+- A request with no credential at all never reaches the network: the client
+  throws `ApiError(401, "Not signed in")` before sending, so a poll that fires
+  while signed out cannot trip the refresh-then-sign-out path. A refresh that
+  fails *transiently* (network, timeout, 5xx) is rethrown and fails only the
+  original request; only a 4xx rejection of the refresh token deletes the
+  stored credential and signs the session out.
 - TLS verified by default; `insecureTls: true` per profile disables
   verification for self-signed dev stacks and shows a warning item in the
   tree while active.
