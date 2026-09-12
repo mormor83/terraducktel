@@ -51,6 +51,11 @@ describe("azureInfo", () => {
     const w = ws({ name: "rg", region: "westus", tf_working_dir: "azure/subscription-abc" });
     expect(azureInfo(w)).toEqual({ guid: "abc", region: "westus" });
   });
+
+  it("matches the leading segment case-insensitively", () => {
+    const w = ws({ name: "rg", region: "global", tf_working_dir: "AZURE/subscription-abc/eastus/rg" });
+    expect(azureInfo(w)).toEqual({ guid: "abc", region: "eastus" });
+  });
 });
 
 describe("gcpInfo", () => {
@@ -75,6 +80,11 @@ describe("gcpInfo", () => {
     const w = ws({ name: "net", region: "europe-west1", tf_working_dir: "gcp/project-p1" });
     expect(gcpInfo(w)).toEqual({ projectId: "p1", region: "europe-west1" });
   });
+
+  it("matches the leading segment case-insensitively", () => {
+    const w = ws({ name: "net", region: "global", tf_working_dir: "GCP/project-p1/us-central1/net" });
+    expect(gcpInfo(w)).toEqual({ projectId: "p1", region: "us-central1" });
+  });
 });
 
 describe("proxmoxInfo", () => {
@@ -94,6 +104,11 @@ describe("proxmoxInfo", () => {
   it("falls back to ws.region when the path omits a node segment", () => {
     const w = ws({ name: "x", region: "global", tf_working_dir: "proxmox/cluster-home" });
     expect(proxmoxInfo(w)).toEqual({ slug: "home", node: "global" });
+  });
+
+  it("matches the leading segment case-insensitively", () => {
+    const w = ws({ name: "vm-web", region: "global", tf_working_dir: "PROXMOX/cluster-home/pve/vm-web" });
+    expect(proxmoxInfo(w)).toEqual({ slug: "home", node: "pve" });
   });
 });
 
@@ -151,6 +166,11 @@ describe("workspacePathSegments", () => {
   it("keeps intermediate folders under a proxmox node", () => {
     const w = ws({ name: "dns", region: "global", tf_working_dir: "proxmox/cluster-home/pve2/lxc/dns" });
     expect(workspacePathSegments(w)).toEqual({ folders: ["lxc"], leaf: "dns" });
+  });
+
+  it("strips a case-insensitive proxmox/cluster-<slug>/<node> prefix", () => {
+    const w = ws({ name: "vm-web", region: "global", tf_working_dir: "PROXMOX/cluster-home/pve/vm-web" });
+    expect(workspacePathSegments(w)).toEqual({ folders: [], leaf: "vm-web" });
   });
 
   it("falls back to the workspace name for an empty or '.' path", () => {
