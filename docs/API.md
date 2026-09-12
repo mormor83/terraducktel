@@ -385,8 +385,8 @@ requires `ssh_username`. Responses carry `token_secret_masked_tail` and
 `proxmox/cluster-<slug>/<node>/<stack>` auto-link to the matching cluster on
 import; `state_backend` stays `s3`.
 
-**POST .../test** writes the decrypted credentials to internal memory, probes
-the Proxmox VE cluster API and always returns `{ok, detail?, version?}` —
+**POST .../test** decrypts the stored token in memory and probes the Proxmox
+version endpoint, and always returns `{ok, detail?, version?}` —
 never raises even on network/auth failures. The response includes the version
 string on success.
 

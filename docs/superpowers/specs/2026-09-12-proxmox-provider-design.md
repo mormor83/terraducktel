@@ -62,8 +62,8 @@ requires `ssh_username` (validated in the schema, not the DB).
 ### Workspace link
 
 Same revision adds `workspaces.proxmox_cluster_id` — String, nullable,
-`ForeignKey("proxmox_clusters.id", ondelete="SET NULL")`, indexed like the
-Azure/GCP columns. Proxmox workspaces use `aws_account_id="global"` (the
+`ForeignKey("proxmox_clusters.id", ondelete="SET NULL")`. Proxmox workspaces
+use `aws_account_id="global"` (the
 existing non-AWS convention) and `state_backend="s3"`. The `region` column
 stays `"global"`, as repo discovery already stamps for every non-AWS path.
 The Proxmox **node name** is the path's third segment and the UI reads it
@@ -108,8 +108,8 @@ via `proxmox_cluster_service.get_cluster_credentials()` and inject a
 | `TDT_PROXMOX_TOKEN_ID` | `api_token_id` |
 | `TDT_PROXMOX_TOKEN_SECRET` | decrypted secret |
 | `TDT_PROXMOX_TLS_INSECURE` | `"true"` / `"false"` |
-| `TDT_PROXMOX_SSH_USERNAME` | `ssh_username` or unset |
-| `TDT_PROXMOX_SSH_PRIVATE_KEY` | decrypted key or unset |
+| `TDT_PROXMOX_SSH_USERNAME` | `ssh_username`, injected only when both it and `ssh_private_key` are set |
+| `TDT_PROXMOX_SSH_PRIVATE_KEY` | decrypted key, injected only when both it and `ssh_username` are set |
 | `TDT_PROXMOX_CA_CERT_PEM` | `ca_cert_pem` or unset |
 
 Append `proxmox` to `TDT_CLOUD_PROVIDERS`. On credential-load failure, log a
@@ -125,15 +125,17 @@ fans the canonical set out to both providers:
   `PROXMOX_VE_SSH_USERNAME` + `PROXMOX_VE_SSH_PRIVATE_KEY`.
 - **Telmate/proxmox:** `PM_API_URL` (`<endpoint>/api2/json`), `PM_API_TOKEN_ID`,
   `PM_API_TOKEN_SECRET`, `PM_TLS_INSECURE`.
-- **CA bundle:** when `TDT_PROXMOX_CA_CERT_PEM` is set, write it to
-  `~/.proxmox/ca.pem` (0600), concatenate the system bundle
-  (`/etc/ssl/certs/ca-certificates.crt` on the Alpine-based
-  `hashicorp/terraform` image) plus the custom PEM into
-  `~/.proxmox/bundle.pem`, and export `SSL_CERT_FILE` pointing at it. Go
+- **CA bundle:** when `TDT_PROXMOX_CA_CERT_PEM` is set, concatenate the
+  system bundle (`/etc/ssl/certs/ca-certificates.crt` on the Alpine-based
+  `hashicorp/terraform` image, overridable via `TDT_SYSTEM_CA_BUNDLE`) plus
+  the custom PEM into a single `~/.proxmox/bundle.pem` (0600) — there is no
+  separate `ca.pem` file — and export `SSL_CERT_FILE` pointing at it. Go
   replaces rather than extends the root pool when `SSL_CERT_FILE` is set,
-  which is why the system bundle is merged in. The exact system bundle path
-  and both providers' env-var names are verified against the image and
-  provider docs during implementation.
+  which is why the system bundle is merged in. If the system bundle isn't
+  readable, the entrypoint logs a `WARN` and the merged bundle contains only
+  the custom CA. The exact system bundle path and both providers' env-var
+  names are verified against the image and provider docs during
+  implementation.
 - Echo a tail-only line (`endpoint`, token id, whether SSH/CA are wired). Never
   print the secret or key.
 
@@ -160,9 +162,15 @@ never returns the secret or private key.
 
 Schemas in `schemas/proxmox_cluster.py`: `ProxmoxClusterCreate`,
 `ProxmoxClusterUpdate`, `ProxmoxClusterResponse`, `ProxmoxClusterTestResult`.
-Validation: slug regex, `https://` endpoint, token id matches
-`^[^\s!@]+@[^\s!@]+![^\s!=]+$`, PEM fields start with the expected header line,
-SSH key requires username.
+Validation: slug regex, token id matches `^[^\s!@=]+@[^\s!@=]+![^\s!=]+$`
+(the `=` is excluded so a pasted `id=secret` pair is rejected instead of
+silently landing in the plaintext `api_token_id` column), PEM fields start
+with the expected header line, SSH key requires username. `endpoint` must be
+an https origin: parsed with `urllib.parse.urlsplit`, `scheme == "https"` and
+a non-empty host are required, query strings and fragments are rejected
+(422) — this catches a pasted Proxmox UI URL such as
+`https://pve:8006/#v1:0:18` — and a trailing `/api2/json` is stripped so the
+DB always holds the bare origin.
 
 Service `services/proxmox_cluster_service.py`: `_fernet()` with the Proxmox
 salt, `encrypt_secret`/`decrypt_secret`, `list_clusters`, `get_cluster`,
