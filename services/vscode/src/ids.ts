@@ -1,0 +1,8 @@
+export const PUBLISHER = "terraducktel";
+export const EXTENSION_NAME = "terraducktel-vscode";
+export const EXTENSION_ID = `${PUBLISHER}.${EXTENSION_NAME}`;
+export const VIEW_WORKSPACES = "terraducktel.workspaces";
+export const VIEW_RUNS = "terraducktel.runs";
+export const PLAN_SCHEME = "tdt-plan";
+export const CTX_SIGNED_IN = "terraducktel.signedIn";
+export const CTX_CAN_WRITE = "terraducktel.canWrite";
