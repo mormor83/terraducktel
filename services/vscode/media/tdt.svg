@@ -1,4 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M7 17a4 4 0 0 1 1-7.9 6 6 0 0 1 11 2A3.5 3.5 0 0 1 18 18H7z"/>
-  <path d="M9.5 13.5l2 2 3.5-4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Terraducktel">
+  <path d="M10 30 L24 18 L26 28 L20 32 L28 32 L22 40 Z" fill="currentColor"></path>
+  <path d="M22 36 Q34 26 46 30 L52 28 L50 34 L44 36 Q34 40 26 42 Z" fill="currentColor"></path>
+  <path d="M46 30 L54 28 L56 32 L52 33 Z" fill="currentColor"></path>
+  <circle cx="50" cy="30" r="1.2" fill="currentColor"></circle>
+  <path d="M30 30 L46 16 L44 26 L38 30 Z" fill="currentColor"></path>
+  <path d="M22 40 L18 46 L26 42 Z" fill="currentColor"></path>
 </svg>

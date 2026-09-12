@@ -2,10 +2,15 @@
   "name": "terraducktel-vscode",
   "displayName": "Terraducktel",
   "description": "Drive Terraducktel (TDT) Terraform runs from VS Code: workspaces, runs, plan output and approvals.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "terraducktel",
   "license": "MIT",
   "private": true,
+  "icon": "media/icon.png",
+  "keywords": ["terraform", "terraducktel", "iac", "approvals", "gitops"],
+  "homepage": "https://github.com/mormor83/terraducktel/blob/main/docs/VSCODE.md",
+  "bugs": { "url": "https://github.com/mormor83/terraducktel/issues" },
+  "galleryBanner": { "color": "#0e1f1d", "theme": "dark" },
   "repository": {
     "type": "git",
     "url": "https://github.com/mormor83/terraducktel"
