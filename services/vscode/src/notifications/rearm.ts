@@ -21,7 +21,9 @@ export function createRearm(d: RearmDeps): () => Promise<void> {
     if (!key) { d.stop(); primedFor = undefined; return; }
     // A rapid BU switch can prime() twice in a row (once per call) before either reaches start();
     // harmless — prime() only records the current backlog as seen, it never notifies.
-    if (primedFor !== key) { primedFor = key; await d.prime(); }
+    // stop() FIRST: the previous key's timer is still armed, and a poll it fires during the
+    // await below would race the prime and treat the new session's whole backlog as fresh.
+    if (primedFor !== key) { primedFor = key; d.stop(); await d.prime(); }
     // Re-check both: a later call superseding this one (gen), and a sign-out that landed mid-prime
     // without (yet) producing a new call at all (key back to undefined).
     if (my !== gen || !d.key()) return;

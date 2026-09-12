@@ -12,7 +12,8 @@ describe("createRearm", () => {
       stop: () => calls.push("stop"),
     });
     await rearm();
-    expect(calls).toEqual(["prime", "start"]);
+    // stop() precedes prime(): the previous key's timer must not poll during the prime.
+    expect(calls).toEqual(["stop", "prime", "start"]);
     calls.length = 0;
     await rearm();                             // same key: no re-prime, still (re)starts
     expect(calls).toEqual(["start"]);
@@ -30,7 +31,7 @@ describe("createRearm", () => {
     calls.length = 0;
     key = "local:default";                     // signing back in re-primes (primedFor was cleared)
     await rearm();
-    expect(calls).toEqual(["prime", "start"]);
+    expect(calls).toEqual(["stop", "prime", "start"]);
   });
 
   it("does not start() when a sign-out lands while prime() is still in flight", async () => {
@@ -49,7 +50,7 @@ describe("createRearm", () => {
     key = undefined;                           // sign-out races the still-in-flight prime
     releasePrime();
     await p1;
-    expect(calls).toEqual(["prime"]);          // must NOT have start()ed with a signed-out session
+    expect(calls).toEqual(["stop", "prime"]);  // must NOT have start()ed with a signed-out session
   });
 
   it("does not start() when a later rearm (profile/BU switch) supersedes an in-flight one", async () => {
@@ -69,9 +70,9 @@ describe("createRearm", () => {
     key = "b:default";                         // profile switch before p1's prime() resolves
     const p2 = rearm();                        // seq=2: primes for "b:default" (different key), runs to completion
     await p2;
-    expect(calls).toEqual(["prime:a:default", "prime:b:default", "start:b:default"]);
+    expect(calls).toEqual(["stop", "prime:a:default", "stop", "prime:b:default", "start:b:default"]);
     releaseFirstPrime();
     await p1;                                  // p1 finally resolves, but must not start() again — it was superseded
-    expect(calls).toEqual(["prime:a:default", "prime:b:default", "start:b:default"]);
+    expect(calls).toEqual(["stop", "prime:a:default", "stop", "prime:b:default", "start:b:default"]);
   });
 });
