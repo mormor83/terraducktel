@@ -19,6 +19,8 @@ from app.models.azure_subscription import AzureSubscription
 from app.models.business_unit import DEFAULT_BU_ID, BusinessUnit
 from app.models.run import Run, RunStatus
 from app.models.workspace import Workspace
+from app.models.proxmox_cluster import ProxmoxCluster
+from app.services import proxmox_cluster_service as pmxsvc
 
 
 # ─── fakes ───────────────────────────────────────────────────────────────────
@@ -395,3 +397,75 @@ async def test_unresolvable_bu_uses_global_config_path(db_session, monkeypatch):
     docker = _Docker()
     await _svc(db_session, docker).launch_run(run, ws, db_session=db_session)
     assert docker.containers.kwargs["environment"]["CHECKOV_MODE"] == "fail"
+
+
+# ─── proxmox injection ───────────────────────────────────────────────────────
+
+
+async def test_proxmox_env_injected(db_session, monkeypatch):
+    monkeypatch.setenv("EXECUTOR_RUNTIME", "docker")
+    monkeypatch.setenv("TERRADUCKTEL_STATE_TOKEN", "t")
+    if await db_session.get(BusinessUnit, DEFAULT_BU_ID) is None:
+        db_session.add(BusinessUnit(id=DEFAULT_BU_ID, slug="default", name="Default"))
+    row = ProxmoxCluster(
+        business_unit_id=DEFAULT_BU_ID, slug="home", name="Home",
+        endpoint="https://pve.local:8006", api_token_id="tdt@pve!ci",
+        api_token_secret_encrypted=pmxsvc.encrypt_secret("sek"),
+        ssh_username="root", ssh_private_key_encrypted=pmxsvc.encrypt_secret("KEY"),
+        tls_insecure=True, ca_cert_pem="-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n",
+    )
+    db_session.add(row)
+    await db_session.commit()
+    ws, run = await _seed(db_session, proxmox_cluster_id=row.id)
+    docker = _Docker()
+    await _svc(db_session, docker).launch_run(run, ws, db_session=db_session)
+    env = docker.containers.kwargs["environment"]
+    assert env["TDT_PROXMOX_ENDPOINT"] == "https://pve.local:8006"
+    assert env["TDT_PROXMOX_TOKEN_ID"] == "tdt@pve!ci"
+    assert env["TDT_PROXMOX_TOKEN_SECRET"] == "sek"
+    assert env["TDT_PROXMOX_TLS_INSECURE"] == "true"
+    assert env["TDT_PROXMOX_SSH_USERNAME"] == "root"
+    assert env["TDT_PROXMOX_SSH_PRIVATE_KEY"] == "KEY"
+    assert env["TDT_PROXMOX_CA_CERT_PEM"].startswith("-----BEGIN CERTIFICATE-----")
+    assert env["TDT_CLOUD_PROVIDERS"] == "aws,proxmox"
+
+
+async def test_proxmox_optional_fields_absent_when_unset(db_session, monkeypatch):
+    monkeypatch.setenv("EXECUTOR_RUNTIME", "docker")
+    monkeypatch.setenv("TERRADUCKTEL_STATE_TOKEN", "t")
+    if await db_session.get(BusinessUnit, DEFAULT_BU_ID) is None:
+        db_session.add(BusinessUnit(id=DEFAULT_BU_ID, slug="default", name="Default"))
+    row = ProxmoxCluster(
+        business_unit_id=DEFAULT_BU_ID, slug="bare", name="Bare",
+        endpoint="https://pve:8006", api_token_id="u@pam!t",
+        api_token_secret_encrypted=pmxsvc.encrypt_secret("s"),
+    )
+    db_session.add(row)
+    await db_session.commit()
+    ws, run = await _seed(db_session, proxmox_cluster_id=row.id)
+    docker = _Docker()
+    await _svc(db_session, docker).launch_run(run, ws, db_session=db_session)
+    env = docker.containers.kwargs["environment"]
+    assert env["TDT_PROXMOX_TLS_INSECURE"] == "false"
+    for k in ("TDT_PROXMOX_SSH_USERNAME", "TDT_PROXMOX_SSH_PRIVATE_KEY", "TDT_PROXMOX_CA_CERT_PEM"):
+        assert k not in env
+
+
+async def test_proxmox_cred_load_failure_swallowed(db_session, monkeypatch):
+    monkeypatch.setenv("EXECUTOR_RUNTIME", "docker")
+    monkeypatch.setenv("TERRADUCKTEL_STATE_TOKEN", "t")
+    if await db_session.get(BusinessUnit, DEFAULT_BU_ID) is None:
+        db_session.add(BusinessUnit(id=DEFAULT_BU_ID, slug="default", name="Default"))
+    row = ProxmoxCluster(
+        business_unit_id=DEFAULT_BU_ID, slug="broken", name="Broken",
+        endpoint="https://pve:8006", api_token_id="u@pam!t",
+        api_token_secret_encrypted="not-a-valid-fernet-token",
+    )
+    db_session.add(row)
+    await db_session.commit()
+    ws, run = await _seed(db_session, proxmox_cluster_id=row.id)
+    docker = _Docker()
+    await _svc(db_session, docker).launch_run(run, ws, db_session=db_session)
+    env = docker.containers.kwargs["environment"]
+    assert "TDT_PROXMOX_ENDPOINT" not in env
+    assert "proxmox" not in env.get("TDT_CLOUD_PROVIDERS", "")
