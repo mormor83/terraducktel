@@ -63,6 +63,50 @@ Nothing secret is written to settings or logs.
 Settings: `refreshIntervalSeconds` (default 30), `runsLimit` (200), `trace`
 (request metadata to the *Terraducktel* output channel; never credentials).
 
+## Editor integration
+
+While editing a `.tf`, `.tfvars`, or `.hcl` file, a status bar item shows the
+mapped workspace (if any): `$(cloud) TDT: <name> · <last run status>`. The
+background is red after a failed run, yellow while awaiting approval, and
+the default status-bar colour otherwise. When the file has no workspace, the
+item shows `TDT: not imported` with an action to open the Discover flow.
+
+Clicking the status bar item opens a quick pick:
+- **Plan this leaf** — trigger a plan on the file's workspace. If the current
+  git branch differs from the workspace's tracked ref, you can choose to plan on
+  the current branch (which pins the workspace's `repo_ref` via `PUT
+  /workspaces/{id}`), or on the tracked ref without pinning.
+- **Show last plan** — open the plan output (if a run exists).
+- **Reveal in sidebar** — jump to this workspace in the Workspaces tree.
+- **Open in browser** — jump to the workspace on the web UI.
+
+**Commands:**
+- `Terraducktel: Current file: actions…` (`terraducktel.currentFileActions`)
+  — palette only; shows the same quick pick as clicking the status bar.
+- `Terraducktel: Plan this leaf` (`terraducktel.planCurrentFile`)
+  — palette and editor-title button (shown when the file is mapped and you have
+  write access).
+- `Terraducktel: Reveal current workspace in sidebar`
+  (`terraducktel.revealCurrentWorkspace`) — palette only.
+
+**How a file is matched:**
+The editor resolves the workspace whose `repo_url` matches the checkout's
+`origin` (scheme, user, `.git` suffix, and case are ignored) **and** whose
+`tf_working_dir` is the longest prefix of the file's directory relative to the
+git root. `local://` workspaces match by `tf_working_dir` alone. When the folder
+has no git remote or the remote is not recognised, the editor falls back to
+matching by `tf_working_dir` alone, but only if exactly one workspace fits.
+Whole-repo workspaces with `tf_working_dir="."` are never matched.
+
+**Git information:**
+Git information comes from `git` on your PATH (`rev-parse --show-toplevel` and
+`remote get-url origin`), is cached for 10 seconds per checkout, and times out
+after 3 seconds — the editor never blocks waiting for git. Mapping works only
+inside a git checkout.
+
+The `terraducktel.statusBar.enabled` setting (default true) toggles the status
+bar item globally.
+
 ## Development
 
 `npm run watch` + F5 (Extension Development Host). `npm test` runs the unit

@@ -20,4 +20,11 @@ suite("Terraducktel extension smoke", () => {
     const runIds = await ext.exports.__test.runIds();
     assert.ok(runIds.includes("r2"));
   });
+
+  test("registers editor integration commands", async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes("terraducktel.currentFileActions"), "terraducktel.currentFileActions command not registered");
+    assert.ok(commands.includes("terraducktel.planCurrentFile"), "terraducktel.planCurrentFile command not registered");
+    assert.ok(commands.includes("terraducktel.revealCurrentWorkspace"), "terraducktel.revealCurrentWorkspace command not registered");
+  });
 });

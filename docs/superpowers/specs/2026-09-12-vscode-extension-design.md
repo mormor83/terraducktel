@@ -200,6 +200,18 @@ not an oversight — revisit them by name rather than re-deriving them.
 - Branch awareness: if the current git branch ≠ `repo_ref`, "Plan this leaf"
   offers "Plan on <branch> (pins the workspace)" vs "Plan on <repo_ref>".
 
+### Milestone B notes
+
+- **Unknown-remote fallback:** when the folder has no git remote or the remote
+  URL is not recognised, fall back to matching by `tf_working_dir` alone; only
+  then match a workspace if its prefix is unique (no ambiguous multiple matches).
+- **Branch pinning:** "Plan on <branch>" calls `PUT /workspaces/{id}
+  {repo_ref}` to pin the workspace before triggering the plan.
+- **Git probe:** `git` commands are cached per folder for 10 seconds with a
+  3-second timeout, so mapping is fast and never blocks the UI.
+- **Whole-repo workspaces:** workspaces with `tf_working_dir="."` are never
+  matched by the editor mapping.
+
 ## 6. Milestone C — approval notifications
 
 - Background poll of `GET /runs?status=awaiting_approval` for the active BU
