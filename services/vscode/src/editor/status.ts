@@ -7,6 +7,7 @@ import { matchWorkspace, relativeDir } from "./mapping";
 import { runCommandFor } from "../commands/workspace";
 import type { PlanDocumentProvider } from "../output/planDocument";
 import { CTX_FILE_MAPPED } from "../ids";
+import { wrap } from "../commands/auth";
 
 const TF_LANGS = new Set(["terraform", "terraform-vars", "hcl"]);
 const isTfFile = (doc: vscode.TextDocument) => doc.uri.scheme === "file" && (TF_LANGS.has(doc.languageId) || /\.(tf|tfvars|hcl)$/i.test(doc.uri.fsPath));
@@ -29,9 +30,9 @@ export class EditorStatus implements vscode.Disposable {
       vscode.workspace.onDidSaveTextDocument(() => this.git.invalidate()),           // branch may have changed via a commit
       s.store.onDidChange(() => void this.refresh()), s.onDidChange(() => void this.refresh()),
       vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration("terraducktel.statusBar")) void this.refresh(); }),
-      vscode.commands.registerCommand("terraducktel.currentFileActions", () => this.actions()),
-      vscode.commands.registerCommand("terraducktel.planCurrentFile", () => this.planCurrent()),
-      vscode.commands.registerCommand("terraducktel.revealCurrentWorkspace", () => this.cur && this.deps.reveal(this.cur.ws.id)),
+      vscode.commands.registerCommand("terraducktel.currentFileActions", wrap(() => this.actions())),
+      vscode.commands.registerCommand("terraducktel.planCurrentFile", wrap(() => this.planCurrent())),
+      vscode.commands.registerCommand("terraducktel.revealCurrentWorkspace", wrap(async () => { if (this.cur) await this.deps.reveal(this.cur.ws.id); })),
     );
     void this.refresh();
   }

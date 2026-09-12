@@ -46,9 +46,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
   context.subscriptions.push(out, plans);
   const { watch } = registerRunCommands(context, session, out, plans);
   registerWorkspaceCommands(context, session, watch);
-  // `revealWorkspace` lands in Task 4; until then, jump to the sidebar view instead of a
-  // specific node.
-  const status = new EditorStatus(session, { watch, plans, reveal: async () => { await vscode.commands.executeCommand("terraducktel.workspaces.focus"); } });
+  const status = new EditorStatus(session, { watch, plans, reveal: (id) => wsTree.revealWorkspace(wsView, id) });
   context.subscriptions.push(status);
   await session.reload();
   return {
