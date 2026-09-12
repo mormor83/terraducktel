@@ -26,7 +26,8 @@ export class ApprovalWatcher {
     await this.d.seen.set(seen);
   }
   poll(): Promise<void> { if (!this.inflight) this.inflight = this.doPoll().finally(() => { this.inflight = null; }); return this.inflight; }
-  private trace(l: string) { this.d.trace?.(l); }
+  /** Never let a throwing trace callback itself break the caller — trace is diagnostics only. */
+  private trace(l: string) { try { this.d.trace?.(l); } catch { /* diagnostics only */ } }
   private async doPoll(): Promise<void> {
     const runs = await this.fetchAwaiting(); if (!runs) return;
     const seen = this.seen(); const fresh = runs.filter((r) => !(r.id in seen)); const t = this.now();
@@ -52,10 +53,11 @@ export class ApprovalWatcher {
     this.stop(); if (intervalMs <= 0) return;
     const tick = async () => {
       // The loop must keep ticking even if this poll rejected outright (fetchAwaiting already
-      // swallows its own errors, but guard the whole call in case a future change doesn't).
+      // swallows its own errors, but guard the whole call in case a future change doesn't) — and
+      // even if the trace() call itself throws, so the reschedule lives in `finally`.
       try { await this.poll(); }
       catch (e) { this.trace(`approvals poll failed: ${e instanceof Error ? e.message : String(e)}`); }
-      this.timer = setTimeout(tick, intervalMs);
+      finally { this.timer = setTimeout(tick, intervalMs); }
     };
     this.timer = setTimeout(tick, intervalMs);
   }

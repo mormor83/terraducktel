@@ -4,6 +4,7 @@ import { registerRunCommands } from "./commands/run";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { EditorStatus } from "./editor/status";
 import { ApprovalWatcher } from "./notifications/approvals";
+import { createRearm } from "./notifications/rearm";
 import { RunOutputManager } from "./output/runOutput";
 import { PlanDocumentProvider } from "./output/planDocument";
 import { Session } from "./session";
@@ -69,13 +70,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
   });
   context.subscriptions.push(approvals);
   const approvalsInterval = () => { const s = vscode.workspace.getConfiguration("terraducktel").get<number>("approvals.pollSeconds", 60); return s <= 0 ? 0 : Math.max(15, s) * 1000; };
-  let primedFor: string | undefined;
-  const rearm = async () => {
-    const key = session.tokens?.isSignedIn() ? `${session.profile?.name}:${session.bu}` : undefined;
-    if (!key) { approvals.stop(); primedFor = undefined; return; }
-    if (primedFor !== key) { primedFor = key; await approvals.prime(); }   // never spray the backlog after sign-in / BU switch
-    approvals.start(approvalsInterval());
-  };
+  const rearm = createRearm({
+    key: () => (session.tokens?.isSignedIn() ? `${session.profile?.name}:${session.bu}` : undefined),
+    prime: () => approvals.prime(),
+    start: () => approvals.start(approvalsInterval()),
+    stop: () => approvals.stop(),
+  });
   context.subscriptions.push(session.onDidChange(() => void rearm()),
     vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration("terraducktel.approvals")) void rearm(); }));
   void rearm();
