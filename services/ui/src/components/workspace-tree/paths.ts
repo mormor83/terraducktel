@@ -33,6 +33,20 @@ export function gcpInfo(ws: Workspace): { projectId: string; region: string } | 
 }
 
 /**
+ * Detect the Proxmox layout encoded in a workspace's repo path:
+ * `proxmox/cluster-<slug>/<node>/…`. The node name plays the region role.
+ * Path fallback for grouping — the explicit `workspace.proxmox_cluster_id`
+ * link wins when present.
+ */
+export function proxmoxInfo(ws: Workspace): { slug: string; node: string } | null {
+  const parts = (ws.tf_working_dir ?? "").trim().split("/").filter(Boolean);
+  if (parts[0] !== "proxmox") return null;
+  const m = (parts[1] ?? "").match(/^cluster-(.+)$/);
+  if (!m) return null;
+  return { slug: m[1], node: parts[2] ?? ws.region };
+}
+
+/**
  * Split a workspace's `tf_working_dir` into intermediate folder segments + a
  * leaf name. We strip the leading `account-<id>/<region>/` to leave just the
  * path *within* the (account, region) slot. The leaf is what the row should
@@ -58,6 +72,11 @@ export function workspacePathSegments(ws: Workspace): { folders: string[]; leaf:
   } else if (parts[0] === "gcp" && /^project-/.test(parts[1] ?? "")) {
     // Strip the `gcp/project-<id>` pair (the project is the top-level group)
     // and treat the next segment as the region to strip — same shape as Azure.
+    parts.shift();
+    parts.shift();
+    regionToStrip = parts[0] ?? ws.region;
+  } else if (parts[0] === "proxmox" && /^cluster-/.test(parts[1] ?? "")) {
+    // Strip the `proxmox/cluster-<slug>` pair and treat the node as the region.
     parts.shift();
     parts.shift();
     regionToStrip = parts[0] ?? ws.region;

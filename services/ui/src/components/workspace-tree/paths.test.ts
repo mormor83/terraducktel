@@ -5,6 +5,7 @@ import {
   collectNodeWorkspaces,
   countNodeWorkspaces,
   gcpInfo,
+  proxmoxInfo,
   workspacePathSegments,
 } from "./paths";
 import type { Workspace } from "./types";
@@ -76,6 +77,26 @@ describe("gcpInfo", () => {
   });
 });
 
+describe("proxmoxInfo", () => {
+  it("parses slug + node from a proxmox/cluster path", () => {
+    const w = ws({ name: "vm-web", region: "global", tf_working_dir: "proxmox/cluster-home/pve/vm-web" });
+    expect(proxmoxInfo(w)).toEqual({ slug: "home", node: "pve" });
+  });
+
+  it("returns null for a non-proxmox path", () => {
+    expect(proxmoxInfo(ws({ name: "vpc", tf_working_dir: "account-123/us-east-1/vpc" }))).toBeNull();
+  });
+
+  it("returns null when 'proxmox' is present but the second segment isn't a cluster", () => {
+    expect(proxmoxInfo(ws({ name: "x", tf_working_dir: "proxmox/pve/x" }))).toBeNull();
+  });
+
+  it("falls back to ws.region when the path omits a node segment", () => {
+    const w = ws({ name: "x", region: "global", tf_working_dir: "proxmox/cluster-home" });
+    expect(proxmoxInfo(w)).toEqual({ slug: "home", node: "global" });
+  });
+});
+
 describe("workspacePathSegments", () => {
   it("strips account-<id>/<region> for an AWS path", () => {
     const w = ws({
@@ -120,6 +141,16 @@ describe("workspacePathSegments", () => {
       tf_working_dir: "gcp/project-p1/us-central1/platform/gke",
     });
     expect(workspacePathSegments(w)).toEqual({ folders: ["platform"], leaf: "gke" });
+  });
+
+  it("strips proxmox/cluster-<slug>/<node> so the leaf sits at the node", () => {
+    const w = ws({ name: "vm-web", region: "global", tf_working_dir: "proxmox/cluster-home/pve/vm-web" });
+    expect(workspacePathSegments(w)).toEqual({ folders: [], leaf: "vm-web" });
+  });
+
+  it("keeps intermediate folders under a proxmox node", () => {
+    const w = ws({ name: "dns", region: "global", tf_working_dir: "proxmox/cluster-home/pve2/lxc/dns" });
+    expect(workspacePathSegments(w)).toEqual({ folders: ["lxc"], leaf: "dns" });
   });
 
   it("falls back to the workspace name for an empty or '.' path", () => {
