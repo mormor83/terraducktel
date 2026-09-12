@@ -37,6 +37,11 @@ function fakeSession(opts: { signedIn?: boolean; workspaces?: Workspace[]; runs?
 
 const fakeDoc = (fsPath: string) => ({ uri: { scheme: "file", fsPath }, languageId: "terraform" });
 
+/** Every `EditorStatus` a test has created, so `afterEach` can dispose them all — an undisposed
+ *  instance leaves its subscriptions (event listeners, registered commands) live for the next
+ *  test in this file, since the stub module (and its `statusBarItems`) is shared across `it`s. */
+const createdStatuses: EditorStatus[] = [];
+
 /** A `GitProbe` bound to a scripted `exec`, plus the plumbing EditorStatus needs. */
 function make(session: Session, exec: ExecFn) {
   const git = new GitProbe({ exec });
@@ -44,6 +49,7 @@ function make(session: Session, exec: ExecFn) {
   const reveal = vi.fn(async () => {});
   const watch = vi.fn();
   const status = new EditorStatus(session, { watch, plans, reveal, git });
+  createdStatuses.push(status);
   const item = stub.statusBarItems[stub.statusBarItems.length - 1];
   return { status, item, plans, reveal, watch };
 }
@@ -56,7 +62,11 @@ const gitExec = (root: string, remote: string | undefined, branch: string | unde
 };
 
 describe("EditorStatus", () => {
-  afterEach(() => { stub.window.activeTextEditor = undefined; stub.setContextCalls.length = 0; });
+  afterEach(() => {
+    stub.window.activeTextEditor = undefined; stub.setContextCalls.length = 0;
+    for (const s of createdStatuses.splice(0)) s.dispose();
+    stub.statusBarItems.length = 0;
+  });
 
   it("shows the mapped workspace's text and tooltip", async () => {
     const w = ws({ name: "vpc" });
@@ -134,5 +144,48 @@ describe("EditorStatus", () => {
     releaseA();
     await p1;                                              // the stale refresh finally lands…
     expect(status.current()?.ws.name).toBe("b");           // …but must not have overwritten "b"
+  });
+
+  it("re-probes the branch right before pinning, not the stale one from the last refresh()", async () => {
+    const w = ws({ name: "vpc" });
+    let branch = "main";
+    // rev-parse --show-toplevel / remote get-url origin / rev-parse --abbrev-ref HEAD
+    const exec: ExecFn = async (_cmd, args) => {
+      if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return "/repo\n";
+      if (args[0] === "remote") return "https://github.com/acme/infra.git\n";
+      return `${branch}\n`;
+    };
+    const run = { id: "r1", workspace_id: "vpc", command: "plan", status: "planning", created_at: "t" } as Run;
+    const updateWorkspace = vi.fn(async () => undefined);
+    const triggerRun = vi.fn(async () => run);
+    const refresh = vi.fn(async () => undefined);
+    const session = {
+      tokens: { isSignedIn: () => true },
+      store: { workspaces: [w], runsFor: () => [], onDidChange: () => ({ dispose() {} }), refresh },
+      onDidChange: () => ({ dispose() {} }),
+      uiUrl: () => "http://ui.example",
+      requireClient: () => ({ updateWorkspace, triggerRun }),
+    } as unknown as Session;
+
+    // Capture the command handlers EditorStatus registers, the way the real extension host
+    // would dispatch them, without disturbing the shared stub for other tests in this file.
+    const registerSpy = vi.spyOn(vscodeStub.commands, "registerCommand");
+    stub.window.activeTextEditor = { document: fakeDoc("/repo/account-1/eu-west-1/vpc/main.tf") };
+    const { status } = make(session, exec);
+    await status.refresh();                                // caches git.branch = "main", same as ws.repo_ref
+
+    branch = "feat/y";                                      // the working tree moves on after the refresh
+    const originalShowQuickPick = vscodeStub.window.showQuickPick;
+    vscodeStub.window.showQuickPick = (async (items: Array<{ b?: string }>) => items[0]) as typeof vscodeStub.window.showQuickPick;
+
+    const planHandler = registerSpy.mock.calls.find(([id]) => id === "terraducktel.planCurrentFile")?.[1] as (() => Promise<void>) | undefined;
+    expect(planHandler).toBeDefined();
+    await planHandler!();
+
+    expect(updateWorkspace).toHaveBeenCalledWith("vpc", { repo_ref: "feat/y" }); // re-probed branch, not the stale "main"
+    expect(triggerRun).toHaveBeenCalledWith("vpc", { command: "plan" });
+
+    vscodeStub.window.showQuickPick = originalShowQuickPick;
+    registerSpy.mockRestore();
   });
 });
