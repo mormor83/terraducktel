@@ -18,6 +18,11 @@ _TOKEN_ID_RE = re.compile(r"^[^\s!@=]+@[^\s!@=]+![^\s!=]+$")
 
 def _https_endpoint(v: str) -> str:
     v = (v or "").strip()
+    # Proxmox is always HTTPS on 8006; a bare `host:8006` pasted over the
+    # form's `https://` prefill is the common case, so assume https rather
+    # than bounce the operator. An explicit `http://` is still rejected.
+    if v and "://" not in v:
+        v = f"https://{v}"
     parts = urlsplit(v)
     if parts.scheme != "https":
         raise ValueError("endpoint must start with https://")
@@ -32,9 +37,9 @@ def _https_endpoint(v: str) -> str:
         raise ValueError(
             "endpoint must not include a path other than a trailing /api2/json"
         )
-    # Normalise here so the DB always holds a bare origin, e.g.
-    # `https://host:8006` — not `.../api2/json` or a trailing slash.
-    return normalize_endpoint(v)
+    # Normalise here so the DB always holds a bare, lower-cased origin, e.g.
+    # `https://host:8006` — not `HTTPS://Host:8006/api2/json/`.
+    return normalize_endpoint(f"https://{parts.netloc.lower()}{parts.path}")
 
 
 def _pem(v: Optional[str], header: str) -> Optional[str]:

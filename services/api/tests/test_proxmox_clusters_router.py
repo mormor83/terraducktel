@@ -129,8 +129,16 @@ async def test_validation_422(auth_client, admin_token, over):
     assert r.status_code == 422, r.text
 
 
-async def test_endpoint_normalises_trailing_api2_json(auth_client, admin_token):
-    row = await _create(auth_client, admin_token, slug="apipath", endpoint="https://pve.local:8006/api2/json/")
+@pytest.mark.parametrize(
+    "slug,raw",
+    [
+        ("apipath", "https://pve.local:8006/api2/json/"),
+        ("bare", "pve.local:8006"),  # no scheme → https assumed
+        ("upper", "HTTPS://PVE.LOCAL:8006/"),  # scheme + host lower-cased
+    ],
+)
+async def test_endpoint_normalises_to_bare_origin(auth_client, admin_token, slug, raw):
+    row = await _create(auth_client, admin_token, slug=slug, endpoint=raw)
     assert row["endpoint"] == "https://pve.local:8006"
 
 
