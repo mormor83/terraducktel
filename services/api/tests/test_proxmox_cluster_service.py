@@ -63,3 +63,48 @@ async def test_get_cluster_credentials(db_session):
     assert creds.ssh_username == "root" and creds.ssh_private_key == "KEY"
     assert creds.tls_insecure is True and creds.ca_cert_pem is None
     assert await svc.get_cluster_credentials(db_session, "nope") is None
+
+
+async def test_used_colors_span_proxmox(db_session):
+    from app.models.business_unit import DEFAULT_BU_ID, BusinessUnit
+    from app.models.proxmox_cluster import ProxmoxCluster
+    from app.services import account_colors
+
+    if await db_session.get(BusinessUnit, DEFAULT_BU_ID) is None:
+        db_session.add(BusinessUnit(id=DEFAULT_BU_ID, slug="default", name="Default"))
+    db_session.add(ProxmoxCluster(
+        business_unit_id=DEFAULT_BU_ID, slug="c", name="c", endpoint="https://p:8006",
+        api_token_id="u@pam!t", api_token_secret_encrypted=svc.encrypt_secret("x"),
+        color="purple",
+    ))
+    await db_session.commit()
+    assert "purple" in await account_colors.used_colors_for_bu(db_session, DEFAULT_BU_ID)
+
+
+async def test_slack_badge_resolves_proxmox_cluster(db_session):
+    import uuid
+
+    from app.models.business_unit import DEFAULT_BU_ID, BusinessUnit
+    from app.models.proxmox_cluster import ProxmoxCluster
+    from app.models.workspace import Workspace
+    from app.services import account_colors
+    from app.services.notification_service import _account_badge
+
+    if await db_session.get(BusinessUnit, DEFAULT_BU_ID) is None:
+        db_session.add(BusinessUnit(id=DEFAULT_BU_ID, slug="default", name="Default"))
+    row = ProxmoxCluster(
+        business_unit_id=DEFAULT_BU_ID, slug="lab", name="Lab", endpoint="https://p:8006",
+        api_token_id="u@pam!t", api_token_secret_encrypted=svc.encrypt_secret("x"), color="green",
+    )
+    db_session.add(row)
+    await db_session.flush()
+    ws = Workspace(
+        id=str(uuid.uuid4()), business_unit_id=DEFAULT_BU_ID, name="vm", environment="dev",
+        aws_account_id="global", region="global", repo_url="local://",
+        tf_working_dir="proxmox/cluster-lab/pve/vm", repo_ref="main", proxmox_cluster_id=row.id,
+    )
+    db_session.add(ws)
+    await db_session.commit()
+    badge = await _account_badge(db_session, ws.id)
+    assert badge.label == "Lab"
+    assert badge.hex == account_colors.COLOR_HEX["green"]
