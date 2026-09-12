@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeServer } from "../fake-server";
 import { ApiError, TdtClient } from "../../src/api/client";
 import type { TokenProvider } from "../../src/api/client";
+import { MemorySecretStore } from "../../src/auth/secrets";
+import { TokenManager } from "../../src/auth/tokenManager";
 
 function tokens(initial = "acc1"): TokenProvider & { access: string; refreshed: number; signedOut: number } {
   const t = {
     access: initial, refreshed: 0, signedOut: 0,
     getAccessToken: async () => t.access,
     refreshAccessToken: async () => { t.refreshed++; t.access = `acc${t.refreshed + 1}`; return t.access; },
+    hasCredential: () => true,
     signOut: async () => { t.signedOut++; },
   };
   return t;
@@ -42,6 +45,7 @@ describe("TdtClient", () => {
       refreshed: 0, signedOut: 0,
       getAccessToken: async () => undefined,
       refreshAccessToken: async () => { t.refreshed++; return undefined; },
+      hasCredential: () => false,                 // never signed in — not an expired session
       signOut: async () => { t.signedOut++; },
     };
     const c = new TdtClient({ baseUrl: url, bu: "default", tokens: t });
@@ -51,12 +55,39 @@ describe("TdtClient", () => {
     expect(t.refreshed).toBe(0); expect(t.signedOut).toBe(0); expect(out).toBe(0);
   });
 
+  it("with a STORED credential whose refresh token is dead: signs out once, reports an expired session", async () => {
+    // The regression this guards: an empty getAccessToken() used to mean "Not signed in"
+    // unconditionally, so this case — credential on disk, access token gone after a window
+    // reload, refresh rejected — left a phantom session that re-POSTed the dead token forever.
+    // Driven through a REAL TokenManager because it is the client/manager seam that regressed.
+    const secrets = new MemorySecretStore();
+    await secrets.store("terraducktel.cred.prod", JSON.stringify({ kind: "password", refresh_token: "dead" }));
+    const tm = new TokenManager(secrets, "prod");
+    const c = new TdtClient({ baseUrl: url, bu: "default", tokens: tm });
+    tm.attach(c);
+    srv.json("GET", "/api/v1/workspaces", 200, []);
+    srv.json("POST", "/api/v1/auth/refresh", 401, { detail: "invalid refresh token" });
+    let out = 0; c.onSignedOut(() => out++);
+
+    const err = await c.listWorkspaces().catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(401);
+    expect(err.message).toMatch(/expired/i);
+    expect(out).toBe(1);
+    expect(tm.isSignedIn()).toBe(false);
+    expect(tm.hasCredential()).toBe(false);
+    expect(await secrets.get("terraducktel.cred.prod")).toBeUndefined();
+    expect(srv.requests("POST", "/api/v1/auth/refresh").length).toBe(1);
+    expect(srv.requests("GET", "/api/v1/workspaces").length).toBe(0);   // never sent unauthenticated
+  });
+
   it("a transient refresh failure propagates and never signs out", async () => {
     srv.json("GET", "/api/v1/workspaces", 401, { detail: "expired" });
     const t = {
       signedOut: 0,
       getAccessToken: async () => "acc1" as string | undefined,
       refreshAccessToken: async (): Promise<string | undefined> => { throw new Error("network down"); },
+      hasCredential: () => true,
       signOut: async () => { t.signedOut++; },
     };
     const c = new TdtClient({ baseUrl: url, bu: "default", tokens: t });
@@ -138,6 +169,7 @@ describe("TdtClient", () => {
         t.access = `acc${t.refreshed + 1}`;
         return t.access;
       },
+      hasCredential: () => true,
       signOut: async () => { t.signedOut++; },
     };
     const c = new TdtClient({ baseUrl: url, bu: "default", tokens: t });
@@ -251,6 +283,7 @@ describe("TdtClient", () => {
         t.access = `acc${t.refreshed + 1}`;
         return t.access;
       },
+      hasCredential: () => true,
       signOut: async () => { t.signedOut++; },
     };
     const c = new TdtClient({ baseUrl: url, bu: "default", tokens: t });

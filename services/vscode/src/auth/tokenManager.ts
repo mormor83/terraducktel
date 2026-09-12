@@ -49,6 +49,9 @@ export class TokenManager implements TokenProvider {
   }
 
   isSignedIn() { return !!this.cred; }
+  /** Synchronous by design — see `TokenProvider.hasCredential`. Callers that could run before
+   *  the secret store has been read must `await restore()` (or `getAccessToken()`) first. */
+  hasCredential() { return !!this.cred; }
   kind(): CredentialKind | undefined { return this.cred?.kind; }
   /** Claims from the current access token (undefined for API keys or when signed out). */
   claims(): AccessClaims | undefined { return this.access && this.cred?.kind !== "api_key" ? decodeJwtPayload(this.access) : undefined; }
@@ -90,11 +93,23 @@ export class TokenManager implements TokenProvider {
     if (!client || !cred.refresh_token) return undefined;
     // `refreshing` is set synchronously after the await above, so a second caller resuming
     // later always observes the first caller's in-flight redemption.
-    return (this.refreshing ??= this.redeem(client, cred).finally(() => { this.refreshing = null; }));
+    if (this.refreshing) return this.refreshing;
+    // Clear the slot only if it is still OURS: `signOut()` nulls it mid-flight, and a
+    // re-sign-in can start a second flight before this one settles — a blind `= null` in
+    // `finally` would then cancel the newer flight's coalescing behind its back.
+    const p: Promise<string | undefined> = this.redeem(client, cred).finally(() => { if (this.refreshing === p) this.refreshing = null; });
+    this.refreshing = p;
+    return p;
   }
   private async redeem(client: TdtClient, cred: StoredCredential): Promise<string | undefined> {
     try {
       const pair = await client.refresh(cred.refresh_token!);
+      if (this.cred !== cred) {
+        // Signed out (or signed back in) while this redemption was in flight. The rotated token
+        // belongs to a session that no longer exists: dropping it is right, writing it over a
+        // cleared or brand-new credential would not be. Answer with whatever is current.
+        return this.cred ? this.access : undefined;
+      }
       this.access = pair.access_token;
       await this.persist({ ...cred, refresh_token: pair.refresh_token });
       return this.access;

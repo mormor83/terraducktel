@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { TdtClient } from "./api/client";
-import type { AuthConfig } from "./api/types";
+import type { AuthConfig, TokenPair } from "./api/types";
 import { TokenManager } from "./auth/tokenManager";
 import { pickActive, readProfiles, uiUrlFor, type Profile } from "./auth/profiles";
 import { runLoopbackLogin } from "./auth/sso";
@@ -146,16 +146,25 @@ export class Session implements vscode.Disposable {
       if (vscode.env.remoteName) throw new Error("SSO sign-in needs a browser on this machine; in a remote session use an API key instead.");
       const client = this.client;
       let mine: (() => void) | undefined;
-      const pair = await vscode.window
-        .withProgress({ location: vscode.ProgressLocation.Notification, title: "Terraducktel: complete sign-in in your browser…", cancellable: true },
+      let pair: TokenPair;
+      try {
+        pair = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: "Terraducktel: complete sign-in in your browser…", cancellable: true },
           (_progress, token) => runLoopbackLogin({
             buildUrl: (port, nonce) => client.ssoLoginUrl(port, nonce),
             openUrl: (u) => vscode.env.openExternal(vscode.Uri.parse(u)) as Promise<boolean>,
             onCancel: (cancel) => { mine = cancel; this.cancelSso = cancel; token.onCancellationRequested(cancel); },
-          }))
-        // Clear only our own handle: a sign-in that superseded this one has already installed its.
-        .then((p) => { if (this.cancelSso === mine) this.cancelSso = undefined; return p; },
-          (e) => { if (this.cancelSso === mine) this.cancelSso = undefined; throw e; });
+          }));
+      } catch (e) {
+        // Clear only our own handle: a sign-in that superseded this one already installed its.
+        if (this.cancelSso === mine) this.cancelSso = undefined;
+        // Cancelling is a choice, not a failure — whether the user hit the notification's cancel
+        // button or started a second sign-in that superseded this one. Leave quietly; an error
+        // toast here would be reporting the thing they just asked for.
+        if (e instanceof Error && /cancelled/i.test(e.message)) return;
+        throw e;
+      }
+      if (this.cancelSso === mine) this.cancelSso = undefined;
       await this.tokens.signInWithTokenPair(pair, "sso");
     }
     await this.publishContexts();

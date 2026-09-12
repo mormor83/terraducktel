@@ -3,7 +3,7 @@ import { FakeServer } from "../fake-server";
 import { TdtClient } from "../../src/api/client";
 import { tailRun } from "../../src/output/runOutput";
 
-const tokens = { getAccessToken: async () => "t", refreshAccessToken: async () => "t", signOut: async () => {} };
+const tokens = { getAccessToken: async () => "t", refreshAccessToken: async () => "t", hasCredential: () => true, signOut: async () => {} };
 
 describe("tailRun", () => {
   let srv: FakeServer; let url: string;

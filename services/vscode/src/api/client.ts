@@ -10,6 +10,10 @@ export interface TokenProvider {
   getAccessToken(): Promise<string | undefined>;
   /** Obtain a fresh access token (refresh flow, or re-read an API key). Returns undefined when impossible. */
   refreshAccessToken(): Promise<string | undefined>;
+  /** Whether a long-lived credential is stored at all — which is what separates "never signed
+   *  in" from "signed in, but the stored refresh token is dead". Safe to read synchronously
+   *  immediately after `getAccessToken()`, which has already awaited the secret-store load. */
+  hasCredential(): boolean;
   signOut(): Promise<void>;
 }
 
@@ -76,11 +80,24 @@ export class TdtClient {
     let token: string | undefined;
     if (auth) {
       token = await this.o.tokens.getAccessToken();
-      // No credential at all: this is "signed out", not "token expired". Fail closed WITHOUT
-      // touching the network, the refresh flow, or the sign-out listeners — otherwise a poll
-      // that fires while signed out would refresh-then-sign-out and pop a "session expired"
-      // toast at a user who never had a session.
-      if (!token) throw new ApiError(401, "Not signed in");
+      if (!token) {
+        // Two different states arrive here and they must not be conflated:
+        //
+        // A stored credential that can no longer mint an access token is a DEAD session — after
+        // a window reload there is no access token in memory, so the lazy refresh ran and the
+        // server rejected the refresh token. Sign out for real; otherwise `isSignedIn()` stays
+        // true forever, no "session expired" toast ever fires, and every poll re-POSTs the same
+        // dead refresh token.
+        if (this.o.tokens.hasCredential()) {
+          await this.signOutOnce(epoch);
+          throw new ApiError(401, "Session expired — sign in again");
+        }
+        // No credential at all: "never signed in", not "token expired". Fail closed WITHOUT
+        // touching the network, the refresh flow, or the sign-out listeners — otherwise a poll
+        // that fires while signed out would pop a "session expired" toast at a user who never
+        // had a session.
+        throw new ApiError(401, "Not signed in");
+      }
     }
     let { res, used } = await attempt(token);
     if (auth && res.status === 401) {

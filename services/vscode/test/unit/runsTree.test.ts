@@ -6,7 +6,7 @@ import type { Session } from "../../src/session";
 import { RunsTree } from "../../src/views/runsTree";
 import { MessageNode, RunNode, StepNode } from "../../src/views/nodes";
 
-const tokens = { getAccessToken: async () => "t", refreshAccessToken: async () => "t", signOut: async () => {} };
+const tokens = { getAccessToken: async () => "t", refreshAccessToken: async () => "t", hasCredential: () => true, signOut: async () => {} };
 const run = (p: Partial<Run>): Run => ({ id: "r", workspace_id: "w1", command: "plan", status: "planned", created_at: "2026-01-01", ...p });
 
 /** Just enough Session for the tree: a store snapshot, a client, and a signed-in token manager. */
