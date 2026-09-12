@@ -609,6 +609,14 @@ inserts three dev users (`admin@test.com` / `operator@test.com` /
 `viewer@test.com`, all password `password123`). See the `Makefile` for the
 full command list.
 
+### External database + object store (compose)
+
+`deploy/docker-compose.external-db.yml` runs the same compose stack against an
+external Postgres and an external S3-compatible state store (see
+`docs/ONBOARDING.md`). It is what the home-lab Proxmox deployment uses
+(Postgres 16 and Garage on their own VMs, built by Packer and declared in the
+operator's infra repo).
+
 ### AWS ECS production path (optional)
 
 TDT can run the same five core images (`api`, `ui`, `drift-detector`,

@@ -1,0 +1,37 @@
+# Run the stack against an EXTERNAL Postgres and an EXTERNAL S3-compatible
+# state store (e.g. Postgres + Garage on their own hosts), with the bundled
+# postgres / localstack / forgejo / act_runner services switched off.
+#
+#   COMPOSE_FILE=docker-compose.yml:deploy/docker-compose.external-db.yml
+#   .env: DATABASE_URL=postgresql+asyncpg://terraducktel:<pw>@<host>:5432/terraducktel
+#         POSTGRES_PASSWORD=<pw>  PG_HOST=<host>          (pg-backup)
+#         S3_USE_LOCALSTACK=false S3_ENDPOINT_URL=http://<host>:3900
+#         S3_STATE_ACCESS_KEY_ID=… S3_STATE_SECRET_ACCESS_KEY=…
+#
+# Needs Docker Compose >= 2.24 for the `!reset`/`!override` merge tags: a
+# plain override can only add to a mapping, never remove from it, so dropping
+# the `depends_on` entries that point at the disabled services (or replacing
+# them outright, for drift-detector's `api`-only dependency) needs one of
+# these two.
+services:
+  postgres:
+    profiles: ["bundled"]
+  localstack:
+    profiles: ["bundled"]
+  forgejo:
+    profiles: ["bundled"]
+  act_runner:
+    profiles: ["bundled"]
+
+  api:
+    depends_on: !reset {}
+
+  drift-detector:
+    depends_on: !override
+      api:
+        condition: service_healthy
+
+  pg-backup:
+    depends_on: !reset {}
+    environment:
+      PG_HOST: ${PG_HOST:?PG_HOST must point at the external Postgres host}
