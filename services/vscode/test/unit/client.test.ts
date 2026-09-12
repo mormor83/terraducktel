@@ -206,4 +206,28 @@ describe("TdtClient", () => {
     expect(t.signedOut).toBe(1);
     expect(signOutCount).toBe(1);
   });
+
+  it("withBu clones share one in-flight refresh across a parent+clone burst", async () => {
+    srv.on("GET", "/api/v1/workspaces", (req, _b, res) => {
+      if (req.headers.authorization === "Bearer acc1") { res.writeHead(401, { "content-type": "application/json" }); res.end("{}"); return; }
+      res.writeHead(200, { "content-type": "application/json" }); res.end("[]");
+    });
+    const t = {
+      access: "acc1", refreshed: 0, signedOut: 0,
+      getAccessToken: async () => t.access,
+      refreshAccessToken: async () => {
+        t.refreshed++;
+        // Simulate slow refresh (30ms)
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        t.access = `acc${t.refreshed + 1}`;
+        return t.access;
+      },
+      signOut: async () => { t.signedOut++; },
+    };
+    const c = new TdtClient({ baseUrl: url, bu: "default", tokens: t });
+    const clone = c.withBu("other");
+    const results = await Promise.all([c.listWorkspaces(), clone.listWorkspaces(), c.listWorkspaces(), clone.listWorkspaces()]);
+    expect(results).toEqual([[], [], [], []]);
+    expect(t.refreshed).toBe(1);
+  });
 });

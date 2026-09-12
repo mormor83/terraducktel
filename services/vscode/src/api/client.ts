@@ -31,16 +31,16 @@ function detailToMessage(status: number, text: string): { message: string; detai
   } catch { return { message: text?.trim() || `HTTP ${status}`, detail: text }; }
 }
 
-/** Sign-out coalescing state, shared by a client and every clone withBu() makes of it — a
- *  single auth session (and its listeners) spans all of them, so a 401 seen through any clone
- *  signs the whole session out exactly once. */
-interface AuthState { epoch: number; signingOut: Promise<void> | null; listeners: Array<() => void> }
+/** Sign-out (and refresh) coalescing state, shared by a client and every clone withBu() makes
+ *  of it — a single auth session (and its listeners) spans all of them, so a 401 seen through
+ *  any clone signs the whole session out exactly once, and concurrent 401s across the parent
+ *  and its clones share one in-flight refresh rather than each redeeming the refresh token. */
+interface AuthState { epoch: number; signingOut: Promise<void> | null; listeners: Array<() => void>; refreshing: Promise<string | undefined> | null }
 
 export class TdtClient {
-  private refreshing: Promise<string | undefined> | null = null;
   private readonly auth: AuthState;
   constructor(private readonly o: ClientOptions, auth?: AuthState) {
-    this.auth = auth ?? { epoch: 0, signingOut: null, listeners: [] };
+    this.auth = auth ?? { epoch: 0, signingOut: null, listeners: [], refreshing: null };
   }
 
   get baseUrl() { return this.o.baseUrl; }
@@ -85,12 +85,14 @@ export class TdtClient {
     return JSON.parse(res.text) as R;
   }
 
-  /** Coalesce parallel 401s into a single refresh so the refresh token is used once. */
+  /** Coalesce parallel 401s into a single refresh so the refresh token is used once. Shared via
+   *  `AuthState` so a parent client and every `withBu()` clone of it join the same in-flight
+   *  refresh instead of each starting their own. */
   private refreshOnce(): Promise<string | undefined> {
-    if (!this.refreshing) {
-      this.refreshing = this.o.tokens.refreshAccessToken().finally(() => { this.refreshing = null; });
+    if (!this.auth.refreshing) {
+      this.auth.refreshing = this.o.tokens.refreshAccessToken().finally(() => { this.auth.refreshing = null; });
     }
-    return this.refreshing;
+    return this.auth.refreshing;
   }
 
   /** Coalesce concurrent terminal-401s into one sign-out, scoped to an auth-session epoch rather
