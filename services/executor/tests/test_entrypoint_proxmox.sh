@@ -53,4 +53,20 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
   [[ "${out}" != *sek* && "${out}" != *KEYDATA* ]] || fail "secret leaked to stdout"
 )
 
+# Case 3: custom CA set but the system bundle is missing — should still
+# succeed, merge only the custom CA, and warn on stdout (no secrets).
+(
+  export TDT_PROXMOX_ENDPOINT="https://pve.local:8006" TDT_PROXMOX_TOKEN_ID="tdt@pve!ci" \
+         TDT_PROXMOX_TOKEN_SECRET="sek" TDT_PROXMOX_TLS_INSECURE="false" \
+         TDT_SYSTEM_CA_BUNDLE="${TMP}/does-not-exist.crt" \
+         TDT_PROXMOX_CA_CERT_PEM=$'-----BEGIN CERTIFICATE-----\nCUSTOM\n-----END CERTIFICATE-----'
+  proxmox_wire_env > "${TMP}/out3.txt"
+  out="$(cat "${TMP}/out3.txt")"
+  [[ -f "${SSL_CERT_FILE}" ]] || fail "SSL_CERT_FILE missing (case 3)"
+  grep -q CUSTOM "${SSL_CERT_FILE}" || fail "custom CA not merged (case 3)"
+  grep -q SYSTEM "${SSL_CERT_FILE}" && fail "system bundle unexpectedly present (case 3)"
+  [[ "${out}" == *"WARN: system CA bundle not found"* ]] || fail "missing WARN (case 3)"
+  [[ "${out}" != *sek* ]] || fail "secret leaked to stdout (case 3)"
+)
+
 echo "OK"

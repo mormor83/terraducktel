@@ -491,6 +491,9 @@ proxmox_wire_env() {
     # Go replaces (not extends) its root pool when SSL_CERT_FILE is set, so
     # merge the system bundle + the custom CA into one file.
     mkdir -p ~/.proxmox
+    if [[ ! -r "${TDT_SYSTEM_CA_BUNDLE}" ]]; then
+      echo "WARN: system CA bundle not found at ${TDT_SYSTEM_CA_BUNDLE}; SSL_CERT_FILE will contain only the custom CA"
+    fi
     {
       [[ -r "${TDT_SYSTEM_CA_BUNDLE}" ]] && cat "${TDT_SYSTEM_CA_BUNDLE}"
       printf '\n%s\n' "${TDT_PROXMOX_CA_CERT_PEM}"
