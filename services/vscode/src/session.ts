@@ -31,24 +31,40 @@ export class Session implements vscode.Disposable {
    *  of the PREVIOUS cycle (sign-out handler, token-change handler) must not survive into the
    *  next one. */
   private cycle: vscode.Disposable[] = [];
+  /** Bumped by every `reload()`. A cycle that finds it has been superseded mid-`await` bails out
+   *  rather than publishing its (now wrong) profile/client/contexts over the newer one's. */
+  private reloadGen = 0;
+  /** Aborts the loopback listener of an SSO sign-in that is still waiting for the browser. */
+  private cancelSso: (() => void) | undefined;
   readonly log: vscode.OutputChannel;
 
   constructor(private readonly ctx: vscode.ExtensionContext) {
     this.log = vscode.window.createOutputChannel("Terraducktel");
-    this.store = new Store(() => this.client, () => ({ runsLimit: this.cfg().get<number>("runsLimit", 200) }));
+    // Signed out ⇒ no client ⇒ the store polls nothing. Without this the timer would keep
+    // issuing credential-less requests at a signed-out user.
+    this.store = new Store(() => (this.tokens?.isSignedIn() ? this.client : undefined), () => ({ runsLimit: this.cfg().get<number>("runsLimit", 200) }));
     this.disposables.push(this.log, this.store,
-      vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration("terraducktel")) void this.reload(); }));
+      // Only a profile/active-profile change invalidates the session. `refreshIntervalSeconds`
+      // just re-arms the timer; `runsLimit` and `trace` are read live on every use.
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("terraducktel.profiles") || e.affectsConfiguration("terraducktel.activeProfile")) { void this.reload(); return; }
+        if (e.affectsConfiguration("terraducktel.refreshIntervalSeconds") && this.profile) this.store.start(this.pollIntervalMs());
+      }));
   }
   private cfg() { return vscode.workspace.getConfiguration("terraducktel"); }
+  private pollIntervalMs() { return Math.max(5, this.cfg().get<number>("refreshIntervalSeconds", 30)) * 1000; }
   uiUrl() { return this.profile ? uiUrlFor(this.profile) : undefined; }
   canWrite(): boolean {
-    const c = this.tokens?.claims();
     if (!this.tokens?.isSignedIn()) return false;
-    if (!c) return true;                      // API key: role unknown; server enforces
+    const c = this.tokens.claims();
+    // No claims and not an API key = a JWT session whose access token has not been minted yet;
+    // assume read-only until it is, rather than flashing write actions we may not be allowed.
+    if (!c) return this.tokens.kind() === "api_key";   // API key: role unknown; the server enforces
     return c.is_superadmin === true || c.role === "operator" || c.role === "admin";
   }
 
   async reload(): Promise<void> {
+    const gen = ++this.reloadGen;
     for (const d of this.cycle) d.dispose();
     this.cycle = [];
     this.store.stop();
@@ -59,6 +75,7 @@ export class Session implements vscode.Disposable {
     this.bu = this.ctx.workspaceState.get<string>(`bu.${next.name}`) ?? next.bu ?? "";
     this.tokens = new TokenManager(secretsAdapter(this.ctx.secrets), next.name);
     await this.tokens.restore();
+    if (gen !== this.reloadGen) return;       // a newer reload() took over while we read secrets
     this.client = new TdtClient({ baseUrl: next.url, bu: this.bu, tokens: this.tokens, insecureTls: next.insecureTls, trace: (l) => { if (this.cfg().get<boolean>("trace")) this.log.appendLine(l); } });
     this.tokens.attach(this.client);
     const client = this.client, tokens = this.tokens; // captured so an event from a superseded cycle is ignored
@@ -70,13 +87,18 @@ export class Session implements vscode.Disposable {
         // a cycle that a later `reload()` has since replaced wholesale (new profile/tokens/client) —
         // so guard on `tokens`, the identity that is stable across `setBu()` but not across `reload()`.
         if (this.tokens !== tokens) return;
+        // Drop the cached snapshot: it belongs to a session that no longer exists, and leaving
+        // it on screen makes a signed-out tree look live. The timer stays armed but idles —
+        // the store's client getter returns undefined while signed out, so it does no I/O.
+        this.store.clear();
         void vscode.window.showWarningMessage("Terraducktel: session expired — sign in again.", "Sign in").then((a) => a && vscode.commands.executeCommand("terraducktel.signIn"));
         void this.publishContexts();
       }),
       tokens.onDidChange(() => void this.publishContexts()),
     );
     await this.publishContexts();
-    this.store.start(Math.max(5, this.cfg().get<number>("refreshIntervalSeconds", 30)) * 1000);
+    if (gen !== this.reloadGen) return;
+    this.store.start(this.pollIntervalMs());
     void this.store.refresh();
   }
   private async publishContexts() {
@@ -100,6 +122,9 @@ export class Session implements vscode.Disposable {
   }
 
   async signIn(): Promise<void> {
+    // A second sign-in supersedes the first: abort any loopback listener the previous attempt
+    // left waiting, so it releases its port instead of lingering for the full SSO timeout.
+    this.cancelSso?.();
     if (!this.profile || !this.client || !this.tokens) throw new Error("Add a profile under Settings → Terraducktel → Profiles first.");
     const cfg = await this.client.authConfig().catch((): AuthConfig => ({ mode: "local", oidc_enabled: false, oidc_issuer: undefined, cli_loopback: false }));
     const items: Array<vscode.QuickPickItem & { mode: "sso" | "password" | "api_key" }> = [];
@@ -120,8 +145,17 @@ export class Session implements vscode.Disposable {
     } else {
       if (vscode.env.remoteName) throw new Error("SSO sign-in needs a browser on this machine; in a remote session use an API key instead.");
       const client = this.client;
-      const pair = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Terraducktel: complete sign-in in your browser…", cancellable: false },
-        () => runLoopbackLogin({ buildUrl: (port, nonce) => client.ssoLoginUrl(port, nonce), openUrl: (u) => vscode.env.openExternal(vscode.Uri.parse(u)) as Promise<boolean> }));
+      let mine: (() => void) | undefined;
+      const pair = await vscode.window
+        .withProgress({ location: vscode.ProgressLocation.Notification, title: "Terraducktel: complete sign-in in your browser…", cancellable: true },
+          (_progress, token) => runLoopbackLogin({
+            buildUrl: (port, nonce) => client.ssoLoginUrl(port, nonce),
+            openUrl: (u) => vscode.env.openExternal(vscode.Uri.parse(u)) as Promise<boolean>,
+            onCancel: (cancel) => { mine = cancel; this.cancelSso = cancel; token.onCancellationRequested(cancel); },
+          }))
+        // Clear only our own handle: a sign-in that superseded this one has already installed its.
+        .then((p) => { if (this.cancelSso === mine) this.cancelSso = undefined; return p; },
+          (e) => { if (this.cancelSso === mine) this.cancelSso = undefined; throw e; });
       await this.tokens.signInWithTokenPair(pair, "sso");
     }
     await this.publishContexts();
@@ -130,5 +164,5 @@ export class Session implements vscode.Disposable {
     void vscode.window.showInformationMessage(`Terraducktel: signed in to ${this.profile.name} as ${who}.`);
   }
   async signOut() { await this.tokens?.signOut(); this.store.clear(); await this.publishContexts(); }
-  dispose() { for (const d of this.cycle) d.dispose(); for (const d of this.disposables) d.dispose(); this.changed.dispose(); }
+  dispose() { this.cancelSso?.(); for (const d of this.cycle) d.dispose(); for (const d of this.disposables) d.dispose(); this.changed.dispose(); }
 }

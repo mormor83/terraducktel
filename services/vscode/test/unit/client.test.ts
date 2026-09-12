@@ -36,6 +36,35 @@ describe("TdtClient", () => {
     expect(srv.calls[0].url).toBe("/api/v1/runs?limit=50&status=failed%2Ccancelled&workspace_id=w%201");
   });
 
+  it("with no token at all: ApiError 401, zero requests, no refresh, no sign-out", async () => {
+    srv.json("GET", "/api/v1/workspaces", 200, [{ id: "w1", name: "vpc" }]);
+    const t = {
+      refreshed: 0, signedOut: 0,
+      getAccessToken: async () => undefined,
+      refreshAccessToken: async () => { t.refreshed++; return undefined; },
+      signOut: async () => { t.signedOut++; },
+    };
+    const c = new TdtClient({ baseUrl: url, bu: "default", tokens: t });
+    let out = 0; c.onSignedOut(() => out++);
+    await expect(c.listWorkspaces()).rejects.toMatchObject({ status: 401, message: "Not signed in" });
+    expect(srv.calls.length).toBe(0);
+    expect(t.refreshed).toBe(0); expect(t.signedOut).toBe(0); expect(out).toBe(0);
+  });
+
+  it("a transient refresh failure propagates and never signs out", async () => {
+    srv.json("GET", "/api/v1/workspaces", 401, { detail: "expired" });
+    const t = {
+      signedOut: 0,
+      getAccessToken: async () => "acc1" as string | undefined,
+      refreshAccessToken: async (): Promise<string | undefined> => { throw new Error("network down"); },
+      signOut: async () => { t.signedOut++; },
+    };
+    const c = new TdtClient({ baseUrl: url, bu: "default", tokens: t });
+    let out = 0; c.onSignedOut(() => out++);
+    await expect(c.listWorkspaces()).rejects.toThrow("network down");
+    expect(t.signedOut).toBe(0); expect(out).toBe(0);
+  });
+
   it("on 401 refreshes once and retries with the new token", async () => {
     let n = 0;
     srv.on("GET", "/api/v1/workspaces", (req, _b, res) => {

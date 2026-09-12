@@ -1,4 +1,4 @@
-import type { TdtClient, TokenProvider } from "../api/client";
+import { ApiError, type TdtClient, type TokenProvider } from "../api/client";
 import type { TokenPair } from "../api/types";
 import { decodeJwtPayload, type AccessClaims } from "./jwt";
 import type { SecretStore } from "./secrets";
@@ -19,6 +19,12 @@ export class TokenManager implements TokenProvider {
    *  second one observing "loaded" before `cred` is actually populated. An explicit `restore()`
    *  call and a lazy `ensureLoaded()` call share this same promise. */
   private loadPromise: Promise<void> | undefined;
+  /** In-flight `POST /auth/refresh`. Refresh tokens rotate, so two callers redeeming the same
+   *  one in parallel would race: the loser's rotated token is already dead by the time it is
+   *  persisted. The client coalesces the 401s it sees, but `getAccessToken()` also refreshes
+   *  lazily (no access token in memory after a reload), and those callers never pass through
+   *  the client's coalescing — so the single flight has to live here too. */
+  private refreshing: Promise<string | undefined> | null = null;
   constructor(private readonly secrets: SecretStore, private readonly profileName: string) {}
 
   private get key() { return `terraducktel.cred.${this.profileName}`; }
@@ -62,7 +68,7 @@ export class TokenManager implements TokenProvider {
     this.access = k;
     await this.persist({ kind: "api_key", api_key: k });
   }
-  async signOut() { this.access = undefined; await this.persist(undefined); }
+  async signOut() { this.access = undefined; this.refreshing = null; await this.persist(undefined); }
 
   // ─── TokenProvider ───────────────────────────────────────────────────────
   async getAccessToken() {
@@ -72,16 +78,31 @@ export class TokenManager implements TokenProvider {
     if (!this.access) return this.refreshAccessToken();
     return this.access;
   }
-  async refreshAccessToken() {
+  /** Resolves a fresh access token, or `undefined` when the credential is definitively dead
+   *  (the caller then signs out). Anything transient — the API unreachable, a timeout, a 5xx —
+   *  is RETHROWN so the original request fails without destroying a credential that is very
+   *  probably still valid. */
+  async refreshAccessToken(): Promise<string | undefined> {
     await this.ensureLoaded();
     if (!this.cred) return undefined;
     if (this.cred.kind === "api_key") return this.cred.api_key;
-    if (!this.client || !this.cred.refresh_token) return undefined;
+    const client = this.client, cred = this.cred;
+    if (!client || !cred.refresh_token) return undefined;
+    // `refreshing` is set synchronously after the await above, so a second caller resuming
+    // later always observes the first caller's in-flight redemption.
+    return (this.refreshing ??= this.redeem(client, cred).finally(() => { this.refreshing = null; }));
+  }
+  private async redeem(client: TdtClient, cred: StoredCredential): Promise<string | undefined> {
     try {
-      const pair = await this.client.refresh(this.cred.refresh_token);
+      const pair = await client.refresh(cred.refresh_token!);
       this.access = pair.access_token;
-      await this.persist({ ...this.cred, refresh_token: pair.refresh_token });
+      await this.persist({ ...cred, refresh_token: pair.refresh_token });
       return this.access;
-    } catch { return undefined; }
+    } catch (e) {
+      // 4xx = the server rejected this refresh token (expired / revoked / wrong): the credential
+      // is dead, so resolve undefined and let the caller sign out. Everything else is transient.
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500) return undefined;
+      throw e;
+    }
   }
 }

@@ -73,7 +73,16 @@ export class TdtClient {
       this.o.trace?.(`${method} ${path} → ${res.status} (${Date.now() - started} ms)`);
       return { res, used: token };
     };
-    let { res, used } = await attempt(auth ? await this.o.tokens.getAccessToken() : undefined);
+    let token: string | undefined;
+    if (auth) {
+      token = await this.o.tokens.getAccessToken();
+      // No credential at all: this is "signed out", not "token expired". Fail closed WITHOUT
+      // touching the network, the refresh flow, or the sign-out listeners — otherwise a poll
+      // that fires while signed out would refresh-then-sign-out and pop a "session expired"
+      // toast at a user who never had a session.
+      if (!token) throw new ApiError(401, "Not signed in");
+    }
+    let { res, used } = await attempt(token);
     if (auth && res.status === 401) {
       const current = await this.o.tokens.getAccessToken();
       const fresh = current && current !== used ? current : await this.refreshOnce();
@@ -87,7 +96,13 @@ export class TdtClient {
 
   /** Coalesce parallel 401s into a single refresh so the refresh token is used once. Shared via
    *  `AuthState` so a parent client and every `withBu()` clone of it join the same in-flight
-   *  refresh instead of each starting their own. */
+   *  refresh instead of each starting their own.
+   *
+   *  A *rejection* here is deliberately left to propagate out of `send()` untouched: the token
+   *  manager only resolves `undefined` for a definitive 4xx rejection of the refresh token, and
+   *  throws for anything transient (network down, timeout, 5xx). The original request must fail
+   *  in that case — signing the user out because the API was briefly unreachable would delete a
+   *  perfectly good credential. */
   private refreshOnce(): Promise<string | undefined> {
     if (!this.auth.refreshing) {
       this.auth.refreshing = this.o.tokens.refreshAccessToken().finally(() => { this.auth.refreshing = null; });
@@ -125,7 +140,6 @@ export class TdtClient {
   // ─── data ────────────────────────────────────────────────────────────────
   listBusinessUnits() { return this.getJson<T.BusinessUnit[]>("/business-units"); }
   listWorkspaces() { return this.getJson<T.Workspace[]>("/workspaces"); }
-  getWorkspace(id: string) { return this.getJson<T.Workspace>(`/workspaces/${enc(id)}`); }
   updateWorkspace(id: string, patch: Partial<Pick<T.Workspace, "repo_ref">>) { return this.putJson<T.Workspace>(`/workspaces/${enc(id)}`, patch); }
   listBranches(id: string) { return this.getJson<T.Branches>(`/workspaces/${enc(id)}/branches`); }
   syncWorkspace(id: string) { return this.postJson<unknown>(`/workspaces/${enc(id)}/sync`); }

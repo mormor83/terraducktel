@@ -49,6 +49,40 @@ describe("TokenManager", () => {
     expect(await store.get("terraducktel.cred.prod")).toBeUndefined(); expect(tm.isSignedIn()).toBe(false);
   });
 
+  it("coalesces concurrent lazy refreshes into a single POST /auth/refresh", async () => {
+    // Refresh tokens rotate: two parallel redemptions of the same one would leave the loser
+    // holding a token the server already invalidated.
+    await store.store("terraducktel.cred.prod", JSON.stringify({ kind: "password", refresh_token: "r1" }));
+    srv.on("POST", "/api/v1/auth/refresh", (_q, _b, res) => {
+      setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ access_token: jwt({ role: "viewer" }), refresh_token: "r2" })); }, 25);
+    });
+    const [a, b] = await Promise.all([tm.getAccessToken(), tm.getAccessToken()]);
+    expect(a).toBeDefined(); expect(a).toBe(b);
+    expect(srv.requests("POST", "/api/v1/auth/refresh").length).toBe(1);
+  });
+
+  it("a transient (5xx) refresh failure fails the request but keeps the credential", async () => {
+    await tm.signInWithTokenPair({ access_token: jwt({ role: "admin" }), refresh_token: "r1" }, "password");
+    srv.json("GET", "/api/v1/workspaces", 401, { detail: "expired" });
+    srv.json("POST", "/api/v1/auth/refresh", 502, { detail: "bad gateway" });
+    let signedOut = 0; client.onSignedOut(() => signedOut++);
+    await expect(client.listWorkspaces()).rejects.toMatchObject({ status: 502 });
+    expect(signedOut).toBe(0);
+    expect(tm.isSignedIn()).toBe(true);
+    expect(JSON.parse((await store.get("terraducktel.cred.prod"))!).refresh_token).toBe("r1");
+  });
+
+  it("a 4xx refresh failure takes the sign-out path", async () => {
+    await tm.signInWithTokenPair({ access_token: jwt({ role: "admin" }), refresh_token: "r1" }, "password");
+    srv.json("GET", "/api/v1/workspaces", 401, { detail: "expired" });
+    srv.json("POST", "/api/v1/auth/refresh", 401, { detail: "invalid refresh token" });
+    let signedOut = 0; client.onSignedOut(() => signedOut++);
+    await expect(client.listWorkspaces()).rejects.toMatchObject({ status: 401 });
+    expect(signedOut).toBe(1);
+    expect(tm.isSignedIn()).toBe(false);
+    expect(await store.get("terraducktel.cred.prod")).toBeUndefined();
+  });
+
   it("restores a stored credential on construction", async () => {
     await store.store("terraducktel.cred.prod", JSON.stringify({ kind: "api_key", api_key: "tdt_k" }));
     const tm2 = new TokenManager(store, "prod"); await tm2.restore();
