@@ -211,6 +211,7 @@ not an oversight — revisit them by name rather than re-deriving them.
   3-second timeout, so mapping is fast and never blocks the UI.
 - **Whole-repo workspaces:** workspaces with `tf_working_dir="."` are never
   matched by the editor mapping.
+- **Open in browser lands on the dashboard** (no per-workspace URL in the web UI).
 
 ## 6. Milestone C — approval notifications
 
