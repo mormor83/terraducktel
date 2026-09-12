@@ -399,7 +399,10 @@ behind the API.
   `GcsStateService` (reuses the linked GCP SA key). The HTTP interface, the
   404-vs-503 error mapping, and locking are identical across all three.
 - **S3 persistence**: bytes live in S3 — LocalStack in dev, real AWS S3 in
-  production. **Per-account bucket isolation**: each onboarded `AwsAccount`
+  production, or any S3-compatible store (Garage, MinIO) for the fallback
+  bucket via S3_ENDPOINT_URL + S3_STATE_ACCESS_KEY_ID/S3_STATE_SECRET_ACCESS_KEY
+  (routers/state.py::_fallback_s3_store; custom endpoints always use
+  path-style addressing). **Per-account bucket isolation**: each onboarded `AwsAccount`
   owns its own dedicated `state_bucket`, so one account's state is never
   physically co-located with another's. Non-`s3` workspaces resolve to the
   linked Azure subscription's container / GCP project's bucket instead. (The

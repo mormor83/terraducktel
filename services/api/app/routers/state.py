@@ -41,11 +41,37 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/state", tags=["state"])
 
 _USE_LOCALSTACK = os.environ.get("S3_USE_LOCALSTACK", "false").lower() in ("true", "1", "yes")
-# Fallback bucket name only used when a workspace has no configured AWS account
-# (e.g. legacy workspaces created before phase-8). New workspaces should reach
-# their per-account bucket via AwsAccount.state_bucket.
+# Fallback bucket only used when a workspace has no configured AWS account —
+# i.e. every non-AWS workspace (Azure/GCP/Proxmox with `aws_account_id="global"`)
+# and legacy pre-phase-8 workspaces. AWS workspaces reach their per-account
+# bucket via AwsAccount.state_bucket.
 _FALLBACK_BUCKET = os.environ.get("S3_STATE_BUCKET", "terraducktel-state")
 _S3_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+# Any S3-compatible store for the fallback bucket (Garage/MinIO/…). Empty
+# string == unset so compose can pass `${S3_ENDPOINT_URL:-}` through.
+_S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL", "").strip() or None
+_S3_STATE_ACCESS_KEY_ID = os.environ.get("S3_STATE_ACCESS_KEY_ID", "").strip() or None
+_S3_STATE_SECRET_ACCESS_KEY = os.environ.get("S3_STATE_SECRET_ACCESS_KEY", "").strip() or None
+
+
+def _fallback_s3_store() -> S3StateService:
+    """Shared-bucket store for workspaces without an AwsAccount.
+
+    Precedence: explicit S3_ENDPOINT_URL (+ S3_STATE_* creds) → LocalStack
+    (S3_USE_LOCALSTACK=true; creds default to LocalStack's accepted
+    `test`/`test` when none are given) → real AWS via boto3's default chain.
+    """
+    access_key, secret_key = _S3_STATE_ACCESS_KEY_ID, _S3_STATE_SECRET_ACCESS_KEY
+    if _USE_LOCALSTACK and not _S3_ENDPOINT_URL and not (access_key and secret_key):
+        access_key, secret_key = "test", "test"
+    return S3StateService(
+        bucket=_FALLBACK_BUCKET,
+        use_localstack=_USE_LOCALSTACK,
+        region=_S3_REGION,
+        endpoint_url=_S3_ENDPOINT_URL,
+        access_key_id=access_key,
+        secret_access_key=secret_key,
+    )
 
 
 def _state_key_for(ws: Workspace) -> str:
@@ -81,9 +107,7 @@ async def _s3_store_for(ws: Workspace, db: AsyncSession) -> StateStore:
             access_key_id=access_key,
             secret_access_key=secret_key,
         )
-    return S3StateService(
-        bucket=_FALLBACK_BUCKET, use_localstack=_USE_LOCALSTACK, region=_S3_REGION
-    )
+    return _fallback_s3_store()
 
 
 async def _azure_store_for(ws: Workspace, db: AsyncSession) -> StateStore:

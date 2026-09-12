@@ -177,6 +177,38 @@ def test_s3_init_explicit_creds_and_localstack(s3):
     assert svc.bucket == "bkt"
 
 
+@pytest.fixture
+def s3_client_kwargs(monkeypatch):
+    """Capture the kwargs S3StateService hands to boto3.client."""
+    captured: dict = {}
+
+    def _fake_client(service, **kwargs):
+        captured.update(kwargs)
+        return _FakeS3()
+
+    monkeypatch.setattr(s3mod.boto3, "client", _fake_client)
+    return captured
+
+
+def test_s3_explicit_endpoint_wins_over_localstack(s3_client_kwargs):
+    s3mod.S3StateService("bkt", use_localstack=True, endpoint_url="http://garage:3900")
+    assert s3_client_kwargs["endpoint_url"] == "http://garage:3900"
+    assert s3_client_kwargs["config"].s3["addressing_style"] == "path"
+
+
+def test_s3_localstack_sugar_sets_localstack_endpoint(s3_client_kwargs):
+    s3mod.S3StateService("bkt", use_localstack=True)
+    assert s3_client_kwargs["endpoint_url"] == "http://localstack:4566"
+    assert s3_client_kwargs["config"].s3["addressing_style"] == "path"
+
+
+def test_s3_real_aws_has_no_endpoint_override(s3_client_kwargs):
+    s3mod.S3StateService("bkt", access_key_id="AK", secret_access_key="SK")
+    assert "endpoint_url" not in s3_client_kwargs
+    assert "config" not in s3_client_kwargs
+    assert s3_client_kwargs["aws_access_key_id"] == "AK"
+
+
 def test_s3_get_state_at_hit_miss_and_error(s3):
     svc = s3mod.S3StateService("bkt")
     assert svc.get_state_at("ok/terraform.tfstate") == b"STATE"
