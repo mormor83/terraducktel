@@ -177,4 +177,46 @@ class SsoTest {
 
         try { result.get(5, TimeUnit.SECONDS) } catch (_: Exception) { /* expected timeout */ }
     }
+
+    // Any path other than /callback 404s, and the login keeps waiting (proved by cancelling it
+    // afterwards rather than letting it sit for the full timeout).
+    @Test fun `a request to an unrelated path 404s while the login keeps waiting`() {
+        val captured = CompletableFuture<Int>()
+        val cancelFn = CompletableFuture<() -> Unit>()
+        val result = CompletableFuture.supplyAsync {
+            Sso.runLoopbackLogin(
+                buildUrl = { port, _ -> captured.complete(port); "http://x" },
+                openUrl = { true },
+                timeoutMs = 60_000, // would hang the suite if the 404 had settled the future
+                onCancel = { cancel -> cancelFn.complete(cancel) },
+            )
+        }
+        val port = captured.get(5, TimeUnit.SECONDS)
+
+        assertEquals(404, hit("http://127.0.0.1:$port/nope"))
+
+        val cancel = cancelFn.get(5, TimeUnit.SECONDS)
+        cancel()
+        val e = assertThrows(java.util.concurrent.ExecutionException::class.java) { result.get(5, TimeUnit.SECONDS) }
+        assertTrue(e.cause is SsoCancelled)
+    }
+
+    // Percent-encoded token characters in the callback query are decoded correctly.
+    @Test fun `decodes percent-encoded tokens in the callback query`() {
+        val captured = CompletableFuture<Captured>()
+        val result = CompletableFuture.supplyAsync {
+            Sso.runLoopbackLogin(
+                buildUrl = { port, nonce -> captured.complete(Captured(port, nonce)); "http://x" },
+                openUrl = { true },
+                timeoutMs = 5000,
+            )
+        }
+        val c = captured.get(5, TimeUnit.SECONDS)
+        val status = hit("http://127.0.0.1:${c.port}/callback?access_token=a%2Bb%3D&refresh_token=r%2Fx&nonce=${c.nonce}")
+
+        assertEquals(200, status)
+        val pair = result.get(5, TimeUnit.SECONDS)
+        assertEquals("a+b=", pair.access_token)
+        assertEquals("r/x", pair.refresh_token)
+    }
 }

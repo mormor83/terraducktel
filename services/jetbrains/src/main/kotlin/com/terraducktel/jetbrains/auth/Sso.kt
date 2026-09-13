@@ -31,18 +31,28 @@ private val DONE_HTML =
  * timeout elapses, or [onCancel]'s handle is invoked.
  */
 object Sso {
+    // Shared across calls: SecureRandom is thread-safe and expensive to seed, so one instance for
+    // the object beats constructing a fresh one per sign-in attempt.
+    private val secureRandom = SecureRandom()
+
     fun runLoopbackLogin(
         buildUrl: (port: Int, nonce: String) -> String,
         openUrl: (String) -> Boolean,
         timeoutMs: Long = 5 * 60_000,
         onCancel: ((cancel: () -> Unit) -> Unit)? = null,
     ): TokenPair {
-        val nonce = ByteArray(24).also { SecureRandom().nextBytes(it) }
+        val nonce = ByteArray(24).also { secureRandom.nextBytes(it) }
             .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) } // 32 url-safe chars
 
         val future = CompletableFuture<TokenPair>()
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
+            // Set only on the success path, and completed on `future` AFTER the `finally` below
+            // has closed `exchange` — completing it earlier would let the caller observe success
+            // and return (unblocking `server.stop(...)` in the outer `finally`) while this
+            // handler thread is still flushing/closing the response body, racing the listener's
+            // shutdown against its own in-flight write.
+            var success: TokenPair? = null
             try {
                 val uri = exchange.requestURI
                 if (uri.path != "/callback") {
@@ -75,10 +85,11 @@ object Sso {
                 exchange.responseHeaders.add("Cache-Control", "no-store")
                 exchange.sendResponseHeaders(200, body.size.toLong())
                 exchange.responseBody.use { it.write(body) }
-                future.complete(TokenPair(access_token = access, refresh_token = refresh))
+                success = TokenPair(access_token = access, refresh_token = refresh)
             } finally {
                 exchange.close()
             }
+            success?.let { future.complete(it) }
         }
         server.start()
         try {
@@ -108,7 +119,11 @@ object Sso {
                 throw e
             }
         } finally {
-            server.stop(0)
+            // `stop(1)` waits up to 1s for any exchange already in flight to finish (the success
+            // response above, or a 400) before closing the listening socket; on cancel/timeout
+            // there is nothing in flight, so it returns immediately. `stop(0)` would close the
+            // socket underneath a handler thread mid-flush.
+            server.stop(1)
         }
     }
 
