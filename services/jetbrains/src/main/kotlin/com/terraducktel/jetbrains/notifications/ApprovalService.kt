@@ -110,8 +110,13 @@ class ApprovalService(val scope: CoroutineScope) : Disposable {
         ProjectUtil.getActiveProject() ?: ProjectManager.getInstance().openProjects.firstOrNull()
 
     /** Advisory dedupe: told about a run BEFORE the run-output tail's own "awaiting approval" toast
-     *  goes up, so the background poll never announces the same run a second time. Blocking — call
-     *  off the EDT (mirrors [ApprovalWatcher.markSeen]). */
+     *  goes up, so the background poll never announces the same run a second time. Safe to call
+     *  from EITHER the EDT (this is exactly how [com.terraducktel.jetbrains.output.RunActions.
+     *  announceAwaiting] uses it, via [com.terraducktel.jetbrains.output.RunActions.onAwaitingHook])
+     *  or a pooled thread ([ApprovalWatcher.poll]'s own `doPoll`) — precisely because
+     *  [ApprovalWatcher.markSeen] never does I/O under its lock: [SettingsSeenStore] is a plain
+     *  in-memory field read/write, not a blocking persistence call. If [SeenStore] ever grows real
+     *  disk/network I/O, this call would need to move off the EDT again. */
     fun markSeen(runId: String) = watcher.markSeen(runId)
 
     /** Blocking: primes (if the session key changed) then (re)starts or stops the poll loop

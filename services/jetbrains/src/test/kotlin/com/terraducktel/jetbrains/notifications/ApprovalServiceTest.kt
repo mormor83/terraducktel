@@ -33,7 +33,13 @@ import java.util.concurrent.TimeUnit
  * [ApprovalService] is an app-level light service — like [TdtSession], it persists across tests
  * within one JVM — so [setUp]/[tearDown] follow [com.terraducktel.jetbrains.session.
  * TdtSessionTest]'s discipline: inject an in-memory secret store, drive everything through
- * `offEdt`, and restore every seam afterward.
+ * `offEdt`, and restore every seam afterward. The light-fixture [project] is ALSO shared across
+ * this class's own test methods (each `BasePlatformTestCase` method gets a fresh light project, but
+ * [NotificationsManager] state isn't automatically scoped per-method the way `project` fields are),
+ * so [setUp]/[tearDown] additionally [clearApprovalNotifications] — without it, a balloon posted by
+ * one method would still be sitting in the manager when a LATER method's own "no balloon" assertion
+ * runs, and whether that later method actually runs later depends on JUnit3 reflection order (which
+ * varies across JDK builds) rather than declaration order.
  */
 class ApprovalServiceTest : BasePlatformTestCase() {
 
@@ -49,6 +55,10 @@ class ApprovalServiceTest : BasePlatformTestCase() {
         // this seam lets a small `approvalsPollSeconds` translate into an actually-fast background
         // poll instead of being floored back up to 15000ms.
         service.minIntervalMs = 50L
+        // A PRECEDING test method run in this same JVM (any test class, not just this one — the
+        // notification manager isn't scoped per test class) may have left a balloon sitting in this
+        // group; start every method from a clean slate rather than depending on execution order.
+        clearApprovalNotifications()
     }
 
     override fun tearDown() {
@@ -62,6 +72,9 @@ class ApprovalServiceTest : BasePlatformTestCase() {
             // reload()/signOut() publish sessionChanged via invokeLater — drain it now so it isn't
             // left sitting on the EDT queue where a LATER test's assertions would race it.
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            // Don't leave this method's own balloon(s) behind for whichever test happens to run
+            // next — see the class doc.
+            clearApprovalNotifications()
         } finally {
             super.tearDown()
         }
@@ -90,6 +103,13 @@ class ApprovalServiceTest : BasePlatformTestCase() {
             .getNotificationsOfType(Notification::class.java, project)
             .filter { it.groupId == "Terraducktel approvals" }
 
+    /** Expires every notification currently in group "Terraducktel approvals" for the fixture
+     *  [project] — see the class doc for why [setUp]/[tearDown] both call this. */
+    private fun clearApprovalNotifications() {
+        val manager = NotificationsManager.getNotificationsManager()
+        for (n in approvalNotifications()) manager.expire(n)
+    }
+
     fun testANewAwaitingRunPostsExactlyOneStickyBalloonWithThreeActionsAndASecondPollIsSilent() {
         StubServer().use { srv ->
             srv.json("GET", "/api/v1/workspaces", 200, "[]")
@@ -114,10 +134,40 @@ class ApprovalServiceTest : BasePlatformTestCase() {
             assertTrue(n.title, n.title.contains("awaits approval"))
             assertTrue(n.title, n.title.contains("apply"))
             assertEquals(3, n.actions.size)
+            // The counts-only-when-known rule (see ApprovalNotifier): a regression that defaulted
+            // to GraphSummary()'s all-zero counts instead of the real graph would still pass every
+            // OTHER assertion in this test, so pin the actual numbers here.
+            assertTrue(n.content, n.content.contains("+1"))
+            assertTrue(n.content, n.content.contains("~2"))
 
             offEdt { service.pollNow() } // r1 already seen: nothing new
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             assertEquals(1, approvalNotifications().size)
+        }
+    }
+
+    fun testAGraphFetchFailureStillPostsABalloonWithNoCountsRatherThanMisleadingZeroes() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/workspaces", 200, "[]")
+            var awaiting = listOf<Run>()
+            srv.on("GET", "/api/v1/runs") { _, ex -> StubServer.respond(ex, 200, TdtJson.encodeToString(awaiting)) }
+            srv.json("GET", "/api/v1/runs/r2/graph", 500, """{"detail":"boom"}""")
+            setProfile(srv)
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+            offEdt { service.rearm() }
+
+            awaiting = listOf(run("r2"))
+            offEdt { service.pollNow() }
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+
+            val posted = approvalNotifications()
+            assertEquals("a failed graph fetch must not lose the notice entirely", 1, posted.size)
+            assertEquals(
+                "unknown counts must show as no counts, never a misleading all-zero summary",
+                "",
+                posted[0].content,
+            )
         }
     }
 
