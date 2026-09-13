@@ -17,12 +17,21 @@
                 factoryClass="com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory"/>
   </extensions>
   <actions>
+    <action id="Terraducktel.Plan" class="com.terraducktel.jetbrains.actions.workspace.PlanAction" text="Plan"/>
+    <action id="Terraducktel.Apply" class="com.terraducktel.jetbrains.actions.workspace.ApplyAction" text="Apply"/>
+    <action id="Terraducktel.Destroy" class="com.terraducktel.jetbrains.actions.workspace.DestroyAction" text="Destroy…"/>
+    <action id="Terraducktel.SetBranch" class="com.terraducktel.jetbrains.actions.workspace.SetBranchAction" text="Set Tracked Branch…"/>
+    <action id="Terraducktel.Sync" class="com.terraducktel.jetbrains.actions.workspace.SyncWorkspaceAction" text="Sync From Repo"/>
+    <action id="Terraducktel.OpenInBrowser" class="com.terraducktel.jetbrains.actions.workspace.OpenInBrowserAction" text="Open in Browser"/>
+    <action id="Terraducktel.CopyId" class="com.terraducktel.jetbrains.actions.workspace.CopyIdAction" text="Copy Id"/>
+    <action id="Terraducktel.WatchRun" class="com.terraducktel.jetbrains.actions.run.WatchRunAction" text="Watch Run…" description="Watch a run's live output"/>
     <group id="Terraducktel.Toolbar">
       <action id="Terraducktel.SignIn" class="com.terraducktel.jetbrains.actions.auth.SignInAction" text="Sign In…" icon="AllIcons.Actions.Execute"/>
       <action id="Terraducktel.SignOut" class="com.terraducktel.jetbrains.actions.auth.SignOutAction" text="Sign Out"/>
       <action id="Terraducktel.SwitchProfile" class="com.terraducktel.jetbrains.actions.auth.SwitchProfileAction" text="Switch Profile…"/>
       <action id="Terraducktel.SwitchBu" class="com.terraducktel.jetbrains.actions.auth.SwitchBusinessUnitAction" text="Switch Business Unit…"/>
       <action id="Terraducktel.Refresh" class="com.terraducktel.jetbrains.actions.RefreshAction" text="Refresh" icon="AllIcons.Actions.Refresh"/>
+      <reference ref="Terraducktel.WatchRun"/>
     </group>
     <group id="Terraducktel.ToolsMenu" text="Terraducktel" popup="true">
       <add-to-group group-id="ToolsMenu" anchor="last"/>
@@ -30,10 +39,27 @@
       <reference ref="Terraducktel.SignOut"/>
       <reference ref="Terraducktel.SwitchProfile"/>
       <reference ref="Terraducktel.SwitchBu"/>
+      <separator/>
+      <reference ref="Terraducktel.WatchRun"/>
     </group>
-    <!-- Filled by Tasks 10 (workspace actions) and 11 (run actions) — installed as the
-         Workspaces/Runs trees' context menus by TreePanel/WorkspacesPanel/RunsPanel. -->
-    <group id="Terraducktel.WorkspaceMenu" popup="true"/>
-    <group id="Terraducktel.RunMenu" popup="true"/>
+    <!-- Installed as the Workspaces/Runs trees' context menus by
+         TreePanel/WorkspacesPanel/RunsPanel. Task 11 prepends Show Plan / Approve… / Reject… /
+         Cancel Run to Terraducktel.RunMenu. -->
+    <group id="Terraducktel.WorkspaceMenu" popup="true">
+      <reference ref="Terraducktel.Plan"/>
+      <reference ref="Terraducktel.Apply"/>
+      <reference ref="Terraducktel.Destroy"/>
+      <separator/>
+      <reference ref="Terraducktel.SetBranch"/>
+      <reference ref="Terraducktel.Sync"/>
+      <separator/>
+      <reference ref="Terraducktel.OpenInBrowser"/>
+      <reference ref="Terraducktel.CopyId"/>
+    </group>
+    <group id="Terraducktel.RunMenu" popup="true">
+      <reference ref="Terraducktel.WatchRun"/>
+      <reference ref="Terraducktel.OpenInBrowser"/>
+      <reference ref="Terraducktel.CopyId"/>
+    </group>
   </actions>
 </idea-plugin>
