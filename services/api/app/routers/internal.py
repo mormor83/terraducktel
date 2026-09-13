@@ -77,6 +77,18 @@ async def submit_drift_report_internal(
     db.add(ws)
     await db.commit()
     await db.refresh(report)
+    # Captured as plain values because the notification loop below may roll
+    # the session back on a per-channel failure (Finding 1), which expires
+    # every ORM instance still attached to it — `report` and `ws` included.
+    # Touching an expired attribute after that would need another DB round
+    # trip, which SQLAlchemy's async ORM can't do as a bare attribute access
+    # (raises MissingGreenlet); reading them now, once, before any rollback
+    # can happen, avoids that entirely.
+    report_id = report.id
+    ws_name = ws.name
+    ws_environment = ws.environment
+    ws_region = ws.region
+    ws_working_dir = ws.tf_working_dir
 
     # Refresh the cloud-asset inventory from this report. Best-effort and in its
     # own transaction so an inventory hiccup never loses the drift record.
@@ -112,11 +124,11 @@ async def submit_drift_report_internal(
                 await send(
                     db,
                     workspace_id=workspace_id,
-                    workspace_name=ws.name,
+                    workspace_name=ws_name,
                     summary=body.summary or "",
-                    environment=ws.environment,
-                    region=ws.region,
-                    working_dir=ws.tf_working_dir,
+                    environment=ws_environment,
+                    region=ws_region,
+                    working_dir=ws_working_dir,
                 )
             except Exception:  # noqa: BLE001
                 import logging
@@ -125,11 +137,28 @@ async def submit_drift_report_internal(
                     "%s drift notification failed for workspace %s",
                     channel, workspace_id, exc_info=True,
                 )
+                # The drift report (and any inventory refresh) is already
+                # committed above, so this only discards uncommitted state
+                # from the failed sender's own DB reads — never the report.
+                # Each sender swallows its own SlackError/TelegramError/
+                # httpx.RequestError, so anything reaching here is an
+                # unexpected DB-level failure that can leave the shared
+                # session dirty; roll back so the next channel isn't
+                # penalized for the first channel's failure. Defensive: a
+                # rollback failure here must not escape the loop.
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001 — defensive only
+                    logging.getLogger(__name__).warning(
+                        "rollback after %s drift notification failure also "
+                        "failed for workspace %s",
+                        channel, workspace_id, exc_info=True,
+                    )
 
     return DriftReportOut(
-        report_id=report.id,
-        workspace_id=report.workspace_id,
-        has_drift=report.has_drift,
+        report_id=report_id,
+        workspace_id=workspace_id,
+        has_drift=body.has_drift,
     )
 
 

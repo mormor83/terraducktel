@@ -93,15 +93,30 @@ async def test_failed_reaches_both_channels(
 async def test_telegram_failure_does_not_suppress_slack(
     auth_client, operator_token, _setup_db, monkeypatch
 ):
-    """The whole point of separate try/except blocks per channel."""
+    """The whole point of separate try/except blocks per channel.
+
+    Note the inherent limit of this direction: because `senders` dispatches
+    Slack before Telegram for every kind, `slack_calls == [run_id]` alone
+    would also pass under a single `try` wrapping both calls, or even if the
+    Telegram dispatch were deleted outright. Recording the Telegram attempt
+    *before* raising — and asserting on it too — at least catches the
+    "Telegram dispatch removed" regression. Proving the two are in genuinely
+    separate try/except blocks (not just "Telegram happens to run second and
+    its failure doesn't matter because nothing after it depends on it") is
+    what `test_slack_failure_does_not_suppress_telegram` below is for: since
+    Slack runs first, that test fails under a shared `try` (the exception
+    from Slack would prevent Telegram from ever running).
+    """
     from app.models.run import RunStatus
 
     slack_calls = []
+    telegram_attempted = []
 
     async def _slack(session, **kw):
         slack_calls.append(kw["run_id"])
 
     async def _telegram_boom(session, **kw):
+        telegram_attempted.append(kw["run_id"])
         raise RuntimeError("telegram exploded")
 
     monkeypatch.setattr(ns, "send_slack_run_failed", _slack)
@@ -115,6 +130,7 @@ async def test_telegram_failure_does_not_suppress_slack(
     )
     assert r.status_code == 200
     assert slack_calls == [run_id]
+    assert telegram_attempted == [run_id]
 
 
 async def test_slack_failure_does_not_suppress_telegram(
@@ -180,3 +196,73 @@ async def test_internal_drift_report_reaches_both_channels(
     )
     assert r.status_code == 200
     assert sorted(calls) == ["slack", "telegram"]
+
+
+async def _post_drift_report(auth_client, _setup_db, ws_id=None):
+    from app.models.workspace import Workspace
+
+    ws_id = ws_id or str(uuid.uuid4())
+    async with _setup_db() as session:
+        session.add(Workspace(
+            business_unit_id=DEFAULT_BU_ID, id=ws_id, name=f"drift-{ws_id[:8]}",
+            repo_url="https://example.com/repo.git", tf_working_dir=".",
+            aws_account_id="123456789012", environment="dev",
+        ))
+        await session.commit()
+
+    return await auth_client.post(
+        f"/api/v1/internal/drift/{ws_id}/report",
+        json={"workspace_id": ws_id, "has_drift": True, "summary": "1 changed"},
+        headers={
+            "X-Terraducktel-Internal-Token": "test-internal-token-do-not-use-in-prod"
+        },
+    )
+
+
+async def test_internal_drift_telegram_failure_does_not_suppress_slack(
+    auth_client, _setup_db, monkeypatch
+):
+    """Mirrors test_telegram_failure_does_not_suppress_slack for the drift
+    path in internal.py — also the regression test for the Finding-1 rollback
+    fix: a DB-level failure in one channel must not leave the shared session
+    dirty in a way that blocks (or falsely fails) the other channel."""
+    slack_calls = []
+    telegram_attempted = []
+
+    async def _slack(session, **kw):
+        slack_calls.append("slack")
+
+    async def _telegram_boom(session, **kw):
+        telegram_attempted.append("telegram")
+        raise RuntimeError("telegram exploded")
+
+    monkeypatch.setattr(ns, "send_slack_drift_detected", _slack)
+    monkeypatch.setattr(ns, "send_telegram_drift_detected", _telegram_boom)
+
+    r = await _post_drift_report(auth_client, _setup_db)
+    assert r.status_code == 200
+    assert slack_calls == ["slack"]
+    assert telegram_attempted == ["telegram"]
+
+
+async def test_internal_drift_slack_failure_does_not_suppress_telegram(
+    auth_client, _setup_db, monkeypatch
+):
+    """Mirrors test_slack_failure_does_not_suppress_telegram for the drift
+    path: Slack is dispatched first, so this is the direction that actually
+    proves the two channels run under separate try/except blocks rather than
+    one shared block."""
+    telegram_calls = []
+
+    async def _slack_boom(session, **kw):
+        raise RuntimeError("slack exploded")
+
+    async def _telegram(session, **kw):
+        telegram_calls.append("telegram")
+
+    monkeypatch.setattr(ns, "send_slack_drift_detected", _slack_boom)
+    monkeypatch.setattr(ns, "send_telegram_drift_detected", _telegram)
+
+    r = await _post_drift_report(auth_client, _setup_db)
+    assert r.status_code == 200
+    assert telegram_calls == ["telegram"]

@@ -293,11 +293,11 @@ async def patch_run(
 
     notify_after_commit = False
     notification_payload: dict | None = None
-    # Slack-bot notifications (per-BU). Each entry is a (kind, payload) tuple
-    # dispatched after commit; kept separate from `notification_payload`
-    # because the bot path is independent of the legacy webhook/email path
-    # and can fire on more events (auto-approved, failed) where the legacy
-    # path does not.
+    # Bot-channel notifications (Slack + Telegram, per-BU). Each entry is a
+    # (kind, payload) tuple dispatched after commit; kept separate from
+    # `notification_payload` because the bot path is independent of the
+    # legacy webhook/email path and can fire on more events (auto-approved,
+    # failed) where the legacy path does not.
     bot_events: list[tuple[str, dict]] = []
 
     if body.status is not None:
@@ -523,6 +523,23 @@ async def patch_run(
                             "%s notification (%s) failed for run %s",
                             channel, kind, run.id, exc_info=True,
                         )
+                        # Each sender swallows its own SlackError/TelegramError/
+                        # httpx.RequestError, so anything landing here is an
+                        # unexpected DB-level failure (e.g. a read inside
+                        # _resolve_bu_slug_for_workspace / _account_badge) that
+                        # can leave the shared session dirty. Roll back before
+                        # the next channel runs so it fails (or succeeds) on
+                        # its own merits, not as a side effect of the first
+                        # channel's aborted transaction. Defensive: a rollback
+                        # failure here must not escape and take down the loop.
+                        try:
+                            await ns_session.rollback()
+                        except Exception:  # noqa: BLE001 — defensive only
+                            logger.warning(
+                                "rollback after %s notification (%s) failure "
+                                "also failed for run %s",
+                                channel, kind, run.id, exc_info=True,
+                            )
 
     return run
 
