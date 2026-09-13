@@ -121,7 +121,7 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
                 row("Approval poll seconds (0 = off) (reserved for a future release):") {
                     intTextField(0..3600).bindIntText(working::approvalsPollSeconds)
                 }
-                row { checkBox("Show status bar item (reserved for a future release)").bindSelected(working::statusBarEnabled) }
+                row { checkBox("Show status bar item").bindSelected(working::statusBarEnabled) }
                 row { checkBox("Trace requests").bindSelected(working::trace) }
             }
         }

@@ -15,6 +15,10 @@
     <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.session.TdtSessionStarter"/>
     <toolWindow id="Terraducktel" anchor="left" icon="/icons/tdt.svg"
                 factoryClass="com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory"/>
+    <statusBarWidgetFactory id="Terraducktel.Profile" implementation="com.terraducktel.jetbrains.editor.ProfileStatusBarWidgetFactory"
+                             order="before Terraducktel.CurrentFile"/>
+    <statusBarWidgetFactory id="Terraducktel.CurrentFile" implementation="com.terraducktel.jetbrains.editor.TdtStatusBarWidgetFactory"
+                             order="after Position"/>
   </extensions>
   <actions>
     <action id="Terraducktel.Plan" class="com.terraducktel.jetbrains.actions.workspace.PlanAction" text="Plan"/>
@@ -29,6 +33,12 @@
     <action id="Terraducktel.Approve" class="com.terraducktel.jetbrains.actions.run.ApproveAction" text="Approve…" description="Approve a run awaiting approval"/>
     <action id="Terraducktel.Reject" class="com.terraducktel.jetbrains.actions.run.RejectAction" text="Reject…" description="Reject a run awaiting approval"/>
     <action id="Terraducktel.CancelRun" class="com.terraducktel.jetbrains.actions.run.CancelRunAction" text="Cancel Run" description="Request cancellation of a run"/>
+    <action id="Terraducktel.PlanCurrentFile" class="com.terraducktel.jetbrains.actions.editor.PlanCurrentFileAction"
+            text="Plan This Leaf" description="Plan the Terraducktel workspace covering the active file"/>
+    <action id="Terraducktel.RevealCurrentWorkspace" class="com.terraducktel.jetbrains.actions.editor.RevealCurrentWorkspaceAction"
+            text="Reveal Workspace" description="Reveal the active file's workspace in the tool window"/>
+    <action id="Terraducktel.CurrentFileActions" class="com.terraducktel.jetbrains.actions.editor.CurrentFileActionsAction"
+            text="Terraducktel Actions for Current File" description="Show actions for the Terraducktel workspace mapped to the active file"/>
     <group id="Terraducktel.Toolbar">
       <action id="Terraducktel.SignIn" class="com.terraducktel.jetbrains.actions.auth.SignInAction" text="Sign In…" icon="AllIcons.Actions.Execute"/>
       <action id="Terraducktel.SignOut" class="com.terraducktel.jetbrains.actions.auth.SignOutAction" text="Sign Out"/>
@@ -45,6 +55,14 @@
       <reference ref="Terraducktel.SwitchBu"/>
       <separator/>
       <reference ref="Terraducktel.WatchRun"/>
+      <separator/>
+      <reference ref="Terraducktel.PlanCurrentFile"/>
+      <reference ref="Terraducktel.RevealCurrentWorkspace"/>
+    </group>
+    <group id="Terraducktel.EditorMenu" text="Terraducktel" popup="true">
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+      <reference ref="Terraducktel.PlanCurrentFile"/>
+      <reference ref="Terraducktel.RevealCurrentWorkspace"/>
     </group>
     <!-- Installed as the Workspaces/Runs trees' context menus by
          TreePanel/WorkspacesPanel/RunsPanel. -->

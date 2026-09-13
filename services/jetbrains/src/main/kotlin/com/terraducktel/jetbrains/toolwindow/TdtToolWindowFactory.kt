@@ -96,6 +96,20 @@ class TdtToolWindowFactory : ToolWindowFactory, DumbAware {
     }
 
     companion object {
+        /** Activates the tool window, selects the Workspaces tab, and reveals [wsId] in it — the
+         *  editor status bar's "Reveal in tool window" action and its "Reveal Workspace" menu
+         *  counterpart both go through here. No-op if the tool window isn't registered (shouldn't
+         *  happen) or [wsId] isn't currently in the Workspaces tree (see [TreePanel.revealWorkspace]). */
+        fun revealWorkspace(project: Project, wsId: String) {
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel") ?: return
+            toolWindow.activate {
+                val content = toolWindow.contentManager.contents.firstOrNull { it.displayName == "Workspaces" } ?: return@activate
+                toolWindow.contentManager.setSelectedContent(content)
+                val panel = content.component as? SimpleToolWindowPanel
+                (panel?.content as? WorkspacesPanel)?.revealWorkspace(wsId)
+            }
+        }
+
         /** Recomputed (never incrementally tracked) from every open project's tool window
          *  visibility — simpler and can't drift out of sync with reality. */
         private fun recomputeActive() {

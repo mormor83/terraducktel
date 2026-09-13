@@ -42,9 +42,12 @@ URL, insecure TLS) plus general preferences:
   "awaiting approval" balloon you'll see today is for a run you started (or
   are actively watching) in this IDE session — see **Reviewing and
   approving** below.
-- **Show status bar item** — reserved for a future release: the setting is
-  stored and editable here, but this build has no status bar widget to show
-  or hide.
+- **Show status bar item** — a status-bar item next to the caret position
+  showing which Terraducktel workspace the active `.tf`/`.tfvars`/`.hcl` file
+  maps to; click it (or **Tools → Terraducktel → Terraducktel Actions for
+  Current File**) for a plan/show-last-plan/reveal-in-tool-window/open-in-
+  browser popup. A second, smaller item to its left shows the active profile
+  (and BU, once signed in) — click to switch profiles.
 - **Trace requests** — logs request/response metadata (never credentials) to
   `idea.log` under the `#com.terraducktel` logger.
 
