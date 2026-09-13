@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.terraducktel.jetbrains.api.ApiError
+import com.terraducktel.jetbrains.api.TdtClient
 import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
 import com.terraducktel.jetbrains.auth.SecretStore
 import com.terraducktel.jetbrains.settings.Profile
@@ -30,18 +31,21 @@ class TdtSessionTest : BasePlatformTestCase() {
 
     private val session get() = TdtSession.getInstance()
     private lateinit var secretStore: InMemorySecretStore
+    private lateinit var originalClientProvider: () -> TdtClient?
 
     override fun setUp() {
         super.setUp()
         secretStore = InMemorySecretStore()
         session.secretStoreFactory = { secretStore }
-        // TdtSession.reload()/setBu() now kick off an async Store.refresh() against whatever
-        // client is current at the moment that coroutine actually runs — which races arbitrarily
-        // against this test's own synchronous steps (e.g. a sign-in landing between reload()'s
-        // launch and the refresh coroutine's read of the client). Neutering the client provider
-        // makes every such background refresh a pure no-op clear(), so it can never sneak an
-        // extra request into a test's own call-count assertions; Store's real fetch behaviour is
-        // covered independently by the plain-JUnit StoreTest.
+        // TdtSession.reload()/setBu()/signIn*() now kick off an async Store.refresh() against
+        // whatever client is current at the moment that coroutine actually runs — which races
+        // arbitrarily against this test's own synchronous steps (e.g. a sign-in landing between
+        // reload()'s launch and the refresh coroutine's read of the client). Neutering the client
+        // provider makes every such background refresh a pure no-op clear(), so it can never sneak
+        // an extra request into a test's own call-count assertions; Store's real fetch behaviour
+        // is covered independently by the plain-JUnit StoreTest. One test below
+        // (testReloadAndSignInPopulateTheStoreAndSignOutClearsIt) opts back into the real wiring.
+        originalClientProvider = Store.getInstance().clientProvider
         Store.getInstance().clientProvider = { null }
     }
 
@@ -50,7 +54,7 @@ class TdtSessionTest : BasePlatformTestCase() {
             offEdt { session.signOut() }
             TdtSettings.getInstance().loadState(TdtSettings.State())
             session.secretStoreFactory = { PasswordSafeSecretStore() }
-            Store.getInstance().clientProvider = { TdtSession.getInstance().clientOrNull() }
+            Store.getInstance().clientProvider = originalClientProvider
             offEdt { session.reload() }
             // reload()/signOut() publish sessionChanged via invokeLater — drain it now so it isn't
             // left sitting on the EDT queue where a LATER test's message-bus subscription (checked
@@ -280,6 +284,34 @@ class TdtSessionTest : BasePlatformTestCase() {
 
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             assertEquals(0, count.get())
+        }
+    }
+
+    // (h) Opts the real Store wiring back in for just this test (every other test keeps the
+    // client provider neutered — see setUp()): reload() + an API-key sign-in populates the store
+    // through TdtSession's own wiring (the reload()-end start()+refresh(), and/or the sign-in-end
+    // refresh()), and signOut() clears it again.
+    fun testReloadAndSignInPopulateTheStoreAndSignOutClearsIt() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/workspaces", 200, """[{"id":"w1","name":"a"}]""")
+            srv.json("GET", "/api/v1/runs", 200, "[]")
+            Store.getInstance().clientProvider = { TdtSession.getInstance().clientOrNull() }
+            setProfile(srv)
+
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+            // signInWithApiKey() itself fires an async Store.refresh() — settle it
+            // deterministically instead of polling/sleeping: refresh() is single-flight, so this
+            // either joins that in-flight fetch or, if it already landed, runs another (harmless,
+            // idempotent) one.
+            offEdt { Store.getInstance().refreshAndWait() }
+
+            assertTrue("expected the store to have hit /workspaces", srv.calls("GET", "/api/v1/workspaces").isNotEmpty())
+            assertEquals(listOf("w1"), Store.getInstance().workspaces.map { it.id })
+
+            offEdt { session.signOut() }
+
+            assertTrue(Store.getInstance().workspaces.isEmpty())
         }
     }
 }

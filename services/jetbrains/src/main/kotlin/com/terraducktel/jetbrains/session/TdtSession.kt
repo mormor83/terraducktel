@@ -212,11 +212,13 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
     fun signInWithPassword(email: String, password: String) {
         val tm = tokens ?: throw IllegalStateException("Add a profile under Settings → Tools → Terraducktel first.")
         tm.signInWithPassword(email, password)
+        Store.getInstance().refresh()
     }
 
     fun signInWithApiKey(key: String) {
         val tm = tokens ?: throw IllegalStateException("Add a profile under Settings → Tools → Terraducktel first.")
         tm.signInWithApiKey(key)
+        Store.getInstance().refresh()
     }
 
     /** Runs the SSO loopback flow and signs in with the resulting token pair. A second sign-in
@@ -248,6 +250,7 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
             pollJob?.cancel()
         }
         tm.signInWithTokenPair(pair, "sso")
+        Store.getInstance().refresh()
     }
 
     fun signOut() {

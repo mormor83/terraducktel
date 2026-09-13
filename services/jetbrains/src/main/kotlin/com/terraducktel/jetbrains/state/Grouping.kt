@@ -10,8 +10,14 @@ enum class Cloud { AWS, AZURE, GCP, OTHER }
 data class Classification(val cloud: Cloud, val key: String, val label: String, val region: String)
 data class PathSegments(val folders: List<String>, val leaf: String)
 
+/** `localeCompare`-equivalent ordering for names shown in the tree: case-insensitive first (so
+ *  "AWS"/"aws" interleave the way they would under the default locale collation the TS side gets
+ *  for free), natural comparison as the tiebreak so equal-ignoring-case names still sort
+ *  deterministically instead of by insertion order. */
+private val NAME_COMPARATOR: Comparator<String> = String.CASE_INSENSITIVE_ORDER.then(Comparator.naturalOrder())
+
 class FolderNode(val name: String) {
-    val folders = sortedMapOf<String, FolderNode>()
+    val folders = sortedMapOf<String, FolderNode>(NAME_COMPARATOR)
     val workspaces = mutableListOf<Pair<Workspace, String>>() // ws to leaf
 }
 data class RegionGroup(val region: String, val root: FolderNode, val count: Int)
@@ -44,11 +50,11 @@ object Grouping {
     /** Which top-level group a workspace belongs to. Explicit links win over path detection;
      *  AWS is the default only when an account id is set; everything else groups by its top folder. */
     fun classify(ws: Workspace): Classification {
-        if (ws.azure_subscription_id != null) {
+        if (!ws.azure_subscription_id.isNullOrEmpty()) {
             val i = azureInfo(ws)
             return Classification(Cloud.AZURE, ws.azure_subscription_id, i?.let { "subscription-${it.id}" } ?: "Azure subscription", i?.region ?: ws.region)
         }
-        if (ws.gcp_project_id != null) {
+        if (!ws.gcp_project_id.isNullOrEmpty()) {
             val i = gcpInfo(ws)
             return Classification(Cloud.GCP, ws.gcp_project_id, i?.let { "project-${it.id}" } ?: "GCP project", i?.region ?: ws.region)
         }
@@ -96,7 +102,7 @@ object Grouping {
             (colliding ?: cur).workspaces += w to leaf
         }
         fun sortNode(n: FolderNode) {
-            n.workspaces.sortWith(compareBy { it.second })
+            n.workspaces.sortWith(compareBy(NAME_COMPARATOR) { it.second })
             n.folders.values.forEach(::sortNode)
         }
         sortNode(root) // folders are already sorted by name via the sortedMapOf backing map
@@ -120,11 +126,11 @@ object Grouping {
             g.byRegion.getOrPut(cls.region) { mutableListOf() } += w
         }
         return groups.values.map { (cls, byRegion) ->
-            val regions = byRegion.entries.sortedBy { it.key }.map { (region, list) ->
+            val regions = byRegion.entries.sortedWith(compareBy(NAME_COMPARATOR) { it.key }).map { (region, list) ->
                 val root = buildFolderTree(list)
                 RegionGroup(region, root, countNode(root))
             }
             CloudGroup(cls.cloud, cls.key, cls.label, regions, regions.sumOf { it.count })
-        }.sortedWith(compareBy({ CLOUD_ORDER.indexOf(it.cloud) }, { it.label }))
+        }.sortedWith(compareBy<CloudGroup> { CLOUD_ORDER.indexOf(it.cloud) }.then(compareBy(NAME_COMPARATOR) { it.label }))
     }
 }

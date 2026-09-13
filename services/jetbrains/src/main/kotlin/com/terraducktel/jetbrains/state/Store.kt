@@ -3,7 +3,9 @@ package com.terraducktel.jetbrains.state
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.util.Disposer
+import com.terraducktel.jetbrains.TdtLog
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.TdtClient
 import com.terraducktel.jetbrains.api.Workspace
@@ -13,6 +15,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -85,22 +89,37 @@ class Store(private val scope: CoroutineScope) : Disposable {
         val maxRetries = 5
         var attempt = 0
         while (true) {
-            val c = clientProvider()
-            if (c == null) {
-                clearSnapshot()
-                fireChanged()
-                return
-            }
-            val stale = { attempt < maxRetries && clientProvider() !== c }
+            var c: TdtClient? = null
             try {
-                val ws = c.listWorkspaces()
-                val rs = c.listRuns(limit = runsLimitProvider())
-                if (stale()) { attempt++; continue } // a newer client took over while this fetch was in flight
+                // clientProvider() itself lives inside the try: a settings/session read is not
+                // expected to throw, but if it ever does, that failure is recorded exactly like a
+                // network failure below rather than crashing this coroutine outright.
+                val current = clientProvider().also { c = it } ?: run {
+                    clearSnapshot()
+                    fireChanged()
+                    return
+                }
+                // listWorkspaces()/listRuns() are blocking calls; fetch them concurrently (like
+                // `Promise.all` in store.ts) rather than one after the other.
+                val (ws, rs) = coroutineScope {
+                    val wsDeferred = async(Dispatchers.IO) { current.listWorkspaces() }
+                    val rsDeferred = async(Dispatchers.IO) { current.listRuns(limit = runsLimitProvider()) }
+                    wsDeferred.await() to rsDeferred.await()
+                }
+                if (attempt < maxRetries && clientProvider() !== current) {
+                    attempt++; continue // a newer client took over while this fetch was in flight
+                }
                 applySnapshot(ws, rs)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (stale()) { attempt++; continue } // stale error from a superseded client; retry with the current one
+                // ControlFlowException (e.g. ProcessCanceledException) is a marker interface, not
+                // itself a Throwable subtype, so it can't be a catch clause on its own — recognise
+                // it here and rethrow before it's ever recorded as a fetch failure.
+                if (e is ControlFlowException) throw e
+                if (c != null && attempt < maxRetries && clientProvider() !== c) {
+                    attempt++; continue // stale error from a superseded client; retry with the current one
+                }
                 lastError = e
                 consecutiveFailures++
             }
@@ -161,8 +180,18 @@ class Store(private val scope: CoroutineScope) : Disposable {
         Disposer.register(parent) { listeners -= l }
     }
 
+    /** Each listener runs in its own try/catch: one misbehaving subscriber (e.g. a tree rebuild
+     *  throwing on unexpected data) must never stop the rest from hearing about the change. */
     private fun fireChanged() {
-        listeners.forEach { it() }
+        for (l in listeners) {
+            try {
+                l()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                TdtLog.LOG.warn("Terraducktel: a Store listener threw", t)
+            }
+        }
     }
 
     /** Used by Task 9's tree tests to seed a snapshot without going through a real [refresh]. */
