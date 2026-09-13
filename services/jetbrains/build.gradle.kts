@@ -19,7 +19,6 @@ repositories {
 dependencies {
     intellijPlatform {
         intellijIdea("2026.1")
-        bundledModule("intellij.libraries.kotlinx.serialization.json")
         testFramework(TestFrameworkType.Platform)
     }
     testImplementation("junit:junit:4.13.2")

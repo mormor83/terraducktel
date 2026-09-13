@@ -6,7 +6,7 @@
 
 **Architecture:** Kotlin, IntelliJ Platform SDK (native tool window, actions, dialogs), a blocking `HttpURLConnection` transport under a typed `TdtClient` whose refresh/sign-out semantics are a port of `services/vscode/src/api/client.ts`. Application-level services hold the session, settings and polling store; each project's tool window renders the shared store. Network work runs on `Dispatchers.IO` / pooled threads, never on the EDT.
 
-**Tech Stack:** Kotlin 2.3.21 (JVM target 21), Gradle 9.7.1 wrapper, IntelliJ Platform Gradle Plugin 2.18.1, `intellijIdea("2026.1")`, bundled `kotlinx.serialization.json` + kotlinx.coroutines, JUnit 4 + `BasePlatformTestCase`, `com.sun.net.httpserver` stub server in tests.
+**Tech Stack:** Kotlin 2.3.21 (JVM target 21), Gradle 9.7.1 wrapper, IntelliJ Platform Gradle Plugin 2.18.1, `intellijIdea("2026.1")`, the platform's boot-classpath kotlinx.serialization.json + kotlinx.coroutines, JUnit 4 + `BasePlatformTestCase`, `com.sun.net.httpserver` stub server in tests.
 
 **Spec:** `docs/superpowers/specs/2026-09-13-jetbrains-plugin-design.md`
 
@@ -14,7 +14,7 @@
 
 - Plugin id `com.terraducktel.jetbrains`, name **Terraducktel**, vendor `Terraducktel`, version `0.1.0`, `sinceBuild = "261"`, **no** `untilBuild`.
 - `<depends>com.intellij.modules.platform</depends>` only. No dependency on Terraform/HCL or Git plugins.
-- **No third-party runtime dependencies.** JSON = `kotlinx.serialization.json` via `<dependencies><module name="intellij.libraries.kotlinx.serialization.json"/></dependencies>` + Gradle `bundledModule(...)`. Coroutines = the platform's bundled kotlinx.coroutines. HTTP = `java.net.HttpURLConnection`. Test-only deps: `junit:junit:4.13.2`.
+- **No third-party runtime dependencies.** JSON = the platform's kotlinx.serialization.json, which sits on the IDE boot classpath and is already on the compile classpath — do **not** declare it as a `<module>` dependency in plugin.xml or via `bundledModule(...)` in Gradle (the platform flags a third-party plugin depending on that internal-visibility module as an accessibility problem). Coroutines = the platform's bundled kotlinx.coroutines. HTTP = `java.net.HttpURLConnection`. Test-only deps: `junit:junit:4.13.2`.
 - Kotlin package root `com.terraducktel.jetbrains`. JVM target 21 (`kotlin.compilerOptions.jvmTarget = JVM_21`, `JavaCompile.options.release = 21`).
 - Never touch JVM-global TLS/hostname settings; insecure TLS is per-connection on the profile's `HttpsURLConnection` only.
 - Secrets only in PasswordSafe; never in settings XML, logs, or notifications. Trace logging (`trace` setting) logs `METHOD /path → status (ms)` only.
@@ -94,7 +94,6 @@ repositories {
 dependencies {
     intellijPlatform {
         intellijIdea("2026.1")
-        bundledModule("intellij.libraries.kotlinx.serialization.json")
         testFramework(TestFrameworkType.Platform)
     }
     testImplementation("junit:junit:4.13.2")
@@ -160,9 +159,6 @@ Expected: `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, `gradle
     self-hosted Terraducktel deployment. Sign in with email + password, an API key, or SSO.
   ]]></description>
   <depends>com.intellij.modules.platform</depends>
-  <dependencies>
-    <module name="intellij.libraries.kotlinx.serialization.json"/>
-  </dependencies>
   <extensions defaultExtensionNs="com.intellij">
     <notificationGroup id="Terraducktel" displayType="BALLOON"/>
   </extensions>

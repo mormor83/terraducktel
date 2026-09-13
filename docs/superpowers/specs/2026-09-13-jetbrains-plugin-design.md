@@ -22,7 +22,7 @@ extension at 0.3.1, the same server surface, the same security posture.
 | Branch / PR | Same branch as the VS Code extension; PR #30 grows to "IDE clients". One review surface, one contract-guard pattern. |
 | IDE range | `sinceBuild = 261` (2026.1), no `untilBuild`. Platform-only dependency (`com.intellij.modules.platform`) so one artifact installs into every JetBrains IDE. |
 | Language / toolchain | Kotlin 2.3.x (2026.1 bundles stdlib 2.3.20), JVM target 21 (the 2026.1 floor), Gradle 9.7.1 wrapper, IntelliJ Platform Gradle Plugin 2.18.1, compiled against IntelliJ IDEA 2026.1 (the unified distribution — Community is no longer published since 2025.3). Any JDK ≥ 21 builds it; locally the Toolbox-installed JetBrains Runtime works. |
-| Runtime dependencies | None shipped. JSON via the platform's bundled `intellij.libraries.kotlinx.serialization.json` module, concurrency via the bundled kotlinx.coroutines, HTTP via the JDK. Same "no third-party runtime deps" rule as the VS Code extension. |
+| Runtime dependencies | None shipped. JSON via the platform's bundled kotlinx.serialization.json (on the IDE boot classpath, like Gson — **not** declared as a `<module>` dependency: those library modules carry internal visibility in the `jetbrains` namespace and the platform warns that a third-party plugin depending on one is an accessibility problem "currently ignored"), concurrency via the bundled kotlinx.coroutines, HTTP via the JDK. Same "no third-party runtime deps" rule as the VS Code extension. |
 | Architecture | Native Swing/IntelliJ UI (tool window, actions, dialogs, status-bar widget, notifications) over a typed Kotlin API client, polling. No JCEF-embedded SPA, no new API endpoints. |
 | Contract | `services/jetbrains/api_contract.json`, guarded by `services/api/tests/test_jetbrains_api_contract.py` (clone of the VS Code guard), so a router change fails CI naming the plugin feature it broke. |
 
@@ -58,12 +58,11 @@ services/jetbrains/
 ```
 
 - `plugin.xml`: `<id>com.terraducktel.jetbrains</id>`, name **Terraducktel**,
-  vendor Terraducktel, `<depends>com.intellij.modules.platform</depends>`,
-  `<dependencies><module name="intellij.libraries.kotlinx.serialization.json"/></dependencies>`.
-  Nothing depends on the Terraform/HCL or Git4Idea plugins: file matching is
+  vendor Terraducktel, `<depends>com.intellij.modules.platform</depends>` and no
+  `<dependencies>` block (see the runtime-dependencies row above). Nothing depends on the Terraform/HCL or Git4Idea plugins: file matching is
   by extension and git facts come from a `git` shell-out, exactly as in VS Code.
-- Gradle: `intellijIdea("2026.1")`, `bundledModule("intellij.libraries.kotlinx.serialization.json")`,
-  `testFramework(TestFrameworkType.Platform)`, `junit:junit:4.13.2` (test only).
+- Gradle: `intellijIdea("2026.1")`, `testFramework(TestFrameworkType.Platform)`
+  (the IDE's `lib/*.jar`, kotlinx.serialization included, is already the compile classpath), `junit:junit:4.13.2` (test only).
   `kotlin.compilerOptions.jvmTarget = JVM_21`, `JavaCompile.options.release = 21`.
   `buildPlugin` produces `build/distributions/terraducktel-jetbrains-<version>.zip`.
 - Version starts at **0.1.0** (own changelog; parity with VS Code 0.3.1 is a
