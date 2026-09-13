@@ -552,13 +552,27 @@ all BUs by repo-URL substring.
   for the run-lifecycle messages (auto-approved, awaiting approval, failed,
   drift detected) — these show the workspace's display name + leaf path,
   not just its environment tag, and include deep links back into the UI.
+- **Telegram** — a per-BU bot token + chat id (`telegram.bot_token`,
+  `telegram.chat_id`, `services/api/app/services/telegram.py`), carrying the
+  same four run / drift events as the Slack bot path. Messages use the Bot
+  API's HTML parse mode; there is no Block Kit equivalent, so the cloud
+  account's colour appears as a leading emoji rather than a stripe, and links
+  render as inline URL buttons (dropped when the public base URL is not
+  https, which Telegram rejects). Telegram and Slack are independent: a BU may
+  configure either, both, or neither, and each send is wrapped separately so
+  one channel's outage cannot suppress the other. There is no inbound
+  handling — buttons link into the UI, they do not approve runs. Telegram has
+  no counterpart to the legacy Slack *webhook* path above: the user-facing
+  `POST /drift/{workspace_id}/report` endpoint still only alerts via that
+  webhook + email; only the internal drift-detector-facing endpoint drives
+  the Slack-bot-and-Telegram pair.
 - **SMTP** — best-effort email via `smtplib`, configured through
   `smtp.host`/`smtp.port`/`smtp.from`/`smtp.to` (+ optional
   `smtp.username`/`smtp.password`) in the `config` table. Silently skipped
   if `smtp.host` isn't set.
 
-All notification sends are best-effort — a Slack or SMTP failure never
-fails the underlying run.
+All notification sends are best-effort — a Slack, Telegram, or SMTP failure
+never fails the underlying run.
 
 ### Audit log + hash chain
 
