@@ -6,7 +6,15 @@ test here reaches api.telegram.org.
 import httpx
 import pytest
 
+from app.auth.encryption_key import get_credential_encryption_key
+from app.routers.integrations import (
+    TELEGRAM_BOT_TOKEN_KEY,
+    TELEGRAM_BOT_USERNAME_KEY,
+    TELEGRAM_CHAT_ID_KEY,
+    TELEGRAM_CHAT_TITLE_KEY,
+)
 from app.services import telegram as tg
+from app.services.config_service import ConfigService
 
 # asyncio_mode = "auto" in pyproject.toml, so no asyncio mark is needed.
 pytestmark = pytest.mark.usefixtures("default_bu")
@@ -44,9 +52,24 @@ def good_telegram(monkeypatch):
 async def test_viewer_and_operator_are_forbidden(
     auth_client, viewer_token, operator_token, good_telegram
 ):
+    # (method, path, json body) for every route this router exposes. PUT's
+    # body is `{}` — every TelegramUpdate field is optional, so an empty body
+    # passes request validation and the 403 from require_role is what we're
+    # actually checking, not a 422 from a missing field.
+    calls = [
+        ("get", BASE, None),
+        ("put", BASE, {}),
+        ("delete", BASE, None),
+        ("post", f"{BASE}/test", None),
+        ("post", f"{BASE}/test-message", None),
+    ]
     for tok in (viewer_token, operator_token):
-        r = await auth_client.get(BASE, headers=_h(tok))
-        assert r.status_code == 403
+        for method, path, body in calls:
+            kwargs = {"headers": _h(tok)}
+            if body is not None:
+                kwargs["json"] = body
+            r = await getattr(auth_client, method)(path, **kwargs)
+            assert r.status_code == 403, f"{method.upper()} {path} -> {r.status_code}"
 
 
 async def test_unconfigured_reports_not_configured(auth_client, admin_token):
@@ -259,13 +282,31 @@ async def test_test_message_reports_a_send_failure(
     assert "403" in r.json()["detail"]
 
 
-async def test_delete_removes_every_key(auth_client, admin_token, good_telegram):
+async def test_delete_removes_every_key(
+    auth_client, admin_token, good_telegram, _setup_db
+):
     await auth_client.put(
         BASE, json={"token": "777:secret1234", "chat_id": "-1001"},
         headers=_h(admin_token),
     )
     d = await auth_client.delete(BASE, headers=_h(admin_token))
     assert d.status_code == 204
+
+    # Go straight to the config store rather than through GET: _telegram_status
+    # short-circuits to configured=False (chat_id defaulting to None) the
+    # moment the bot-token key is gone, without ever reading the other three
+    # keys — so a GET-only check can't tell "all four keys deleted" from
+    # "only the token was deleted". Assert each key directly instead.
+    async with _setup_db() as s:
+        svc = ConfigService(s, get_credential_encryption_key())
+        for key in (
+            TELEGRAM_BOT_TOKEN_KEY,
+            TELEGRAM_BOT_USERNAME_KEY,
+            TELEGRAM_CHAT_ID_KEY,
+            TELEGRAM_CHAT_TITLE_KEY,
+        ):
+            assert await svc.get_for_bu("default", key) is None, key
+
     g = await auth_client.get(BASE, headers=_h(admin_token))
     assert g.json()["configured"] is False
     assert g.json()["chat_id"] is None
