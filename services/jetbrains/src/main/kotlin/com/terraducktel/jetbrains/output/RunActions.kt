@@ -25,7 +25,8 @@ object RunActions {
     /** Advisory dedupe hook for Plan 2's `ApprovalWatcher.markSeen` — told about a run landing in
      *  `awaiting_approval` BEFORE this window's own toast goes up, so a background approval poll
      *  never announces the same run a second time. A failure here must never suppress the toast
-     *  itself — see [announceAwaiting]. */
+     *  itself — see [announceAwaiting]. Unused in 0.1.0; wired by plan 2 (editor mapping /
+     *  approval notifications). */
     var onAwaitingHook: ((Run) -> Unit)? = null
 
     /** Wired by [com.terraducktel.jetbrains.session.TdtSessionStarter] to [PlanDocument.open] /
@@ -83,6 +84,30 @@ object RunActions {
     internal fun pinFailedMessage(branch: String, command: String, cause: Throwable): String =
         "pinned to $branch, but $command failed: ${cause.message}"
 
+    /** Test seam: the Apply confirmation modal — swapped by tests so the gate itself (nothing is
+     *  POSTed to `/workspaces/{id}/runs` without an explicit confirm) can be asserted
+     *  deterministically against a stub server, the same way [Approvals.confirm] is. Production
+     *  default shows the same [MessageDialogBuilder.yesNo] prompt this always has. */
+    internal var confirmApply: (Project, Workspace) -> Boolean = { project, ws -> defaultConfirmApply(project, ws) }
+
+    /** Test seam for the Destroy type-the-name guard — same rationale as [confirmApply].
+     *  Production default shows the same [Messages.showInputDialog] prompt this always has. */
+    internal var confirmDestroy: (Project, Workspace) -> Boolean = { project, ws -> defaultConfirmDestroy(project, ws) }
+
+    private fun defaultConfirmApply(project: Project, ws: Workspace): Boolean =
+        MessageDialogBuilder.yesNo("Apply ${ws.name}?", "The plan will pause for approval before anything changes.")
+            .yesText("Start apply")
+            .asWarning()
+            .ask(project)
+
+    private fun defaultConfirmDestroy(project: Project, ws: Workspace): Boolean =
+        Messages.showInputDialog(
+            project,
+            "Type the workspace name to confirm DESTROY: ${ws.name}",
+            "Destroy ${ws.name}",
+            Messages.getWarningIcon(),
+        ) == ws.name
+
     /**
      * Port of VS Code `runCommandFor`: the Apply confirmation and the Destroy type-the-name guard
      * apply to EVERY caller (context menu, Tools menu, and Plan 2's status-bar "Plan this leaf").
@@ -91,22 +116,8 @@ object RunActions {
      */
     fun trigger(project: Project, ws: Workspace, command: String, branch: String? = null) {
         ThreadingAssertions.assertEventDispatchThread()
-        if (command == "apply") {
-            val ok = MessageDialogBuilder.yesNo("Apply ${ws.name}?", "The plan will pause for approval before anything changes.")
-                .yesText("Start apply")
-                .asWarning()
-                .ask(project)
-            if (!ok) return
-        }
-        if (command == "destroy") {
-            val typed = Messages.showInputDialog(
-                project,
-                "Type the workspace name to confirm DESTROY: ${ws.name}",
-                "Destroy ${ws.name}",
-                Messages.getWarningIcon(),
-            )
-            if (typed != ws.name) return
-        }
+        if (command == "apply" && !confirmApply(project, ws)) return
+        if (command == "destroy" && !confirmDestroy(project, ws)) return
 
         val plan = triggerPlanFor(ws, command, branch)
         ActionUtil.runBackground(project, "TDT: $command ${ws.name}") {

@@ -131,10 +131,10 @@ class RunNode(
         internal fun refreshIfChanged(runId: String, liveStatus: String): Boolean {
             val previous = stepsCache[runId] ?: return false
             if (previous is StepsState.Loaded && previous.final) return false
+            val epoch = sessionEpoch.get()
             val client = TdtSession.getInstance().clientOrNull() ?: return false
             if (!refreshing.add(runId)) return false
             try {
-                val epoch = sessionEpoch.get()
                 val steps = try {
                     client.getSteps(runId, includeOutput = false).sortedBy { it.position }
                 } catch (e: CancellationException) {

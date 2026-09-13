@@ -20,7 +20,7 @@ class ApiError(val status: Int, message: String, val detail: JsonElement? = null
         fun fromResponse(status: Int, text: String): ApiError {
             val parsed = runCatching { TdtJson.parseToJsonElement(text) }.getOrNull()
             val notJson = parsed == null || (parsed is JsonPrimitive && !parsed.isString && !isValidJsonLiteral(parsed.content))
-            if (notJson) return ApiError(status, text.trim().ifEmpty { "HTTP $status" }, null)
+            if (notJson) return ApiError(status, text.trim().ifEmpty { "HTTP $status" }, JsonPrimitive(text))
             val detail = (parsed as? JsonObject)?.get("detail")
             return when {
                 detail is JsonPrimitive && detail.isString -> ApiError(status, detail.content, detail)

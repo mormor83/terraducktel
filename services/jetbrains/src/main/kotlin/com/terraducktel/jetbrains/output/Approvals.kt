@@ -93,7 +93,7 @@ object Approvals {
             Store.getInstance().refreshAndWait()
             ApplicationManager.getApplication().invokeLater(
                 { RunActions.watch(project, run) },
-                ModalityState.nonModal(),
+                ModalityState.any(),
             ) { project.isDisposed }
         }
     }

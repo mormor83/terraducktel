@@ -1,5 +1,6 @@
 package com.terraducktel.jetbrains.settings
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogPanel
@@ -13,6 +14,7 @@ import com.intellij.ui.table.TableView
 import com.intellij.util.xmlb.XmlSerializerUtil
 import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
 import java.util.IdentityHashMap
+import java.util.concurrent.Future
 import javax.swing.DefaultComboBoxModel
 
 /**
@@ -80,6 +82,13 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
     // wrongly delete that profile's still-wanted stored credential.
     private val removedProfiles = mutableListOf<Profile>()
 
+    /** Test seam: the pooled-thread [Future] doing the actual PasswordSafe I/O for the most
+     *  recent [apply] (rename migrations + deletions). `apply()` always runs on the EDT and must
+     *  return without waiting on it, so tests that assert secret-store state after `apply()` need
+     *  to wait on this explicitly first. */
+    internal var pendingSecretWork: Future<*>? = null
+        private set
+
     override fun createPanel(): DialogPanel {
         tableModel.addTableModelListener { rebuildActiveCombo(activeProfileCombo.selectedItem as? String) }
         rebuildActiveCombo(working.activeProfile)
@@ -109,10 +118,10 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
                 row("Runs limit:") {
                     intTextField(10..1000).bindIntText(working::runsLimit)
                 }
-                row("Approval poll seconds (0 = off):") {
+                row("Approval poll seconds (0 = off) (reserved for a future release):") {
                     intTextField(0..3600).bindIntText(working::approvalsPollSeconds)
                 }
-                row { checkBox("Show status bar item").bindSelected(working::statusBarEnabled) }
+                row { checkBox("Show status bar item (reserved for a future release)").bindSelected(working::statusBarEnabled) }
                 row { checkBox("Trace requests").bindSelected(working::trace) }
             }
         }
@@ -215,23 +224,19 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
         val anyRemoved = removedProfiles.isNotEmpty()
         val shouldFire = activeUrlOrTlsChanged || activeRenamedOrRemoved || anyRemoved
 
-        val secretStore = PasswordSafeSecretStore()
         val newBuByProfile = actual.buByProfile.toMutableMap()
 
-        // Migrate the renamed profiles' stored credential + BU mapping to their new name.
-        for ((old, new) in renames) {
-            val credential = secretStore.get("terraducktel.cred.$old")
-            if (credential != null) {
-                secretStore.set("terraducktel.cred.$new", credential)
-                secretStore.delete("terraducktel.cred.$old")
-            }
-            newBuByProfile.remove(old)?.let { newBuByProfile[new] = it }
-        }
-        for (removed in removedProfiles) {
-            secretStore.delete("terraducktel.cred.${removed.name}")
-            newBuByProfile.remove(removed.name)
-        }
+        // Baseline (pre-rename) name for each removed row. A row renamed earlier in THIS apply
+        // cycle already has its `.name` mutated in place, so the credential/BU key actually on
+        // disk is the ORIGINAL name — using `removed.name` here would look up a key that was
+        // never written (the just-assigned new name) and leave the real credential orphaned
+        // under the old name forever. Removed rows are also never in `tableModel.items` (removal
+        // drops them immediately), so they can never also appear in `renames` above.
+        val removals = removedProfiles.map { baselineNames[it] ?: it.name }
         removedProfiles.clear()
+
+        for (old in removals) newBuByProfile.remove(old)
+        for ((old, new) in renames) newBuByProfile.remove(old)?.let { newBuByProfile[new] = it }
 
         working.profiles = newProfiles
         working.activeProfile = newActiveName
@@ -246,6 +251,22 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
         rebuildActiveCombo(working.activeProfile)
 
         if (shouldFire) settings.fireChanged()
+
+        // Configurable.apply() always runs on the EDT, but PasswordSafe access can block (see
+        // TokenManager.restore()'s KDoc) — so only the WORK LIST (renames/removals, computed
+        // above from in-memory state) is decided here; the actual secret-store reads/writes/
+        // deletes run on a pooled thread, and nothing above waits on it.
+        pendingSecretWork = ApplicationManager.getApplication().executeOnPooledThread {
+            val secretStore = PasswordSafeSecretStore()
+            for ((old, new) in renames) {
+                val credential = secretStore.get("terraducktel.cred.$old")
+                if (credential != null) {
+                    secretStore.set("terraducktel.cred.$new", credential)
+                    secretStore.delete("terraducktel.cred.$old")
+                }
+            }
+            for (old in removals) secretStore.delete("terraducktel.cred.$old")
+        }
     }
 
     override fun reset() {

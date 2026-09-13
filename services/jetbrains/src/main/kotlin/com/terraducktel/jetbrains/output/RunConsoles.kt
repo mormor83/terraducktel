@@ -9,10 +9,12 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.Content
@@ -24,6 +26,7 @@ import com.terraducktel.jetbrains.TdtLog
 import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.session.TdtSession
+import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -119,8 +122,12 @@ class RunConsoles(private val project: Project) : Disposable {
                             ApplicationManager.getApplication().invokeLater({ cb(run) }, ModalityState.any()) { expired() }
                         }
                     }
+                } catch (e: CancellationException) {
+                    entry.active.set(false)
+                    throw e
                 } catch (e: Exception) {
                     entry.active.set(false)
+                    if (e is ControlFlowException) throw e
                     // Once cancelled, the content may already be gone (dispose()/content-removal
                     // cancels every entry before it can be torn down) — never touch it after that.
                     if (!cancelled()) sink.appendLine("✕ ${e.message}")
@@ -130,16 +137,23 @@ class RunConsoles(private val project: Project) : Disposable {
     }
 
     /** Removes an entry (and cancels its tail) when the user closes its Content tab. Registered
-     *  once per tool window instance — idempotent across repeated [watch] calls. */
+     *  once per this service (guarded by [listenerRegistered], not the [ToolWindow] instance) —
+     *  idempotent across repeated [watch] calls. Parented to this service via [Disposer] — the
+     *  only un-parented listener registration in the plugin would otherwise leak a classloader on
+     *  dynamic plugin unload, since [ContentManager] has no `addContentManagerListener(listener,
+     *  parentDisposable)` overload to register against directly. */
     private fun ensureContentListener(toolWindow: ToolWindow) {
         if (!listenerRegistered.compareAndSet(false, true)) return
-        toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
+        val listener = object : ContentManagerListener {
             override fun contentRemoved(event: ContentManagerEvent) {
                 val removed = event.content
                 val id = entries.entries.find { it.value.content === removed }?.key ?: return
                 entries.remove(id)?.cancelled?.set(true)
             }
-        })
+        }
+        val contentManager = toolWindow.contentManager
+        contentManager.addContentManagerListener(listener)
+        Disposer.register(this) { contentManager.removeContentManagerListener(listener) }
     }
 
     /** Cancels every active tail, then removes each Content from the tool window (which triggers

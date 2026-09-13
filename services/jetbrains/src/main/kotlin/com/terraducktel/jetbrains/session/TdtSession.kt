@@ -87,8 +87,16 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
 
     fun isSignedIn(): Boolean = tokens?.isSignedIn() == true
 
+    /** Test seam: overrides [canWrite]'s real computation — swapped by action-gating tests that
+     *  need a deterministic RBAC answer without driving a real sign-in (password/API key/SSO,
+     *  each with its own claims-derived role) just to flip one boolean. Defaults to the actual
+     *  computation. */
+    internal var canWriteProvider: () -> Boolean = { defaultCanWrite() }
+
     /** Port of `session.ts`'s `canWrite()`. */
-    fun canWrite(): Boolean {
+    fun canWrite(): Boolean = canWriteProvider()
+
+    private fun defaultCanWrite(): Boolean {
         val tm = tokens ?: return false
         if (!tm.isSignedIn()) return false
         val claims = tm.claims() ?: return tm.kind() == "api_key"

@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.xmlb.XmlSerializer
 import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -19,10 +20,19 @@ class TdtSettingsTest : BasePlatformTestCase() {
             val secrets = PasswordSafeSecretStore()
             secrets.delete("terraducktel.cred.prod")
             secrets.delete("terraducktel.cred.prod-renamed")
+            secrets.delete("terraducktel.cred.prod2")
             secrets.delete("terraducktel.cred.sneaky")
         } finally {
             super.tearDown()
         }
+    }
+
+    /** `apply()` always runs on the EDT and must return without waiting for the actual
+     *  PasswordSafe I/O (see [TdtConfigurable.pendingSecretWork]'s KDoc) — so any assertion
+     *  against secret-store state after `apply()` must wait for that pooled-thread work first. */
+    private fun TdtConfigurable.applyAndAwaitSecretWork() {
+        apply()
+        pendingSecretWork?.get(10, TimeUnit.SECONDS)
     }
 
     private fun twoProfileState(): TdtSettings.State = TdtSettings.State().apply {
@@ -165,7 +175,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         configurable.reset()
 
         configurable.removeProfileForTest("prod")
-        configurable.apply()
+        configurable.applyAndAwaitSecretWork()
 
         assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
         assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
@@ -192,7 +202,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         // profile case, where the migration is load-bearing rather than merely non-destructive).
         configurable.profiles.first { it.name == "prod" }.name = "prod-renamed"
         configurable.fireProfilesChangedForTest()
-        configurable.apply()
+        configurable.applyAndAwaitSecretWork()
 
         assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
         assertEquals("s3cr3t", PasswordSafeSecretStore().get("terraducktel.cred.prod-renamed"))
@@ -227,7 +237,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         // table, and cleared the selection).
         configurable.profiles.first { it.name == "prod" }.name = "prod-renamed"
         configurable.fireProfilesChangedForTest()
-        configurable.apply()
+        configurable.applyAndAwaitSecretWork()
 
         assertEquals("prod-renamed", TdtSettings.getInstance().state.activeProfile)
         assertEquals("s3cr3t", PasswordSafeSecretStore().get("terraducktel.cred.prod-renamed"))
@@ -235,6 +245,34 @@ class TdtSettingsTest : BasePlatformTestCase() {
         assertTrue(TdtSettings.getInstance().state.buByProfile.containsKey("prod-renamed"))
         assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
         assertEquals(1, fireCount.get())
+    }
+
+    fun testRenamingThenRemovingTheSameProfileInOneApplyDeletesTheOriginalCredential() {
+        TdtSettings.getInstance().loadState(TdtSettings.State().apply {
+            profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"))
+            activeProfile = "prod"
+            buByProfile = mutableMapOf("prod" to "platform")
+        })
+        PasswordSafeSecretStore().set("terraducktel.cred.prod", "s3cr3t")
+
+        val configurable = TdtConfigurable()
+        configurable.createPanel()
+        configurable.reset()
+
+        // Rename the row in place, THEN remove that same row, in one Apply — `removedProfiles`
+        // holds the Profile object whose `.name` field already reads "prod2" by the time it's
+        // removed. Naively deleting by `removed.name` would look up a credential that was never
+        // written ("terraducktel.cred.prod2") and leave the real one ("terraducktel.cred.prod")
+        // — and its `buByProfile` entry — orphaned forever.
+        configurable.profiles.first { it.name == "prod" }.name = "prod2"
+        configurable.fireProfilesChangedForTest()
+        configurable.removeProfileForTest("prod2")
+        configurable.applyAndAwaitSecretWork()
+
+        assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
+        assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod2"))
+        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
+        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod2"))
     }
 
     fun testMutatingWorkingCollectionsInPlaceDoesNotAffectLiveSettingsUntilApply() {

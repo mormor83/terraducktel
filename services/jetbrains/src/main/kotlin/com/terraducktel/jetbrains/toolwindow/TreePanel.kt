@@ -192,7 +192,9 @@ abstract class TreePanel(
      *  stale). Meaningless for [RunsPanel] (no `ws:` node ever appears there) — it simply never
      *  finds a match. Never descends into a [RunNode]/[StepNode]/[MessageNode] subtree (see
      *  [revealAction]) — a workspace is never nested inside a run, so there's nothing to find
-     *  there, and descending would force every visited run's steps to be fetched. */
+     *  there, and descending would force every visited run's steps to be fetched.
+     *
+     *  Unused in 0.1.0; wired by plan 2 (editor mapping / approval notifications). */
     fun revealWorkspace(id: String) {
         val targetId = "ws:$id"
         TreeUtil.promiseSelect(

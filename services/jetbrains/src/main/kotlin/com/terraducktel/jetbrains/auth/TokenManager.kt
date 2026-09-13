@@ -105,9 +105,17 @@ class TokenManager(
         persist(StoredCredential(kind = "api_key", api_key = k))
     }
     override fun signOut() {
-        access = null
-        synchronized(this) { refreshing = null }
-        persist(null)
+        // Everything but `fire()` happens under one monitor acquisition — `access`/`refreshing`
+        // must clear atomically with the persisted-credential wipe, not as three separate,
+        // separately-lockable steps a concurrent restore()/redeem() could interleave with.
+        synchronized(this) {
+            access = null
+            refreshing = null
+            loaded = true
+            cred = null
+            secrets.delete(key)
+        }
+        fire()
     }
 
     // ─── TokenProvider ───────────────────────────────────────────────────────

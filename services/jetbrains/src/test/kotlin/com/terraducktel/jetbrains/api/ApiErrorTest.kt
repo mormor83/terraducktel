@@ -1,5 +1,6 @@
 package com.terraducktel.jetbrains.api
 
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -26,6 +27,9 @@ class ApiErrorTest {
         val e = ApiError.fromResponse(400, "oops")
         assertEquals(400, e.status)
         assertEquals("oops", e.message)
+        // Matches client.ts's `detailToMessage`, whose catch branch returns `detail: text` (the
+        // raw body), not null — the two clients must agree on what `detail` carries.
+        assertEquals(JsonPrimitive("oops"), e.detail)
     }
 
     @Test fun `empty body falls back to HTTP status`() {

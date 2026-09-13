@@ -2,6 +2,7 @@ package com.terraducktel.jetbrains.auth
 
 import com.terraducktel.jetbrains.api.ApiError
 import com.terraducktel.jetbrains.api.TdtClient
+import com.terraducktel.jetbrains.testutil.InMemorySecretStore
 import com.terraducktel.jetbrains.testutil.StubServer
 import org.junit.Assert.*
 import org.junit.Test
@@ -14,14 +15,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** Port of `services/vscode/test/unit/tokenManager.test.ts`. */
 class TokenManagerTest {
-
-    /** In-memory [SecretStore] — the Kotlin equivalent of the TS suite's `MemorySecretStore`. */
-    private class InMemorySecretStore : SecretStore {
-        private val map = HashMap<String, String>()
-        override fun get(key: String): String? = synchronized(map) { map[key] }
-        override fun set(key: String, value: String) { synchronized(map) { map[key] = value } }
-        override fun delete(key: String) { synchronized(map) { map.remove(key) } }
-    }
 
     /** Wraps another store and counts + delays `get` calls, to prove concurrent first callers
      *  share a single secret-store read rather than each doing their own. */

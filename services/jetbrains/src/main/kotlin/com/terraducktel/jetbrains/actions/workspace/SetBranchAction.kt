@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -14,6 +15,7 @@ import com.terraducktel.jetbrains.api.Workspace
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.toolwindow.TdtDataKeys
+import java.util.concurrent.CancellationException
 
 /** Pins the selected workspace's tracked branch: lists the repo's branches in the background,
  *  offers a popup chooser (current branch marked, plus an "Other…" entry for a free-typed ref),
@@ -34,7 +36,10 @@ class SetBranchAction : AnAction() {
             val client = TdtSession.getInstance().requireClient()
             val branches = try {
                 client.listBranches(ws.id)
-            } catch (_: Exception) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is ControlFlowException) throw e
                 Branches(source = "none", branches = emptyList())
             }
             // ModalityState.any() + a disposal condition: this must not queue up behind a modal
