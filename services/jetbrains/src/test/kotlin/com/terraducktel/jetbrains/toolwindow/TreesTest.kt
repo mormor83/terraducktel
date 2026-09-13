@@ -290,6 +290,56 @@ class TreesTest : BasePlatformTestCase() {
         }
     }
 
+    fun `test an expanded run that completes gets exactly one final refresh, then no more`() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/auth/config", 200, """{"mode":"local"}""")
+            val stepsVersion = java.util.concurrent.atomic.AtomicInteger(1)
+            srv.on("GET", "/api/v1/runs/r1/steps") { _, ex ->
+                val status = if (stepsVersion.get() == 1) "running" else "success"
+                StubServer.respond(ex, 200, """[{"position":1,"name":"init","status":"$status"}]""")
+            }
+            setProfile(srv)
+            Store.getInstance().clientProvider = { null }
+            offEdt { TdtSession.getInstance().reload() }
+            offEdt { TdtSession.getInstance().signInWithApiKey("tdt_x") }
+            offEdt { Store.getInstance().refreshAndWait() }
+
+            val theWs = ws(id = "w1", name = "vpc")
+            val runningRun = run(id = "r1", wsId = "w1", status = "running", createdAt = "2024-01-01T00:00:00Z")
+            Store.getInstance().setSnapshotForTest(listOf(theWs), listOf(runningRun))
+
+            val panel = RunsPanel(project, testRootDisposable)
+            panel.signedInProvider = { true }
+
+            // Expand while still running: one fetch.
+            panel.rebuild().filterIsInstance<RunNode>().single().buildChildren()
+            awaitCondition {
+                panel.rebuild().filterIsInstance<RunNode>().single().buildChildren().any { it is StepNode }
+            }
+            assertEquals(1, srv.calls("GET", "/api/v1/runs/r1/steps").size)
+            panel.expandedRunIds += "r1"
+
+            // The run completes (a later Store snapshot carries the new status) and its steps
+            // changed — a tick must fetch exactly once more, mark the cache entry final, and show
+            // the new steps.
+            stepsVersion.set(2)
+            val appliedRun = run(id = "r1", wsId = "w1", status = "applied", createdAt = "2024-01-01T00:00:00Z")
+            Store.getInstance().setSnapshotForTest(listOf(theWs), listOf(appliedRun))
+            panel.refreshExpandedSteps()
+            awaitCondition { srv.calls("GET", "/api/v1/runs/r1/steps").size == 2 }
+            awaitCondition {
+                panel.rebuild().filterIsInstance<RunNode>().single().buildChildren()
+                    .filterIsInstance<StepNode>().singleOrNull()?.step?.status == "success"
+            }
+
+            // Now final — a further tick (even though still "expanded") must not touch the
+            // network at all.
+            panel.refreshExpandedSteps()
+            Thread.sleep(150)
+            assertEquals(2, srv.calls("GET", "/api/v1/runs/r1/steps").size)
+        }
+    }
+
     fun `test a session change clears the run step cache`() {
         StubServer().use { srv ->
             srv.json("GET", "/api/v1/auth/config", 200, """{"mode":"local"}""")

@@ -14,6 +14,7 @@ import com.terraducktel.jetbrains.toolwindow.TreeIcons
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentHashMap.newKeySet
+import java.util.concurrent.atomic.AtomicInteger
 
 /** A row in both trees: a top-level entry in the Runs tree, and a child of a [WorkspaceNode] in
  *  the Workspaces tree. Its children are [StepNode]s, fetched lazily and off the EDT the first
@@ -56,19 +57,23 @@ class RunNode(
     private fun fetchStepsAsync() {
         val runId = run.id
         if (!loading.add(runId)) return // already in flight — its completion will invalidate this node
+        val epoch = sessionEpoch.get()
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val client = TdtSession.getInstance().clientOrNull()
                 if (client == null) return@executeOnPooledThread // no session (yet) — leave uncached, keep the placeholder
                 val steps = client.getSteps(runId, includeOutput = false).sortedBy { it.position }
+                if (epoch != sessionEpoch.get()) return@executeOnPooledThread // a session change landed mid-flight — drop this stale result
                 stepsCache[runId] = StepsState.Loaded(steps, final = run.status in TERMINAL_RUN_STATUSES)
                 invalidate(this, true)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (e is ControlFlowException) throw e
-                stepsCache[runId] = StepsState.Failed(e.message ?: "unknown error")
-                invalidate(this, true)
+                if (epoch == sessionEpoch.get()) {
+                    stepsCache[runId] = StepsState.Failed(e.message ?: "unknown error")
+                    invalidate(this, true)
+                }
             } finally {
                 loading.remove(runId)
             }
@@ -93,27 +98,59 @@ class RunNode(
         private val stepsCache = ConcurrentHashMap<String, StepsState>()
         private val loading = newKeySet<String>()
 
+        /** Bounds [refreshIfChanged] to one in-flight tick-refetch per run id — two panels (or a
+         *  fast tick landing before a slow one returns) must never issue a second concurrent
+         *  request for the same run. Distinct from [loading] (which guards the first-expand fetch
+         *  in [fetchStepsAsync]): the two can never actually race each other in practice, since
+         *  [refreshIfChanged] refuses to run at all while there's no cache entry yet — but keeping
+         *  them separate keeps each guard's single responsibility obvious. */
+        private val refreshing = newKeySet<String>()
+
+        /** Bumped by [clearAll]. Every fetch (initial or tick-driven) captures this before making
+         *  its request and discards the result — no cache write, no `invalidate` — if it no longer
+         *  matches once the request returns: a session change (profile/BU/sign-in) mid-flight must
+         *  never let a response belonging to the OLD session land in the new one's cache. */
+        private val sessionEpoch = AtomicInteger(0)
+
         /** Called by [TreePanel][com.terraducktel.jetbrains.toolwindow.TreePanel] on every store
-         *  tick, for each currently-expanded run id whose live status is not yet terminal.
-         *  Performs one synchronous (caller is expected to be off the EDT already) fetch-and-
-         *  compare: returns `true` only when the fetched steps differ from what's cached, having
-         *  already updated the cache in that case — the caller redraws only then, never
-         *  unconditionally. A run with no cache entry yet is not this function's job (that's the
-         *  first-expand path in [fetchStepsAsync]); calling it for one is a harmless no-op. */
-        internal fun refreshIfChanged(runId: String): Boolean {
+         *  tick, for each currently-expanded run id — regardless of whether [liveStatus] (the
+         *  run's CURRENT status per the store, which may differ from the stale [Run.status]
+         *  captured on this or any other [RunNode] instance) is terminal, so a run that completes
+         *  between expand and its next tick still gets one last refresh with its final steps and
+         *  status. Performs one synchronous (caller is expected to be off the EDT already) fetch-
+         *  and-compare: returns `true` only when the fetched result differs from what's cached
+         *  (state type, `final`, or the steps themselves), having already updated the cache in
+         *  that case — the caller redraws only then, never unconditionally. A [StepsState.Failed]
+         *  entry is always eligible for a retry (treated like a non-final, empty [StepsState.
+         *  Loaded] for comparison purposes); a [StepsState.Loaded] entry already marked `final` is
+         *  never touched again — this is what actually stops the refetching once a run's final
+         *  steps have been captured, since callers are not expected to (and, per above, no longer
+         *  do) filter out terminal runs themselves. A run with no cache entry yet is not this
+         *  function's job (that's the first-expand path in [fetchStepsAsync]); calling it for one
+         *  is a harmless no-op. */
+        internal fun refreshIfChanged(runId: String, liveStatus: String): Boolean {
+            val previous = stepsCache[runId] ?: return false
+            if (previous is StepsState.Loaded && previous.final) return false
             val client = TdtSession.getInstance().clientOrNull() ?: return false
-            val previous = stepsCache[runId] as? StepsState.Loaded ?: return false
-            if (previous.final) return false // belt-and-braces: a final entry is never touched again, even if a caller's own terminal-status check is ever wrong or stale
-            return try {
-                val steps = client.getSteps(runId, includeOutput = false).sortedBy { it.position }
-                if (steps == previous.steps) return false
-                stepsCache[runId] = StepsState.Loaded(steps, final = false)
-                true
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                if (e is ControlFlowException) throw e
-                false // transient error during a background refresh — leave the last-good cache alone
+            if (!refreshing.add(runId)) return false
+            try {
+                val epoch = sessionEpoch.get()
+                val steps = try {
+                    client.getSteps(runId, includeOutput = false).sortedBy { it.position }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (e is ControlFlowException) throw e
+                    return false // transient error during a background refresh — leave the last-good cache alone
+                }
+                if (epoch != sessionEpoch.get()) return false // a session change landed mid-flight — drop this stale result
+                val final = liveStatus in TERMINAL_RUN_STATUSES
+                val unchanged = previous is StepsState.Loaded && previous.final == final && previous.steps == steps
+                if (unchanged) return false
+                stepsCache[runId] = StepsState.Loaded(steps, final)
+                return true
+            } finally {
+                refreshing.remove(runId)
             }
         }
 
@@ -126,10 +163,14 @@ class RunNode(
         /** The whole step cache belongs to one session (profile/BU/sign-in): a session change
          *  invalidates every cached result, terminal or not (a different BU can reuse a run id
          *  from a different backend in theory, and a fresh sign-in should never show another
-         *  session's cached output). */
+         *  session's cached output). Bumping [sessionEpoch] additionally guards against a fetch
+         *  that was already in flight when the session changed landing its (now stale) result
+         *  afterwards. */
         internal fun clearAll() {
             stepsCache.clear()
             loading.clear()
+            refreshing.clear()
+            sessionEpoch.incrementAndGet()
         }
     }
 }

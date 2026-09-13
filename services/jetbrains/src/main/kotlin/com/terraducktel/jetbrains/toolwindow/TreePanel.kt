@@ -16,7 +16,6 @@ import com.intellij.ui.tree.TreeVisitor
 import com.intellij.ui.treeStructure.SimpleTreeStructure
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.tree.TreeUtil
-import com.terraducktel.jetbrains.api.TERMINAL_RUN_STATUSES
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.session.TdtSessionListener
 import com.terraducktel.jetbrains.state.Store
@@ -91,7 +90,9 @@ abstract class TreePanel(
         })
 
         Store.getInstance().addListener(this) {
-            RunNode.prune(Store.getInstance().runs.map { it.id }.toSet())
+            val liveIds = Store.getInstance().runs.map { it.id }.toSet()
+            RunNode.prune(liveIds)
+            expandedRunIds.retainAll(liveIds)
             refreshExpandedSteps()
             scheduleInvalidate()
         }
@@ -159,13 +160,16 @@ abstract class TreePanel(
         }
     }
 
-    /** Refetches steps for every currently-[expandedRunIds] run whose live status (per the
-     *  current [Store] snapshot) is not yet terminal, comparing each result against
+    /** Refetches steps for every currently-[expandedRunIds] run, comparing each result against
      *  [RunNode]'s cache and redrawing only if at least one actually changed — called once per
      *  store tick (never from a node's own redraw), so this can never become the self-sustaining
-     *  fetch loop the plain "refetch whenever asked to rebuild" approach was. `internal` so a
-     *  test can call it directly after seeding [expandedRunIds], without driving real Swing
-     *  expansion events through the async tree. */
+     *  fetch loop the plain "refetch whenever asked to rebuild" approach was. Deliberately does
+     *  NOT skip a run whose live status is already terminal: an expanded run that completes
+     *  between one tick and the next still needs exactly one more refresh to pick up its final
+     *  steps (and have its cache entry marked final) — [RunNode.refreshIfChanged] is what actually
+     *  stops the refetching after that, once its own cache entry is final. `internal` so a test
+     *  can call it directly after seeding [expandedRunIds], without driving real Swing expansion
+     *  events through the async tree. */
     internal fun refreshExpandedSteps() {
         val ids = expandedRunIds.toSet()
         if (ids.isEmpty()) return
@@ -173,9 +177,8 @@ abstract class TreePanel(
         ApplicationManager.getApplication().executeOnPooledThread {
             var changed = false
             for (runId in ids) {
-                val run = runsById[runId] ?: continue // pruned separately by RunNode.prune
-                if (run.status in TERMINAL_RUN_STATUSES) continue // already final — RunNode never touches it again
-                if (RunNode.refreshIfChanged(runId)) changed = true
+                val run = runsById[runId] ?: continue // pruned separately, from the same store tick
+                if (RunNode.refreshIfChanged(runId, run.status)) changed = true
             }
             if (changed) scheduleInvalidate()
         }
