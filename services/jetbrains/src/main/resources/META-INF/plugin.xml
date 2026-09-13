@@ -10,5 +10,7 @@
   <depends>com.intellij.modules.platform</depends>
   <extensions defaultExtensionNs="com.intellij">
     <notificationGroup id="Terraducktel" displayType="BALLOON"/>
+    <applicationConfigurable parentId="tools" instance="com.terraducktel.jetbrains.settings.TdtConfigurable"
+                              id="com.terraducktel.jetbrains.settings" displayName="Terraducktel"/>
   </extensions>
 </idea-plugin>
