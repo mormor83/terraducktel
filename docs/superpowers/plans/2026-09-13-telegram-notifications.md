@@ -256,7 +256,11 @@ async def test_long_message_is_truncated_below_the_cap(fake_http):
 async def test_truncation_closes_tags_left_open():
     # Cutting between <pre> and </pre> makes Telegram reject the whole
     # message with "can't parse entities".
-    text = "<b>head</b>\n<pre>" + ("x" * 5000) + "</pre>"
+    # The excerpt must contain newlines INSIDE the <pre>: _truncate cuts back
+    # to the last newline, so a single pre-block with no internal newlines
+    # would rewind past the opening tag and never exercise the closer.
+    body = "\n".join("x" * 40 for _ in range(300))
+    text = "<b>head</b>\n<pre>" + body + "</pre>"
     out = tg._truncate(text)
     assert len(out) <= tg.MAX_MESSAGE_CHARS
     assert out.endswith("</pre>")
@@ -713,8 +717,9 @@ async def test_put_without_a_token_reuses_the_stored_one(
 async def test_config_is_scoped_to_the_business_unit(
     auth_client, admin_token, good_telegram, _setup_db
 ):
-    from app.models.business_unit import BusinessUnit
-    from app.models.user_business_unit import UserBusinessUnit
+    # NOTE: UserBusinessUnit lives in app.models.business_unit, not in a
+    # module of its own.
+    from app.models.business_unit import BusinessUnit, UserBusinessUnit
     from app.models.user import User
     from sqlalchemy import select
     import uuid
