@@ -5,6 +5,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.xmlb.XmlSerializer
 import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -245,6 +246,48 @@ class TdtSettingsTest : BasePlatformTestCase() {
         assertTrue(TdtSettings.getInstance().state.buByProfile.containsKey("prod-renamed"))
         assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
         assertEquals(1, fireCount.get())
+    }
+
+    fun testRenamingTheActiveProfileMigratesTheCredentialBeforePublishingTheSettingsChange() {
+        TdtSettings.getInstance().loadState(TdtSettings.State().apply {
+            profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"))
+            activeProfile = "prod"
+            buByProfile = mutableMapOf("prod" to "platform")
+        })
+        PasswordSafeSecretStore().set("terraducktel.cred.prod", "s3cr3t")
+
+        val configurable = TdtConfigurable()
+        configurable.createPanel()
+        configurable.reset()
+
+        // Regression test: `fireChanged()` used to run synchronously on the EDT BEFORE the
+        // rename's credential migration (which runs on a pooled thread) had even been scheduled —
+        // so a `TdtSettingsListener` reacting to it (in production, `TdtSession.reload()`,
+        // re-reading `terraducktel.cred.<name>`) could see no credential yet under the new name
+        // and sign the user out. Recorded from INSIDE the listener callback itself, at the moment
+        // it actually fires, rather than after `apply()`/`applyAndAwaitSecretWork()` returns — a
+        // check made only afterwards would pass either way and prove nothing about ordering.
+        val credentialWasMigratedBeforeFiring = AtomicBoolean()
+        val fired = AtomicBoolean()
+        ApplicationManager.getApplication().messageBus.connect(testRootDisposable).subscribe(
+            TdtSettingsListener.TOPIC,
+            object : TdtSettingsListener {
+                override fun settingsChanged() {
+                    credentialWasMigratedBeforeFiring.set(PasswordSafeSecretStore().get("terraducktel.cred.prod-renamed") != null)
+                    fired.set(true)
+                }
+            },
+        )
+
+        configurable.profiles.first { it.name == "prod" }.name = "prod-renamed"
+        configurable.fireProfilesChangedForTest()
+        configurable.applyAndAwaitSecretWork()
+
+        assertTrue("settingsChanged never fired", fired.get())
+        assertTrue(
+            "the renamed profile's credential must already be migrated by the time settingsChanged fires",
+            credentialWasMigratedBeforeFiring.get(),
+        )
     }
 
     fun testRenamingThenRemovingTheSameProfileInOneApplyDeletesTheOriginalCredential() {

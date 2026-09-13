@@ -250,13 +250,29 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
         refreshTableFrom(working.profiles)
         rebuildActiveCombo(working.activeProfile)
 
-        if (shouldFire) settings.fireChanged()
-
         // Configurable.apply() always runs on the EDT, but PasswordSafe access can block (see
         // TokenManager.restore()'s KDoc) — so only the WORK LIST (renames/removals, computed
         // above from in-memory state) is decided here; the actual secret-store reads/writes/
         // deletes run on a pooled thread, and nothing above waits on it.
+        //
+        // `fireChanged()` moves into that SAME pooled task, running only after the migration/
+        // removal work below — never before it, and never separately on the EDT. `fireChanged()`
+        // synchronously publishes to `TdtSettingsListener.TOPIC`, whose one subscriber
+        // (`TdtSession`) schedules a `reload()` that re-reads `terraducktel.cred.<name>` — if the
+        // active profile was the one just renamed and `fireChanged()` fired first (as it used to,
+        // synchronously on the EDT, before the migration below had even been scheduled), that
+        // reload could race the migration and find no credential yet under the new name, signing
+        // the user out until a restart. Chaining this task off the PREVIOUS apply's own pooled
+        // task (rather than letting two Applies run their migrations concurrently) keeps
+        // successive renames/removals from ever landing out of order.
+        val previousSecretWork = pendingSecretWork
         pendingSecretWork = ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                previousSecretWork?.get()
+            } catch (e: Exception) {
+                // That was the previous apply's own failure (if any) — this apply's migration/
+                // removal work is independent and must still run.
+            }
             val secretStore = PasswordSafeSecretStore()
             for ((old, new) in renames) {
                 val credential = secretStore.get("terraducktel.cred.$old")
@@ -266,6 +282,7 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
                 }
             }
             for (old in removals) secretStore.delete("terraducktel.cred.$old")
+            if (shouldFire) settings.fireChanged()
         }
     }
 
