@@ -25,4 +25,7 @@ class HttpTransportTest {
     @Test(expected = java.io.IOException::class) fun `connection refused throws IOException`() {
         HttpTransport.request("GET", "http://127.0.0.1:9/x", emptyMap(), null, insecureTls = false, connectTimeoutMs = 500)
     }
+    @Test(expected = java.io.IOException::class) fun `connection refused with a body throws IOException`() {
+        HttpTransport.request("POST", "http://127.0.0.1:9/x", emptyMap(), """{"a":1}""", insecureTls = false, connectTimeoutMs = 500)
+    }
 }

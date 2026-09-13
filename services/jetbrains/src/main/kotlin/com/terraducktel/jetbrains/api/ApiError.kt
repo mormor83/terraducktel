@@ -6,9 +6,9 @@ class ApiError(val status: Int, message: String, val detail: JsonElement? = null
     companion object {
         /** Port of client.ts `detailToMessage`: string detail → as is; FastAPI validation list → "loc: msg; …"; else "HTTP <status>". */
         fun fromResponse(status: Int, text: String): ApiError {
-            val parsed = runCatching { TdtJson.parseToJsonElement(text) }.getOrNull()
+            val parsed = runCatching { TdtJson.parseToJsonElement(text) }.getOrNull() as? JsonObject
                 ?: return ApiError(status, text.trim().ifEmpty { "HTTP $status" }, null)
-            val detail = (parsed as? JsonObject)?.get("detail")
+            val detail = parsed["detail"]
             return when {
                 detail is JsonPrimitive && detail.isString -> ApiError(status, detail.content, detail)
                 detail is JsonArray -> {

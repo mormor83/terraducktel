@@ -2,6 +2,7 @@ package com.terraducktel.jetbrains.api
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 
 val TdtJson = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = false }
 
@@ -30,7 +31,7 @@ val CANCELLABLE_RUN_STATUSES: Set<String> = setOf("pending", "running", "plannin
     val output: String? = null, val summary_json: String? = null,
 )
 @Serializable data class GraphSummary(val add: Int = 0, val change: Int = 0, val destroy: Int = 0, val replace: Int = 0)
-@Serializable data class RunGraph(val summary: GraphSummary = GraphSummary())
+@Serializable data class RunGraph(val nodes: List<JsonElement> = emptyList(), val edges: List<JsonElement> = emptyList(), val summary: GraphSummary = GraphSummary())
 @Serializable data class Branches(val source: String = "", val default_branch: String? = null, val branches: List<String> = emptyList())
 @Serializable data class PlanOutput(val plan_output: String? = null)
 @Serializable data class TriggerRunBody(val command: String, val branch: String? = null)

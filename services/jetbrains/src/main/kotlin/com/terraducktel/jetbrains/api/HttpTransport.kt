@@ -28,18 +28,18 @@ object HttpTransport {
         connectTimeoutMs: Int = 10_000, readTimeoutMs: Int = 30_000,
     ): HttpResponse {
         val conn = URI(url).toURL().openConnection() as HttpURLConnection
-        if (insecureTls && conn is HttpsURLConnection) { conn.sslSocketFactory = trustAll; conn.hostnameVerifier = HostnameVerifier { _, _ -> true } }
-        conn.requestMethod = method
-        conn.connectTimeout = connectTimeoutMs; conn.readTimeout = readTimeoutMs
-        conn.instanceFollowRedirects = false
-        conn.setRequestProperty("Accept", "application/json")
-        headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
-        if (body != null) {
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        }
         try {
+            if (insecureTls && conn is HttpsURLConnection) { conn.sslSocketFactory = trustAll; conn.hostnameVerifier = HostnameVerifier { _, _ -> true } }
+            conn.requestMethod = method
+            conn.connectTimeout = connectTimeoutMs; conn.readTimeout = readTimeoutMs
+            conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            if (body != null) {
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            }
             val status = conn.responseCode
             val stream = if (status >= 400) conn.errorStream else conn.inputStream
             val text = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
