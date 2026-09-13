@@ -1,10 +1,8 @@
 package com.terraducktel.jetbrains.toolwindow
 
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.terraducktel.jetbrains.api.Run
-import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.toolwindow.nodes.MessageNode
 import com.terraducktel.jetbrains.toolwindow.nodes.RunNode
@@ -19,20 +17,13 @@ class RunsPanel(project: Project, parentDisposable: Disposable) : TreePanel(proj
     override fun computeRootChildren(root: TdtNode): List<TdtNode> {
         if (!signedInProvider()) return listOf(notReadyMessage(root))
 
-        val head = mutableListOf<TdtNode>()
-        Store.getInstance().lastError?.let {
-            head += MessageNode(project, root, "Last refresh failed: ${it.message}", AllIcons.General.Warning)
-        }
-        val profile = TdtSession.getInstance().profile
-        if (profile?.insecureTls == true) {
-            head += MessageNode(project, root, "Insecure TLS is on for profile ${profile.name}", AllIcons.General.Warning)
-        }
-
+        val head = headMessages(root)
         val content = sortedRuns().map { RunNode(project, root, it) }
-        if (content.isEmpty() && Store.getInstance().lastError == null) {
-            head += MessageNode(project, root, "No runs yet")
+        return if (content.isEmpty() && Store.getInstance().lastError == null) {
+            head + MessageNode(project, root, "No runs yet")
+        } else {
+            head + content
         }
-        return head + content
     }
 
     /** Count of runs awaiting approval — used for the "Runs · N" tool window tab title. */
@@ -47,11 +38,4 @@ class RunsPanel(project: Project, parentDisposable: Disposable) : TreePanel(proj
         "planned", "applied", "failed", "cancelled" -> 2
         else -> 3
     }
-
-    private fun notReadyMessage(root: TdtNode): TdtNode =
-        if (profileConfiguredProvider()) {
-            MessageNode(project, root, "Sign in to Terraducktel", AllIcons.General.User)
-        } else {
-            MessageNode(project, root, "Add a profile under Settings → Tools → Terraducktel", AllIcons.General.User)
-        }
 }

@@ -17,7 +17,8 @@ class TdtToolWindowFactoryTest : BasePlatformTestCase() {
         val factory = TdtToolWindowFactory()
         val contents = factory.buildContents(project, testRootDisposable)
 
-        assertEquals(listOf("Workspaces", "Runs"), contents.map { it.first })
-        contents.forEach { (_, component) -> assertNotNull(component) }
+        assertEquals(listOf("Workspaces", "Runs"), contents.map { it.name })
+        assertTrue(contents[0].panel is WorkspacesPanel)
+        assertTrue(contents[1].panel is RunsPanel)
     }
 }
