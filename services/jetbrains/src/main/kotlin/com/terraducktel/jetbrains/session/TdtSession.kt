@@ -18,6 +18,7 @@ import com.terraducktel.jetbrains.auth.TokenManager
 import com.terraducktel.jetbrains.settings.Profile
 import com.terraducktel.jetbrains.settings.TdtSettings
 import com.terraducktel.jetbrains.settings.TdtSettingsListener
+import com.terraducktel.jetbrains.state.Store
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -64,13 +65,6 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
 
     /** Test seam: tests inject an in-memory [SecretStore] here before calling [reload]. */
     internal var secretStoreFactory: () -> SecretStore = { PasswordSafeSecretStore() }
-
-    /** Invoked whenever the client signals a session expired sign-out. Wired to the run/workspace
-     *  store once it exists (Task 8) — left null here since that store doesn't exist yet. */
-    var onSignedOutHook: (() -> Unit)? = null
-
-    /** Invoked at the end of every successful [reload]. Wired to the store (Task 8). */
-    var onReloadedHook: (() -> Unit)? = null
 
     private val connection = ApplicationManager.getApplication().messageBus.connect(this)
 
@@ -125,6 +119,10 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         val gen = reloadGen.incrementAndGet()
         cycleRemovers.forEach { it() }
         cycleRemovers = emptyList()
+        // Stopped unconditionally for every cycle (mirrors session.ts): a cycle that turns out to
+        // have no profile leaves it stopped (nothing to poll); a successful cycle restarts it
+        // below once the new client is in place.
+        Store.getInstance().stop()
 
         val settings = TdtSettings.getInstance()
         val next = settings.activeProfile()
@@ -137,6 +135,7 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
             tokens = null
             client = null
             bu = ""
+            Store.getInstance().clear()
             publish()
             return
         }
@@ -165,7 +164,10 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         val cycleTokens = tm
         val removeSignedOut = newClient.onSignedOut {
             if (tokens !== cycleTokens) return@onSignedOut
-            onSignedOutHook?.invoke()
+            // Drop the cached snapshot: it belongs to a session that no longer exists, and
+            // leaving it on screen would make a signed-out tree look live. Store.refresh() is a
+            // no-op against a null client, so the (still-running) poll loop just idles.
+            Store.getInstance().clear()
             ApplicationManager.getApplication().invokeLater {
                 ActionUtil.notify(
                     null,
@@ -180,7 +182,8 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         cycleRemovers = listOf(removeSignedOut, removeOnDidChange)
 
         publish()
-        onReloadedHook?.invoke()
+        Store.getInstance().start(settings.state.refreshIntervalSeconds * 1000L)
+        Store.getInstance().refresh()
     }
 
     /** Writes the active profile and rebuilds the session around it. */
@@ -203,6 +206,7 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         client = newClient
         tokens?.attach(newClient)
         publish()
+        Store.getInstance().refresh()
     }
 
     fun signInWithPassword(email: String, password: String) {
@@ -248,6 +252,7 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
 
     fun signOut() {
         tokens?.signOut()
+        Store.getInstance().clear()
     }
 
     private fun publish() {

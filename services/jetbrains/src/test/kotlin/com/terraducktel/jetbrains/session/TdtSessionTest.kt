@@ -8,6 +8,7 @@ import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
 import com.terraducktel.jetbrains.auth.SecretStore
 import com.terraducktel.jetbrains.settings.Profile
 import com.terraducktel.jetbrains.settings.TdtSettings
+import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.testutil.InMemorySecretStore
 import com.terraducktel.jetbrains.testutil.StubServer
 import java.util.Base64
@@ -34,6 +35,14 @@ class TdtSessionTest : BasePlatformTestCase() {
         super.setUp()
         secretStore = InMemorySecretStore()
         session.secretStoreFactory = { secretStore }
+        // TdtSession.reload()/setBu() now kick off an async Store.refresh() against whatever
+        // client is current at the moment that coroutine actually runs — which races arbitrarily
+        // against this test's own synchronous steps (e.g. a sign-in landing between reload()'s
+        // launch and the refresh coroutine's read of the client). Neutering the client provider
+        // makes every such background refresh a pure no-op clear(), so it can never sneak an
+        // extra request into a test's own call-count assertions; Store's real fetch behaviour is
+        // covered independently by the plain-JUnit StoreTest.
+        Store.getInstance().clientProvider = { null }
     }
 
     override fun tearDown() {
@@ -41,6 +50,7 @@ class TdtSessionTest : BasePlatformTestCase() {
             offEdt { session.signOut() }
             TdtSettings.getInstance().loadState(TdtSettings.State())
             session.secretStoreFactory = { PasswordSafeSecretStore() }
+            Store.getInstance().clientProvider = { TdtSession.getInstance().clientOrNull() }
             offEdt { session.reload() }
             // reload()/signOut() publish sessionChanged via invokeLater — drain it now so it isn't
             // left sitting on the EDT queue where a LATER test's message-bus subscription (checked
