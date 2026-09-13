@@ -3,10 +3,12 @@ package com.terraducktel.jetbrains.output
 import com.terraducktel.jetbrains.api.TdtClient
 import com.terraducktel.jetbrains.api.TokenProvider
 import com.terraducktel.jetbrains.testutil.StubServer
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -19,6 +21,20 @@ class RunTailTest {
         override fun refreshAccessToken(): String? = "t"
         override fun hasCredential() = true
         override fun signOut() {}
+    }
+
+    /** Every timer created via [schedule] — shut down in [tearDown] so no test leaks a live thread
+     *  into the next one (or into the JVM's shutdown, under a JUnit runner that reuses threads). */
+    private val timers = CopyOnWriteArrayList<ScheduledExecutorService>()
+
+    private fun schedule(delayMs: Long, block: () -> Unit) {
+        val exec = Executors.newSingleThreadScheduledExecutor()
+        timers += exec
+        exec.schedule(block, delayMs, TimeUnit.MILLISECONDS)
+    }
+
+    @After fun tearDown() {
+        timers.forEach { it.shutdownNow() }
     }
 
     private fun sinceOf(query: String?): Int =
@@ -64,7 +80,7 @@ class RunTailTest {
         srv.json("GET", "/api/v1/runs/r1/steps", 200, "[]")
         val client = TdtClient(srv.url, "b", FakeTokens())
         val cancelled = AtomicInteger(0)
-        Executors.newSingleThreadScheduledExecutor().schedule({ cancelled.set(1) }, 30, TimeUnit.MILLISECONDS)
+        schedule(30) { cancelled.set(1) }
 
         val final = RunTail.tail(client, "r1", LineSink {}, pollMs = 5, isCancelled = { cancelled.get() == 1 })
 
@@ -85,9 +101,12 @@ class RunTailTest {
         val lines = CopyOnWriteArrayList<String>()
         val cancelled = AtomicInteger(0)
         val lenAtCancel = AtomicInteger(-1)
-        // applySteps is synchronous, so this timer can only fire between polls — the length it
-        // records is exactly what had been printed at the moment of cancellation.
-        Executors.newSingleThreadScheduledExecutor().schedule({ cancelled.set(1); lenAtCancel.set(lines.size) }, 30, TimeUnit.MILLISECONDS)
+        // The timer thread and the tail loop are two independent JVM threads, so this is not truly
+        // synchronous with `applySteps` — but the window between the timer's check and it actually
+        // firing is microseconds, against a poll/sleep cycle of ~10ms (5ms request + 5ms sleep), so
+        // in practice the recorded length matches what was printed at the moment of cancellation
+        // (asserted below, rather than assumed).
+        schedule(30) { cancelled.set(1); lenAtCancel.set(lines.size) }
 
         RunTail.tail(client, "r1", LineSink { lines.add(it) }, pollMs = 5, isCancelled = { cancelled.get() == 1 })
 
@@ -101,7 +120,7 @@ class RunTailTest {
         srv.json("GET", "/api/v1/runs/r1/steps", 200, "[]")
         val client = TdtClient(srv.url, "b", FakeTokens())
         val cancelled = AtomicInteger(0)
-        Executors.newSingleThreadScheduledExecutor().schedule({ cancelled.set(1) }, 30, TimeUnit.MILLISECONDS)
+        schedule(30) { cancelled.set(1) }
 
         val pool = Executors.newSingleThreadExecutor()
         val future = pool.submit<Unit> { RunTail.tail(client, "r1", LineSink {}, pollMs = 5, isCancelled = { cancelled.get() == 1 }); Unit }

@@ -3,8 +3,10 @@ package com.terraducktel.jetbrains.output
 import com.intellij.execution.filters.TextConsoleBuilderFactory
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.execution.ui.ConsoleViewContentType
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProgressIndicator
@@ -17,6 +19,9 @@ import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
+import com.intellij.util.concurrency.ThreadingAssertions
+import com.terraducktel.jetbrains.TdtLog
+import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.session.TdtSession
 import java.util.concurrent.ConcurrentHashMap
@@ -39,11 +44,23 @@ class RunConsoles(private val project: Project) : Disposable {
     private val entries = ConcurrentHashMap<String, Entry>()
     private val listenerRegistered = AtomicBoolean(false)
 
+    /** Every EDT hop below (console printing, `onLanded`) uses [ModalityState.any] plus this
+     *  "expired" condition: without it, output queued via the default NON_MODAL state freezes
+     *  behind any modal dialog — including this plugin's own Apply/Destroy/Approve prompts — and
+     *  then dumps all at once when the dialog closes. */
+    private fun expired() = project.isDisposed
+
     /** Opens (or reveals) a console tab for [runId] and starts following it, unless a follow for
      *  this run is already active — in which case the existing tab is just revealed. Must be
      *  called on the EDT. */
     fun watch(runId: String, title: String, onLanded: ((Run) -> Unit)? = null) {
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel") ?: return
+        ThreadingAssertions.assertEventDispatchThread()
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel")
+        if (toolWindow == null) {
+            TdtLog.LOG.warn("Terraducktel: tool window unavailable — cannot watch run $runId")
+            ActionUtil.notify(project, "TDT: the Terraducktel tool window is unavailable — cannot follow this run.", NotificationType.ERROR)
+            return
+        }
         ensureContentListener(toolWindow)
 
         val existing = entries[runId]
@@ -82,18 +99,26 @@ class RunConsoles(private val project: Project) : Disposable {
                 // this task's own cancel button must stop the loop identically.
                 val cancelled = { indicator.isCanceled || entry.cancelled.get() }
                 val sink = LineSink { line ->
-                    // Console printing is thread-safe, but invokeLater keeps this simple and
-                    // consistent regardless of which thread the tail loop calls appendLine from.
-                    ApplicationManager.getApplication().invokeLater {
-                        val type = if (line.startsWith("✕")) ConsoleViewContentType.ERROR_OUTPUT else ConsoleViewContentType.NORMAL_OUTPUT
-                        entry.console.print("$line\n", type)
-                    }
+                    // ModalityState.any() + the disposal condition: printing must not queue up
+                    // behind a modal dialog (see the field doc on `expired()`), and must never
+                    // fire after the project is gone.
+                    ApplicationManager.getApplication().invokeLater(
+                        {
+                            val type = if (line.startsWith("✕")) ConsoleViewContentType.ERROR_OUTPUT else ConsoleViewContentType.NORMAL_OUTPUT
+                            entry.console.print("$line\n", type)
+                        },
+                        ModalityState.any(),
+                    ) { expired() }
                 }
                 try {
                     val client = TdtSession.getInstance().requireClient()
                     val run = RunTail.tail(client, runId, sink, isCancelled = cancelled)
                     entry.active.set(false)
-                    if (!cancelled()) onLanded?.let { cb -> ApplicationManager.getApplication().invokeLater { cb(run) } }
+                    if (!cancelled()) {
+                        onLanded?.let { cb ->
+                            ApplicationManager.getApplication().invokeLater({ cb(run) }, ModalityState.any()) { expired() }
+                        }
+                    }
                 } catch (e: Exception) {
                     entry.active.set(false)
                     // Once cancelled, the content may already be gone (dispose()/content-removal
@@ -117,10 +142,21 @@ class RunConsoles(private val project: Project) : Disposable {
         })
     }
 
-    /** Cancels every active tail before disposing — a tail still running after this point could
-     *  otherwise print/select on a console whose Content has already been torn down. */
+    /** Cancels every active tail, then removes each Content from the tool window (which triggers
+     *  its `setDisposer(console)` disposer) — otherwise a tail's already-queued print could land on
+     *  a console nobody owns anymore between this service's disposal and the content manager's own
+     *  teardown. Guards for a missing tool window or an already-disposed project (both routine
+     *  during project close). */
     override fun dispose() {
         for (entry in entries.values) entry.cancelled.set(true)
+        if (!project.isDisposed) {
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel")
+            if (toolWindow != null) {
+                for (entry in entries.values.toList()) {
+                    toolWindow.contentManager.removeContent(entry.content, true)
+                }
+            }
+        }
         entries.clear()
     }
 

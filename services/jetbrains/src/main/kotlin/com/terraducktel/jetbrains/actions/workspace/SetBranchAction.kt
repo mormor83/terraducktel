@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -17,7 +18,7 @@ import com.terraducktel.jetbrains.toolwindow.TdtDataKeys
 /** Pins the selected workspace's tracked branch: lists the repo's branches in the background,
  *  offers a popup chooser (current branch marked, plus an "Other…" entry for a free-typed ref),
  *  then updates the workspace and refreshes. Port of VS Code's `terraducktel.setBranch`. */
-class SetBranchAction : AnAction("Set Tracked Branch…") {
+class SetBranchAction : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun update(e: AnActionEvent) {
@@ -36,28 +37,44 @@ class SetBranchAction : AnAction("Set Tracked Branch…") {
             } catch (_: Exception) {
                 Branches(source = "none", branches = emptyList())
             }
-            ApplicationManager.getApplication().invokeLater { pickBranch(project, ws, branches) }
+            // ModalityState.any() + a disposal condition: this must not queue up behind a modal
+            // dialog, nor fire after the project is gone.
+            ApplicationManager.getApplication().invokeLater(
+                { pickBranch(project, ws, branches) },
+                ModalityState.any(),
+            ) { project.isDisposed }
         }
     }
 
     private fun pickBranch(project: Project, ws: Workspace, branches: Branches) {
-        val other = "Other…"
         if (branches.branches.isEmpty()) {
             val ref = Messages.showInputDialog(project, "Tracked branch for ${ws.name}", "Set Tracked Branch", Messages.getQuestionIcon(), ws.repo_ref, null)
             applyBranch(project, ws, ref)
             return
         }
-        val options = branches.branches.map { if (it == ws.repo_ref) "$it (current)" else it } + other
+        val other = "Other…"
+        val labelFor = { b: String -> if (b == ws.repo_ref) "$b (current)" else b }
+        val byLabel = branches.branches.associateBy(labelFor)
+        val options = branches.branches.map(labelFor) + other
         JBPopupFactory.getInstance()
             .createPopupChooserBuilder(options)
             .setTitle("Tracked branch for ${ws.name} (current: ${ws.repo_ref})")
             .setItemChosenCallback { picked ->
-                val ref = if (picked == other) {
-                    Messages.showInputDialog(project, "Branch / ref", "Set Tracked Branch", Messages.getQuestionIcon(), ws.repo_ref, null)
+                if (picked == other) {
+                    // Deferred rather than shown directly inside the popup's own callback: a modal
+                    // dialog opened while the popup is still tearing itself down can misbehave
+                    // (focus/parent-window issues) — invokeLater lets the popup finish closing
+                    // first.
+                    ApplicationManager.getApplication().invokeLater(
+                        {
+                            val ref = Messages.showInputDialog(project, "Branch / ref", "Set Tracked Branch", Messages.getQuestionIcon(), ws.repo_ref, null)
+                            applyBranch(project, ws, ref)
+                        },
+                        ModalityState.any(),
+                    ) { project.isDisposed }
                 } else {
-                    picked.removeSuffix(" (current)")
+                    applyBranch(project, ws, byLabel[picked])
                 }
-                applyBranch(project, ws, ref)
             }
             .createPopup()
             .showCenteredInCurrentWindow(project)

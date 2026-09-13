@@ -9,7 +9,7 @@ import com.terraducktel.jetbrains.toolwindow.TdtDataKeys
 
 /** Opens the selected workspace's (`<uiUrl>/`) or run's (`<uiUrl>/runs/<id>`) page in the system
  *  browser. Port of VS Code's `terraducktel.openInBrowser`. */
-class OpenInBrowserAction : AnAction("Open in Browser") {
+class OpenInBrowserAction : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun update(e: AnActionEvent) {

@@ -4,13 +4,14 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.toolwindow.TdtDataKeys
 
 /** Requests a repo-sync for the selected workspace. Port of VS Code's `terraducktel.syncWorkspace`. */
-class SyncWorkspaceAction : AnAction("Sync From Repo") {
+class SyncWorkspaceAction : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun update(e: AnActionEvent) {
@@ -24,9 +25,12 @@ class SyncWorkspaceAction : AnAction("Sync From Repo") {
         ActionUtil.runBackground(project, "TDT: syncing ${ws.name}…") {
             TdtSession.getInstance().requireClient().syncWorkspace(ws.id)
             Store.getInstance().refreshAndWait()
-            ApplicationManager.getApplication().invokeLater {
-                ActionUtil.notify(project, "TDT: sync requested for ${ws.name}.")
-            }
+            // ModalityState.any() + a disposal condition: must not queue up behind a modal dialog,
+            // nor fire after the project is gone.
+            ApplicationManager.getApplication().invokeLater(
+                { ActionUtil.notify(project, "TDT: sync requested for ${ws.name}.") },
+                ModalityState.any(),
+            ) { project.isDisposed }
         }
     }
 }

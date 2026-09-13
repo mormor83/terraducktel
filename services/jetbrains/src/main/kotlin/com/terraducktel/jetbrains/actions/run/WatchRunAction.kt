@@ -12,7 +12,7 @@ import com.terraducktel.jetbrains.toolwindow.TdtDataKeys
 /** Watches the selected run in the Runs tree's context menu, or — from the toolbar/Tools menu,
  *  where there is no selection — offers a popup chooser over every known run. Port of VS Code's
  *  `terraducktel.watchRun`. */
-class WatchRunAction : AnAction("Watch Run") {
+class WatchRunAction : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun update(e: AnActionEvent) {

@@ -2,9 +2,11 @@ package com.terraducktel.jetbrains.output
 
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
+import com.intellij.util.concurrency.ThreadingAssertions
 import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.TriggerRunBody
@@ -37,6 +39,7 @@ object RunActions {
      *  lands, refreshes the store and — for `awaiting_approval`/`failed` — surfaces a balloon.
      *  Must be called on the EDT. */
     fun watch(project: Project, run: Run) {
+        ThreadingAssertions.assertEventDispatchThread()
         RunConsoles.getInstance(project).watch(run.id, wsName(run)) { landed ->
             Store.getInstance().refresh()
             when (landed.status) {
@@ -87,6 +90,7 @@ object RunActions {
      * on the EDT; the network calls run in a background task.
      */
     fun trigger(project: Project, ws: Workspace, command: String, branch: String? = null) {
+        ThreadingAssertions.assertEventDispatchThread()
         if (command == "apply") {
             val ok = MessageDialogBuilder.yesNo("Apply ${ws.name}?", "The plan will pause for approval before anything changes.")
                 .yesText("Start apply")
@@ -114,10 +118,16 @@ object RunActions {
                 if (plan.pin != null) throw IllegalStateException(pinFailedMessage(plan.pin, command, e)) else throw e
             }
             Store.getInstance().refreshAndWait()
-            ApplicationManager.getApplication().invokeLater {
-                ActionUtil.notify(project, "TDT: $command started on ${ws.name} (${run.id.take(8)}).")
-                watch(project, run)
-            }
+            // ModalityState.any() + a disposal condition: a project-closing race must not run this,
+            // and this must not queue up behind a modal dialog the user opened while the trigger's
+            // background work was in flight.
+            ApplicationManager.getApplication().invokeLater(
+                {
+                    ActionUtil.notify(project, "TDT: $command started on ${ws.name} (${run.id.take(8)}).")
+                    watch(project, run)
+                },
+                ModalityState.any(),
+            ) { project.isDisposed }
         }
     }
 }
