@@ -13,4 +13,19 @@
     <applicationConfigurable parentId="tools" instance="com.terraducktel.jetbrains.settings.TdtConfigurable"
                               id="com.terraducktel.jetbrains.settings" displayName="Terraducktel"/>
   </extensions>
+  <actions>
+    <group id="Terraducktel.Toolbar">
+      <action id="Terraducktel.SignIn" class="com.terraducktel.jetbrains.actions.auth.SignInAction" text="Sign In…" icon="AllIcons.Actions.Execute"/>
+      <action id="Terraducktel.SignOut" class="com.terraducktel.jetbrains.actions.auth.SignOutAction" text="Sign Out"/>
+      <action id="Terraducktel.SwitchProfile" class="com.terraducktel.jetbrains.actions.auth.SwitchProfileAction" text="Switch Profile…"/>
+      <action id="Terraducktel.SwitchBu" class="com.terraducktel.jetbrains.actions.auth.SwitchBusinessUnitAction" text="Switch Business Unit…"/>
+    </group>
+    <group id="Terraducktel.ToolsMenu" text="Terraducktel" popup="true">
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+      <reference ref="Terraducktel.SignIn"/>
+      <reference ref="Terraducktel.SignOut"/>
+      <reference ref="Terraducktel.SwitchProfile"/>
+      <reference ref="Terraducktel.SwitchBu"/>
+    </group>
+  </actions>
 </idea-plugin>
