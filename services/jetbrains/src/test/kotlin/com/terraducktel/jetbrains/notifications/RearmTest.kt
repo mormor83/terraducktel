@@ -130,52 +130,75 @@ class RearmTest {
     /** A single Settings > Apply fires BOTH `settingsChanged` and (via `TdtSession.reload()`'s own
      *  publish) `sessionChanged`, each dispatching its own `rearm()` onto a pooled thread with no
      *  ordering between them — the exact "two concurrent rearm() calls for the same key" shape a
-     *  plain check-then-act on `primedFor` used to mishandle: whichever call's `stop()` landed
-     *  AFTER the other had already re-armed the loop would kill it, and the late `stop()`'s own
-     *  call would then see itself superseded (by the generation check) and never `start()` again —
-     *  net result, nothing polling at all. Modeled here with a fake "loop" (a simple cancel flag)
-     *  standing in for [com.terraducktel.jetbrains.notifications.ApprovalWatcher]'s real coroutine
-     *  job: `start` records a new loop as current, `stop` cancels whatever is current. */
+     *  plain check-then-act on `primedFor` used to mishandle: T1 assigns `primedFor = k` and is
+     *  descheduled BEFORE calling `stop()`; T2 (same key) then observes `primedFor == k` already,
+     *  skips its own transition, and races straight to `start()` — arming a loop. T1 resumes,
+     *  calls its OWN (now-stale) `stop()`, which kills the loop T2 just armed; T1 then finds
+     *  itself superseded by the generation check and never calls `start()` again. Net result:
+     *  nothing polling at all.
+     *
+     *  The fix bundles the `primedFor` assignment and `stop()` into one critical section, so this
+     *  reproduces the bug shape by blocking THAT bundled operation — the `stop` callback, not
+     *  `prime` (a prior version of this test gated on `prime()`, which runs *after* the assignment
+     *  and `stop()` have already completed; by then the race window the fix closes is already
+     *  shut, so that version passed against the pre-fix code too and proved nothing). T2 is
+     *  released the moment it has merely been *started* (`Thread.start()`), never joined: joining
+     *  it first would deadlock against the fix, where T2 blocks on [Rearm]'s lock until T1's own
+     *  blocked `stop()` call — held below — returns.
+     *
+     *  Modeled here with a fake "loop" (a simple cancel flag) standing in for
+     *  [com.terraducktel.jetbrains.notifications.ApprovalWatcher]'s real coroutine job: `start`
+     *  records a new loop as current, `stop` cancels whatever is current. */
     @Test
     fun `two concurrent rearms for the same key never orphan the poll loop`() {
         class FakeLoop { val cancelled = java.util.concurrent.atomic.AtomicBoolean(false) }
 
         val key = "local:default"
         val current = AtomicReference<FakeLoop?>(null)
-        val entered = CountDownLatch(1)
+        val enteredStop = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val primeCalls = AtomicInteger(0)
+        val stopCalls = AtomicInteger(0)
 
         val rearm = Rearm(
             key = { key },
-            prime = {
-                // Only the FIRST prime() (the one that actually transitioned primedFor) blocks —
-                // it stands in for a slow network round trip racing a second, faster rearm() for
-                // the very same key.
-                if (primeCalls.incrementAndGet() == 1) {
-                    entered.countDown()
+            prime = {},
+            start = { current.set(FakeLoop()) },
+            stop = {
+                // The FIRST stop() call is T1's own — the initial (and, under the fix, the ONLY)
+                // primedFor transition for this key — and it blocks here, standing in for the
+                // window the fix now closes with a lock. Cancellation of whatever is CURRENTLY
+                // armed happens only after the gate opens, so it observes whatever T2 did (or
+                // didn't) manage to do while T1 was blocked.
+                if (stopCalls.incrementAndGet() == 1) {
+                    enteredStop.countDown()
                     assertTrue("release latch was never opened", release.await(5, TimeUnit.SECONDS))
                 }
+                current.get()?.cancelled?.set(true)
             },
-            start = { current.set(FakeLoop()) },
-            stop = { current.get()?.cancelled?.set(true) },
         )
 
-        val t1 = Thread { rearm.invoke() } // enters prime() first and hangs on the gate
+        val t1 = Thread { rearm.invoke() } // first-ever call for this key: transitions primedFor, blocks in stop()
         t1.start()
-        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        assertTrue(enteredStop.await(5, TimeUnit.SECONDS))
 
-        val t2 = Thread { rearm.invoke() } // same key: skips prime() (already primed), starts a loop
+        val t2 = Thread { rearm.invoke() } // second, concurrent call for the SAME key
         t2.start()
-        t2.join(5_000)
-        assertFalse("t2 thread never finished", t2.isAlive)
-
+        // Bias scheduling so T2 — unsynchronized on the pre-fix code — reliably races all the way
+        // to start() before T1's stop() resumes below; without this the discrimination is a coin
+        // flip. Harmless on the fixed code, where T2 is blocked on Rearm's own lock regardless.
+        Thread.sleep(100)
         release.countDown()
-        t1.join(5_000) // t1's prime() finally resolves; it must detect it was superseded and NOT start()
+
+        t1.join(5_000)
+        t2.join(5_000)
         assertFalse("t1 thread never finished", t1.isAlive)
+        assertFalse("t2 thread never finished", t2.isAlive)
 
         val loop = current.get()
         assertTrue("exactly one loop must be armed after both rearms finish", loop != null)
-        assertFalse("the surviving loop must not have been cancelled by a stale stop()", loop!!.cancelled.get())
+        assertFalse(
+            "the surviving loop must not have been cancelled by a stale stop() from a concurrent rearm() for the same key",
+            loop!!.cancelled.get(),
+        )
     }
 }

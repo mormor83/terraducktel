@@ -13,13 +13,18 @@ import com.terraducktel.jetbrains.state.Store
 import java.util.concurrent.TimeUnit
 
 /**
- * Registering a real [com.intellij.openapi.wm.ToolWindow] in a headless platform test (via
- * `ToolWindowManager.registerToolWindow`) pulls in window-manager machinery that isn't worth
- * fighting for a unit test — so this exercises [TdtToolWindowFactory.buildContents] directly,
- * the internal seam the brief calls out for exactly this situation. It covers everything
+ * Two different levels of the same tool window. The first test below exercises
+ * [TdtToolWindowFactory.buildContents] directly — the internal seam the brief calls out for
+ * exactly this situation — rather than registering a real [com.intellij.openapi.wm.ToolWindow],
+ * since that pulls in window-manager machinery not worth fighting just to prove two named
+ * components come out of `buildContents` correctly. It covers everything
  * [TdtToolWindowFactory.createToolWindowContent] does before registering with a real
  * [com.intellij.ui.content.ContentManager]: two named components, each a real [WorkspacesPanel] /
  * [RunsPanel] wrapped in a toolbar-carrying panel.
+ *
+ * [TdtToolWindowFactory.revealWorkspace], covered by the second test, is different: it starts by
+ * looking the tool window up via `ToolWindowManager.getToolWindow`, so there is no exercising it
+ * without a real (headless) one registered — that test does exactly that.
  */
 class TdtToolWindowFactoryTest : BasePlatformTestCase() {
 

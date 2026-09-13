@@ -19,6 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -306,6 +307,42 @@ class ApprovalWatcherTest {
             val after = c.get()
             Thread.sleep(120)
             assertEquals(after, c.get()) // the orphan chain would keep polling every 5 ms
+            w.dispose()
+        }
+    }
+
+    /** [ApprovalWatcher.start]/[ApprovalWatcher.stop] both read-modify-write `loopJob` and are now
+     *  `@Synchronized` — this drives two REAL concurrent threads through `start(5)` (a
+     *  [CyclicBarrier] releases them together, rather than the sequential same-thread calls the
+     *  test above makes) and asserts the platform invariant that actually matters: whatever loop
+     *  survives, a single subsequent `stop()` can still reach and kill it. Without the
+     *  synchronization, one thread's `stop()` (inside `start()`) can read `loopJob` before the
+     *  other thread's `start()` assigns it, orphaning a loop nothing can cancel — which would show
+     *  up here as requests still landing after `stop()`. */
+    @Test
+    fun `two concurrent start()s leave a single loop that a later stop() can still reach`() {
+        StubServer().use { srv ->
+            val c = AtomicInteger(0)
+            srv.on("GET", "/api/v1/runs") { _, ex -> c.incrementAndGet(); StubServer.respond(ex, 200, "[]") }
+            val w = mk(client(srv.url)) { }
+
+            val barrier = CyclicBarrier(2)
+            val threads = (1..2).map {
+                Thread {
+                    barrier.await()
+                    w.start(5)
+                }
+            }
+            threads.forEach { it.start() }
+            threads.forEach { it.join(5_000) }
+            threads.forEach { assertFalse("a start() thread never finished", it.isAlive) }
+
+            Thread.sleep(60) // let whatever loop(s) survived the race tick a few times
+            w.stop()
+            Thread.sleep(60) // let an in-flight tick (if any) land and (not) re-arm
+            val after = c.get()
+            Thread.sleep(120)
+            assertEquals("no request after stop() — an orphaned loop would keep polling every 5 ms", after, c.get())
             w.dispose()
         }
     }
