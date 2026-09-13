@@ -2,6 +2,7 @@ package com.terraducktel.jetbrains.api
 
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import java.io.InterruptedIOException
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util.concurrent.CompletableFuture
@@ -53,7 +54,7 @@ class TdtClient(
     private fun url(path: String, query: Map<String, Any?> = emptyMap()): String {
         val qs = query.entries.filter { it.value != null && it.value != "" }.joinToString("&") { (k, v) ->
             val s = if (v is List<*>) v.joinToString(",") else v.toString()
-            "${URLEncoder.encode(k, UTF_8)}=${URLEncoder.encode(s, UTF_8)}"
+            "${enc(k)}=${enc(s)}"
         }
         return baseUrl.trimEnd('/') + "/api/v1" + path + (if (qs.isEmpty()) "" else "?$qs")
     }
@@ -93,11 +94,12 @@ class TdtClient(
                 throw ApiError(401, "Not signed in")
             }
         }
-        var res = attempt(token); var used = token
+        var res = attempt(token)
+        val used = token
         if (useAuth && res.status == 401) {
             val current = tokens.getAccessToken()
             val fresh = if (current != null && current != used) current else refreshOnce()
-            if (fresh != null) { res = attempt(fresh); used = fresh }
+            if (fresh != null) res = attempt(fresh)
             if (res.status == 401) signOutOnce(epoch)
         }
         if (res.status >= 400) throw ApiError.fromResponse(res.status, res.text)
@@ -120,7 +122,12 @@ class TdtClient(
             try { f.complete(tokens.refreshAccessToken()) } catch (t: Throwable) { f.completeExceptionally(t) }
             finally { synchronized(auth.lock) { if (auth.refreshing === f) auth.refreshing = null } }
         }
-        try { return f.get() } catch (e: ExecutionException) { throw e.cause ?: e }
+        try { return f.get() }
+        catch (e: ExecutionException) { throw e.cause ?: e }
+        catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw InterruptedIOException("interrupted while waiting for token refresh")
+        }
     }
 
     /** Coalesce concurrent terminal-401s into one sign-out per auth epoch: a request that started
@@ -139,10 +146,18 @@ class TdtClient(
             try { tokens.signOut(); auth.listeners.toList().forEach { it() }; f.complete(null) }
             catch (t: Throwable) { f.completeExceptionally(t) }
         }
-        try { f.get() } catch (e: ExecutionException) { throw e.cause ?: e }
+        try { f.get() }
+        catch (e: ExecutionException) { throw e.cause ?: e }
+        catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw InterruptedIOException("interrupted while waiting for sign-out")
+        }
     }
 
-    private fun enc(id: String): String = URLEncoder.encode(id, UTF_8)
+    /** `encodeURIComponent`-equivalent: [URLEncoder] is form-encoding and emits `+` for a space,
+     *  where JS's `encodeURIComponent` (and every reference query string in `client.ts`) emits
+     *  `%20`; translate after encoding rather than reimplementing percent-encoding by hand. */
+    private fun enc(s: String): String = URLEncoder.encode(s, UTF_8).replace("+", "%20")
 
     // ─── auth (public) ───────────────────────────────────────────────────────
     fun ssoLoginUrl(port: Int, nonce: String): String = url("/auth/oidc/login", mapOf("cli_port" to port, "cli_nonce" to nonce))
