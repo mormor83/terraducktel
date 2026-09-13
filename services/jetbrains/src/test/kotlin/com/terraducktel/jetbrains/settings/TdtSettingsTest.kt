@@ -1,8 +1,10 @@
 package com.terraducktel.jetbrains.settings
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.xmlb.XmlSerializer
 import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * [TdtSettings] state round-trip / lookup behaviour, plus a smoke test for [TdtConfigurable].
@@ -17,6 +19,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
             val secrets = PasswordSafeSecretStore()
             secrets.delete("terraducktel.cred.prod")
             secrets.delete("terraducktel.cred.prod-renamed")
+            secrets.delete("terraducktel.cred.sneaky")
         } finally {
             super.tearDown()
         }
@@ -184,12 +187,73 @@ class TdtSettingsTest : BasePlatformTestCase() {
         configurable.reset()
 
         // Mutating the Profile bean's `.name` field in place mirrors what an in-table cell edit
-        // does (same object, same row) — it must NOT be mistaken for a removal.
+        // does (same object, same row) — it must NOT be mistaken for a removal. Instead it's
+        // migrated to the new name (see testRenamingTheActiveProfile... below for the active-
+        // profile case, where the migration is load-bearing rather than merely non-destructive).
         configurable.profiles.first { it.name == "prod" }.name = "prod-renamed"
+        configurable.fireProfilesChangedForTest()
         configurable.apply()
 
-        assertEquals("s3cr3t", PasswordSafeSecretStore().get("terraducktel.cred.prod"))
-        assertTrue(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
+        assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
+        assertEquals("s3cr3t", PasswordSafeSecretStore().get("terraducktel.cred.prod-renamed"))
+        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
+        assertTrue(TdtSettings.getInstance().state.buByProfile.containsKey("prod-renamed"))
         assertNotNull(TdtSettings.getInstance().profile("prod-renamed"))
+    }
+
+    fun testRenamingTheActiveProfileFollowsToTheNewNameAndFiresChangedOnce() {
+        TdtSettings.getInstance().loadState(TdtSettings.State().apply {
+            profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"), Profile(name = "staging", url = "https://staging.example.com"))
+            activeProfile = "prod"
+            buByProfile = mutableMapOf("prod" to "platform")
+        })
+        PasswordSafeSecretStore().set("terraducktel.cred.prod", "s3cr3t")
+
+        val configurable = TdtConfigurable()
+        configurable.createPanel()
+        configurable.reset()
+
+        val fireCount = AtomicInteger()
+        ApplicationManager.getApplication().messageBus.connect(testRootDisposable).subscribe(
+            TdtSettingsListener.TOPIC,
+            object : TdtSettingsListener {
+                override fun settingsChanged() { fireCount.incrementAndGet() }
+            },
+        )
+
+        // Rename the ACTIVE profile in place, then fire the table-changed event a real cell edit
+        // would fire automatically — this must not collapse the active-profile combo to null (the
+        // bug: the combo listener rebuilt from the stale pre-rename name, found it gone from the
+        // table, and cleared the selection).
+        configurable.profiles.first { it.name == "prod" }.name = "prod-renamed"
+        configurable.fireProfilesChangedForTest()
+        configurable.apply()
+
+        assertEquals("prod-renamed", TdtSettings.getInstance().state.activeProfile)
+        assertEquals("s3cr3t", PasswordSafeSecretStore().get("terraducktel.cred.prod-renamed"))
+        assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
+        assertTrue(TdtSettings.getInstance().state.buByProfile.containsKey("prod-renamed"))
+        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
+        assertEquals(1, fireCount.get())
+    }
+
+    fun testMutatingWorkingCollectionsInPlaceDoesNotAffectLiveSettingsUntilApply() {
+        TdtSettings.getInstance().loadState(TdtSettings.State().apply {
+            profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"))
+            buByProfile = mutableMapOf("prod" to "platform")
+        })
+
+        val configurable = TdtConfigurable()
+        configurable.createPanel()
+        configurable.reset()
+
+        // `working` must be an independent deep copy — XmlSerializerUtil.copyBean only
+        // shallow-copies fields, so without an explicit deep copy these mutations would leak
+        // straight into the live TdtSettings service before Apply is ever pressed.
+        configurable.working.profiles.add(Profile(name = "sneaky", url = "https://sneaky.example.com"))
+        configurable.working.buByProfile["sneaky"] = "ops"
+
+        assertEquals(1, TdtSettings.getInstance().state.profiles.size)
+        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("sneaky"))
     }
 }

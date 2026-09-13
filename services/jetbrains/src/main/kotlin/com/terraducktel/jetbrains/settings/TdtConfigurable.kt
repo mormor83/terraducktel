@@ -12,6 +12,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.ui.table.TableView
 import com.intellij.util.xmlb.XmlSerializerUtil
 import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
+import java.util.IdentityHashMap
 import javax.swing.DefaultComboBoxModel
 
 /**
@@ -24,17 +25,24 @@ import javax.swing.DefaultComboBoxModel
  * profile combo are NOT DSL-bound components, so [isModified], [apply] and [reset] are overridden
  * to additionally compare/copy them against [working] — a deep copy of [TdtSettings]'s state that
  * this configurable treats as its "last known committed" baseline, refreshed in [reset] and after
- * a successful [apply]. The table itself edits [clone]d Profile instances, never [working]'s own —
- * aliasing them would let an in-place cell edit mutate the baseline too, hiding the change from
- * [isModified].
+ * a successful [apply]. [working]'s own mutable collections are always independently deep-copied
+ * (see [deepCopyInto]) — `XmlSerializerUtil.copyBean` only shallow-copies fields, so without this a
+ * caller mutating `working.profiles`/`buByProfile`/`notifiedRuns` in place would mutate the live
+ * [TdtSettings] service's collections too, before `apply()` ever runs.
+ *
+ * The table itself edits [clone]d Profile instances, never [working]'s own — aliasing them would
+ * let an in-place cell edit mutate the baseline too, hiding the change from [isModified]. Because
+ * an in-place rename can't be told apart from the baseline by name alone, [baselineNames] records
+ * each cloned row's name as of the last [reset]/[apply] (by object identity), and [renameMap]
+ * derives the `oldName -> newName` map from rows whose current name has since diverged — used both
+ * to keep the active-profile combo following a rename ([rebuildActiveCombo]) and, in [apply], to
+ * migrate that profile's stored credential and `buByProfile` entry to the new name.
  */
 class TdtConfigurable : BoundConfigurable("Terraducktel") {
 
     // Internal (not private) so TdtSettingsTest — in the same Gradle module, whose `test`
     // compilation is associated with `main` — can drive it in tests.
-    internal val working: TdtSettings.State = TdtSettings.State().also {
-        XmlSerializerUtil.copyBean(TdtSettings.getInstance().state, it)
-    }
+    internal val working: TdtSettings.State = TdtSettings.State().also { deepCopyInto(it, TdtSettings.getInstance().state) }
 
     // The table edits THESE Profile instances — deliberately cloned, never the same objects as
     // `working.profiles` (the baseline `isModified()` compares against). If the table aliased
@@ -44,9 +52,20 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
     private val table = TableView(tableModel)
     private val activeProfileCombo = ComboBox<String>()
 
+    /** Each row currently in [tableModel], mapped (by object identity) to its name as of the last
+     *  [reset]/[apply] — the baseline [renameMap] diffs the row's CURRENT name against. */
+    private var baselineNames: IdentityHashMap<Profile, String> = IdentityHashMap<Profile, String>().apply {
+        tableModel.items.forEach { put(it, it.name) }
+    }
+
     /** The table's live working list of profiles — exposed (internal) so tests can simulate an
      *  in-place cell edit (e.g. a rename) without driving the actual `JTable`. */
     internal val profiles: MutableList<Profile> get() = tableModel.items
+
+    /** Fires the table-model-changed event tests need after mutating a [profiles] element's field
+     *  directly (a real cell edit goes through `TableModel.setValueAt`, which already fires this;
+     *  a direct field mutation from a test does not). */
+    internal fun fireProfilesChangedForTest() = tableModel.fireTableDataChanged()
 
     /** The refresh-interval text field — exposed (internal) so tests can simulate a user edit by
      *  setting its text, rather than reaching past the UI into [working] directly (which
@@ -102,6 +121,39 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
     private fun clone(profiles: List<Profile>): MutableList<Profile> =
         profiles.map { Profile(it.name, it.url, it.uiUrl, it.insecureTls) }.toMutableList()
 
+    /** Deep-copies [source] into [target]: `XmlSerializerUtil.copyBean` only shallow-copies
+     *  fields, so without this `target`'s `profiles`/`buByProfile`/`notifiedRuns` would be the SAME
+     *  collection (and, for `profiles`, the same [Profile] instances) as `source`'s — any in-place
+     *  edit to `target` would then also mutate `source` before anyone called `apply()`. */
+    private fun deepCopyInto(target: TdtSettings.State, source: TdtSettings.State) {
+        XmlSerializerUtil.copyBean(source, target)
+        target.profiles = clone(source.profiles)
+        target.buByProfile = HashMap(source.buByProfile)
+        target.notifiedRuns = HashMap(source.notifiedRuns)
+    }
+
+    /** Clones [profiles] into the table and records the clones' names as the new [baselineNames]
+     *  — done together (baseline captured from the SAME clones, before they're published to the
+     *  table) so a table-model listener firing synchronously off the `tableModel.items =` write
+     *  below never observes a stale baseline for the new rows. */
+    private fun refreshTableFrom(profiles: List<Profile>) {
+        val cloned = clone(profiles)
+        baselineNames = IdentityHashMap<Profile, String>().apply { cloned.forEach { put(it, it.name) } }
+        tableModel.items = cloned
+    }
+
+    /** `oldName -> newName` for every row whose current name has diverged from [baselineNames] —
+     *  i.e. renamed in place since the last [reset]/[apply] (a removed row is tracked separately,
+     *  in [removedProfiles]; a brand-new row has no baseline entry and so never appears here). */
+    private fun renameMap(): Map<String, String> {
+        val renamed = LinkedHashMap<String, String>()
+        for (p in tableModel.items) {
+            val base = baselineNames[p] ?: continue
+            if (base != p.name) renamed[base] = p.name
+        }
+        return renamed
+    }
+
     private fun removeProfileAt(modelRow: Int) {
         removedProfiles += tableModel.items[modelRow]
         tableModel.removeRow(modelRow)
@@ -117,8 +169,12 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
 
     private fun rebuildActiveCombo(preferred: String?) {
         val names = tableModel.items.map { it.name }
+        // Follow a rename: `preferred` is normally the combo's current selection, i.e. the OLD
+        // name if the active profile was just renamed in the table — map it through so the active
+        // profile doesn't fall out of the list just because its name changed under it.
+        val mapped = preferred?.let { renameMap()[it] ?: it }
         activeProfileCombo.model = DefaultComboBoxModel(names.toTypedArray())
-        activeProfileCombo.selectedItem = preferred?.takeIf { it in names }
+        activeProfileCombo.selectedItem = mapped?.takeIf { it in names }
     }
 
     private fun profilesModified(): Boolean {
@@ -143,8 +199,14 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
         val oldActiveName = actual.activeProfile
         val oldActive = actual.profiles.find { it.name == oldActiveName }
 
+        // oldName -> newName for every row renamed in place since the last reset()/apply().
+        val renames = renameMap()
+
         val newProfiles = tableModel.items.map { Profile(it.name, it.url, it.uiUrl, it.insecureTls) }.toMutableList()
-        val newActiveName = activeProfileCombo.selectedItem as? String ?: ""
+        var newActiveName = activeProfileCombo.selectedItem as? String ?: ""
+        // Authoritative: if the PERSISTED active profile was renamed, follow it to the new name —
+        // regardless of what the (UI-driven) combo happens to show right now.
+        renames[oldActiveName]?.let { newActiveName = it }
         val newActive = newProfiles.find { it.name == newActiveName }
 
         val activeUrlOrTlsChanged = oldActive != null && newActive != null && oldActiveName == newActiveName &&
@@ -155,6 +217,16 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
 
         val secretStore = PasswordSafeSecretStore()
         val newBuByProfile = actual.buByProfile.toMutableMap()
+
+        // Migrate the renamed profiles' stored credential + BU mapping to their new name.
+        for ((old, new) in renames) {
+            val credential = secretStore.get("terraducktel.cred.$old")
+            if (credential != null) {
+                secretStore.set("terraducktel.cred.$new", credential)
+                secretStore.delete("terraducktel.cred.$old")
+            }
+            newBuByProfile.remove(old)?.let { newBuByProfile[new] = it }
+        }
         for (removed in removedProfiles) {
             secretStore.delete("terraducktel.cred.${removed.name}")
             newBuByProfile.remove(removed.name)
@@ -166,10 +238,11 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
         working.buByProfile = newBuByProfile
 
         settings.loadState(working)
-        // Resync the working baseline to independent copies of what was just persisted, so a
-        // later isModified() check compares against the new committed state, not a stale one.
-        XmlSerializerUtil.copyBean(settings.state, working)
-        tableModel.items = clone(working.profiles)
+        // Rebuild the working baseline from independent copies of what was just persisted (see
+        // deepCopyInto), so a later isModified() check compares against the new committed state —
+        // not a stale one, and not one that aliases the service's own collections.
+        deepCopyInto(working, settings.state)
+        refreshTableFrom(working.profiles)
         rebuildActiveCombo(working.activeProfile)
 
         if (shouldFire) settings.fireChanged()
@@ -177,8 +250,8 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
 
     override fun reset() {
         removedProfiles.clear()
-        XmlSerializerUtil.copyBean(TdtSettings.getInstance().state, working)
-        tableModel.items = clone(working.profiles)
+        deepCopyInto(working, TdtSettings.getInstance().state)
+        refreshTableFrom(working.profiles)
         super.reset() // pulls the DSL-bound scalar fields back from `working`
         rebuildActiveCombo(working.activeProfile)
     }
