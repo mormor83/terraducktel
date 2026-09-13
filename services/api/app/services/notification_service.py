@@ -613,6 +613,266 @@ async def send_slack_drift_detected(
     )
 
 
+# ─── Telegram bot notifications (per-BU) ───────────────────────────────────
+#
+# Structurally parallel to the Slack bot helpers above and sharing every
+# resolution helper with them (`_resolve_bu_slug_for_workspace`,
+# `_account_badge`, `_leaf_path`, `_run_link`, `_plan_summary_str`). Only the
+# rendering differs: Telegram has no Block Kit and no message colour, so the
+# account badge's emoji leads the message and there is no stripe.
+
+
+async def _telegram_bot_creds(
+    session: AsyncSession, bu_slug: str
+) -> tuple[str | None, str | None]:
+    from app.routers.integrations import (
+        TELEGRAM_BOT_TOKEN_KEY,
+        TELEGRAM_CHAT_ID_KEY,
+    )
+
+    svc = _config_svc(session)
+    token = await svc.get_for_bu(bu_slug, TELEGRAM_BOT_TOKEN_KEY)
+    chat_id = await svc.get_for_bu(bu_slug, TELEGRAM_CHAT_ID_KEY)
+    return (token, chat_id)
+
+
+def _tg_fields(pairs: list[tuple[str, str]]) -> str:
+    """Render (label, value) pairs as one `<b>Label</b> value` line each.
+
+    The Telegram counterpart of `_fields_block`. Empty / falsy values are
+    skipped so we don't emit "Branch" with nothing after it. Values are
+    HTML-escaped here; labels are ours and contain no markup.
+
+    Account labels arrive carrying Slack's backtick markup (`` Name (`123`) ``),
+    which means nothing in HTML mode — strip it rather than show it literally.
+    """
+    from app.services.telegram import _esc
+
+    lines = []
+    for label, value in pairs:
+        if not value:
+            continue
+        lines.append(f"<b>{label}</b> {_esc(str(value).replace('`', ''))}")
+    return "\n".join(lines)
+
+
+async def send_telegram_bot_notification(
+    session: AsyncSession,
+    *,
+    bu_slug: str,
+    text: str,
+    buttons: list[tuple[str, str]] | None = None,
+) -> None:
+    """Post to the BU's configured Telegram chat.
+
+    Silently no-ops when the BU has no Telegram config. All errors are
+    swallowed and logged — notification must never break the calling flow
+    (run PATCH, drift detector, etc.), and must never suppress the Slack
+    message sent alongside it.
+
+    `text` is already-assembled HTML; callers escape their own values.
+    """
+    from app.services import telegram as tg_svc
+
+    token, chat_id = await _telegram_bot_creds(session, bu_slug)
+    if not token or not chat_id:
+        return
+    try:
+        await tg_svc.send_message(token, chat_id, text, buttons=buttons)
+    except tg_svc.TelegramError as e:
+        logger.warning(
+            "Telegram post failed for BU %s (chat=%s): %s %s",
+            bu_slug, chat_id, e.code, e.description,
+        )
+    except httpx.RequestError:
+        logger.warning(
+            "Telegram network error for BU %s (chat=%s)",
+            bu_slug, chat_id, exc_info=True,
+        )
+
+
+async def send_telegram_run_auto_approved(
+    session: AsyncSession,
+    *,
+    workspace_id: str,
+    workspace_name: str,
+    run_id: str,
+    skip_apply: bool,
+    environment: str | None = None,
+    region: str | None = None,
+    working_dir: str | None = None,
+    branch: str | None = None,
+    command: str | None = None,
+    triggered_by_email: str | None = None,
+) -> None:
+    from app.services.telegram import _esc
+
+    bu_slug = await _resolve_bu_slug_for_workspace(session, workspace_id)
+    if not bu_slug:
+        return
+    link = _run_link(run_id)
+    leaf = _leaf_path(working_dir, region)
+    badge = await _account_badge(session, workspace_id)
+    head = (
+        f"{badge.emoji} ✅ <b>Auto-approved (0/0/0)</b> — "
+        f"<code>{_esc(workspace_name)}</code>"
+    ).lstrip()
+    if skip_apply:
+        head += "\n<i>apply phase skipped</i>"
+    body = _tg_fields(
+        [
+            ("Account", badge.label),
+            ("Workspace", workspace_name or ""),
+            ("Path", leaf),
+            ("Region", region or ""),
+            ("Branch", branch or ""),
+            ("Command", command or ""),
+            ("Triggered by", triggered_by_email or ""),
+        ]
+    )
+    text = f'{head}\n\n{body}\n\n<a href="{_esc(link)}">View run</a>'
+    await send_telegram_bot_notification(
+        session, bu_slug=bu_slug, text=text, buttons=[("View run", link)]
+    )
+
+
+async def send_telegram_run_awaiting_approval(
+    session: AsyncSession,
+    *,
+    workspace_id: str,
+    workspace_name: str,
+    run_id: str,
+    environment: str | None = None,
+    region: str | None = None,
+    working_dir: str | None = None,
+    branch: str | None = None,
+    command: str | None = None,
+    triggered_by_email: str | None = None,
+    add: int | None = None,
+    change: int | None = None,
+    destroy: int | None = None,
+) -> None:
+    from app.services.telegram import _esc
+
+    bu_slug = await _resolve_bu_slug_for_workspace(session, workspace_id)
+    if not bu_slug:
+        return
+    link = _run_link(run_id)
+    leaf = _leaf_path(working_dir, region)
+    plan = _plan_summary_str(add, change, destroy)
+    badge = await _account_badge(session, workspace_id)
+    head = (
+        f"{badge.emoji} ⏸ <b>Awaiting approval</b> — "
+        f"<code>{_esc(workspace_name)}</code>"
+    ).lstrip()
+    body = _tg_fields(
+        [
+            ("Account", badge.label),
+            ("Workspace", workspace_name or ""),
+            ("Path", leaf),
+            ("Region", region or ""),
+            ("Branch", branch or ""),
+            ("Command", command or ""),
+            ("Plan", plan),
+            ("Triggered by", triggered_by_email or ""),
+        ]
+    )
+    text = f'{head}\n\n{body}\n\n<a href="{_esc(link)}">Review run</a>'
+    await send_telegram_bot_notification(
+        session, bu_slug=bu_slug, text=text, buttons=[("Review run", link)]
+    )
+
+
+async def send_telegram_run_failed(
+    session: AsyncSession,
+    *,
+    workspace_id: str,
+    workspace_name: str,
+    run_id: str,
+    command: str,
+    environment: str | None = None,
+    region: str | None = None,
+    working_dir: str | None = None,
+    branch: str | None = None,
+    triggered_by_email: str | None = None,
+    failed_stage: str | None = None,
+    error_excerpt: str | None = None,
+) -> None:
+    from app.services.telegram import _esc
+
+    bu_slug = await _resolve_bu_slug_for_workspace(session, workspace_id)
+    if not bu_slug:
+        return
+    link = _run_link(run_id)
+    leaf = _leaf_path(working_dir, region)
+    badge = await _account_badge(session, workspace_id)
+    head = (
+        f"{badge.emoji} ❌ <b>Run failed</b> — "
+        f"<code>{_esc(workspace_name)}</code> ({_esc(command)})"
+    ).lstrip()
+    body = _tg_fields(
+        [
+            ("Account", badge.label),
+            ("Workspace", workspace_name or ""),
+            ("Path", leaf),
+            ("Region", region or ""),
+            ("Branch", branch or ""),
+            ("Failed stage", failed_stage or ""),
+            ("Triggered by", triggered_by_email or ""),
+        ]
+    )
+    text = f"{head}\n\n{body}"
+    # Same 600-char cap as the Slack renderer; the excerpt is raw Terraform
+    # output, so it must be escaped before it goes anywhere near parse_mode.
+    excerpt = (error_excerpt or "")[:600].strip()
+    if excerpt:
+        text += f"\n\n<pre>{_esc(excerpt)}</pre>"
+    text += f'\n\n<a href="{_esc(link)}">View run</a>'
+    await send_telegram_bot_notification(
+        session, bu_slug=bu_slug, text=text, buttons=[("View run", link)]
+    )
+
+
+async def send_telegram_drift_detected(
+    session: AsyncSession,
+    *,
+    workspace_id: str,
+    workspace_name: str,
+    summary: str,
+    environment: str | None = None,
+    region: str | None = None,
+    working_dir: str | None = None,
+) -> None:
+    from app.services.telegram import _esc
+
+    bu_slug = await _resolve_bu_slug_for_workspace(session, workspace_id)
+    if not bu_slug:
+        return
+    link = _workspace_link(workspace_id)
+    leaf = _leaf_path(working_dir, region)
+    badge = await _account_badge(session, workspace_id)
+    head = (
+        f"{badge.emoji} ⚠ <b>Drift detected</b> — "
+        f"<code>{_esc(workspace_name)}</code>"
+    ).lstrip()
+    body = _tg_fields(
+        [
+            ("Account", badge.label),
+            ("Workspace", workspace_name or ""),
+            ("Path", leaf),
+            ("Region", region or ""),
+        ]
+    )
+    text = f"{head}\n\n{body}"
+    excerpt = (summary or "")[:800].strip()
+    if excerpt:
+        text += f"\n\n<pre>{_esc(excerpt)}</pre>"
+    text += f'\n\n<a href="{_esc(link)}">View workspace</a>'
+    await send_telegram_bot_notification(
+        session, bu_slug=bu_slug, text=text, buttons=[("View workspace", link)]
+    )
+
+
 async def send_email_notification(
     session: AsyncSession,
     subject: str,

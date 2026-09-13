@@ -1,6 +1,7 @@
 """Unit coverage for notification_service: Slack webhook + bot, generic webhook,
 SMTP email, drift alerts, run-event blocks, and the link/leaf helpers.
 httpx.AsyncClient and smtplib.SMTP are mocked — no real network."""
+import httpx
 import pytest
 
 from app.services import notification_service as ns
@@ -443,3 +444,236 @@ async def test_run_event_builders_resolve_and_skip(db_session, monkeypatch):
         db_session, workspace_id="missing", workspace_name="ws", summary="s"
     )
     assert posted == []
+
+
+# ─── Telegram bot notifications ──────────────────────────────────────────────
+
+
+class _FakeTelegram:
+    """Records sends; raise_with makes the next send fail."""
+
+    sent: list = []
+    raise_with = None
+
+    @classmethod
+    def reset(cls):
+        cls.sent = []
+        cls.raise_with = None
+
+    @classmethod
+    async def send_message(cls, token, chat_id, text, buttons=None):
+        if cls.raise_with is not None:
+            raise cls.raise_with
+        cls.sent.append({"token": token, "chat_id": chat_id,
+                         "text": text, "buttons": buttons})
+
+
+@pytest.fixture
+def fake_telegram(monkeypatch):
+    from app.services import telegram as tg
+
+    _FakeTelegram.reset()
+    monkeypatch.setattr(tg, "send_message", _FakeTelegram.send_message)
+    return _FakeTelegram
+
+
+async def _configure_telegram(session, bu="default", chat_id="-1001234567890"):
+    await _set(session, "telegram.bot_token", "777:secret", bu=bu)
+    await _set(session, "telegram.chat_id", chat_id, bu=bu)
+
+
+@pytest.mark.asyncio
+async def test_telegram_noop_when_unconfigured(db_session, fake_telegram):
+    await ns.send_telegram_bot_notification(
+        db_session, bu_slug="default", text="hello"
+    )
+    assert fake_telegram.sent == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_noop_when_chat_id_missing(db_session, fake_telegram):
+    await _set(db_session, "telegram.bot_token", "777:secret", bu="default")
+    await ns.send_telegram_bot_notification(
+        db_session, bu_slug="default", text="hello"
+    )
+    assert fake_telegram.sent == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_posts_to_configured_chat(db_session, fake_telegram):
+    await _configure_telegram(db_session)
+    await ns.send_telegram_bot_notification(
+        db_session, bu_slug="default", text="hello",
+        buttons=[("View run", "https://x.example.com/runs/1")],
+    )
+    assert len(fake_telegram.sent) == 1
+    assert fake_telegram.sent[0]["chat_id"] == "-1001234567890"
+    assert fake_telegram.sent[0]["text"] == "hello"
+    assert fake_telegram.sent[0]["buttons"] == [
+        ("View run", "https://x.example.com/runs/1")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_telegram_swallows_telegram_error(db_session, fake_telegram):
+    from app.services import telegram as tg
+
+    await _configure_telegram(db_session)
+    fake_telegram.raise_with = tg.TelegramError(code=403, description="kicked")
+    # Must not raise — a notification failure may never break the caller.
+    await ns.send_telegram_bot_notification(
+        db_session, bu_slug="default", text="hello"
+    )
+
+
+@pytest.mark.asyncio
+async def test_telegram_swallows_network_error(db_session, fake_telegram):
+    await _configure_telegram(db_session)
+    fake_telegram.raise_with = httpx.ConnectError("down")
+    await ns.send_telegram_bot_notification(
+        db_session, bu_slug="default", text="hello"
+    )
+
+
+def test_tg_fields_skips_empty_values():
+    out = ns._tg_fields([("Account", "Prod"), ("Branch", ""), ("Region", "us-east-1")])
+    assert "<b>Account</b> Prod" in out
+    assert "Branch" not in out
+    assert "<b>Region</b> us-east-1" in out
+
+
+def test_tg_fields_escapes_values():
+    out = ns._tg_fields([("Workspace", "a<b>&c")])
+    assert "a&lt;b&gt;&amp;c" in out
+    assert "<b>Workspace</b>" in out
+
+
+@pytest.mark.asyncio
+async def test_telegram_awaiting_approval_renders_plan_and_link(
+    db_session, fake_telegram, monkeypatch
+):
+    monkeypatch.setenv("PUBLIC_UI_URL", "https://tdt.example.com")
+    await _configure_telegram(db_session)
+    # db_session uses its own engine, separate from the default_bu fixture's
+    # (see _seed_default_bu above) — seed the BU row here too, or
+    # _resolve_bu_slug_for_workspace can't find it and the send no-ops.
+    await _seed_default_bu(db_session)
+    ws = Workspace(
+        business_unit_id=DEFAULT_BU_ID,
+        id="ws-tg-1",
+        name="prod-vpc",
+        repo_url="https://example.com/r.git",
+        tf_working_dir="account-222222222222/us-east-1/relprod/ai-cog",
+        aws_account_id="222222222222",
+        environment="prod",
+        region="us-east-1",
+    )
+    db_session.add(ws)
+    await db_session.commit()
+
+    await ns.send_telegram_run_awaiting_approval(
+        db_session,
+        workspace_id="ws-tg-1",
+        workspace_name="prod-vpc",
+        run_id="run-1",
+        region="us-east-1",
+        working_dir="account-222222222222/us-east-1/relprod/ai-cog",
+        branch="main",
+        command="plan",
+        triggered_by_email="operator@test.com",
+        add=3, change=1, destroy=0,
+    )
+    assert len(fake_telegram.sent) == 1
+    text = fake_telegram.sent[0]["text"]
+    assert "Awaiting approval" in text
+    assert "prod-vpc" in text
+    assert "+3 ~1 −0" in text
+    assert "relprod/ai-cog" in text
+    assert "https://tdt.example.com/runs/run-1" in text
+    assert fake_telegram.sent[0]["buttons"] == [
+        ("Review run", "https://tdt.example.com/runs/run-1")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_telegram_run_failed_includes_escaped_excerpt(
+    db_session, fake_telegram
+):
+    await _configure_telegram(db_session)
+    await _seed_default_bu(db_session)
+    db_session.add(Workspace(
+        business_unit_id=DEFAULT_BU_ID, id="ws-tg-2", name="db",
+        repo_url="https://example.com/r.git", tf_working_dir=".",
+        aws_account_id="222222222222", environment="prod",
+    ))
+    await db_session.commit()
+
+    await ns.send_telegram_run_failed(
+        db_session,
+        workspace_id="ws-tg-2",
+        workspace_name="db",
+        run_id="run-2",
+        command="apply",
+        failed_stage="terraform apply",
+        error_excerpt="Error: value <nil> & unexpected",
+    )
+    text = fake_telegram.sent[0]["text"]
+    assert "Run failed" in text
+    # The excerpt is user-controlled output; unescaped `<` would make
+    # Telegram reject the whole message with "can't parse entities".
+    assert "&lt;nil&gt;" in text
+    assert "&amp;" in text
+    assert "<pre>" in text
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_approved_notes_skipped_apply(db_session, fake_telegram):
+    await _configure_telegram(db_session)
+    await _seed_default_bu(db_session)
+    db_session.add(Workspace(
+        business_unit_id=DEFAULT_BU_ID, id="ws-tg-3", name="net",
+        repo_url="https://example.com/r.git", tf_working_dir=".",
+        aws_account_id="222222222222", environment="dev",
+    ))
+    await db_session.commit()
+
+    await ns.send_telegram_run_auto_approved(
+        db_session, workspace_id="ws-tg-3", workspace_name="net",
+        run_id="run-3", skip_apply=True,
+    )
+    text = fake_telegram.sent[0]["text"]
+    assert "Auto-approved" in text
+    assert "apply phase skipped" in text
+
+
+@pytest.mark.asyncio
+async def test_telegram_drift_detected_links_the_workspace(
+    db_session, fake_telegram, monkeypatch
+):
+    monkeypatch.setenv("PUBLIC_UI_URL", "https://tdt.example.com")
+    await _configure_telegram(db_session)
+    await _seed_default_bu(db_session)
+    db_session.add(Workspace(
+        business_unit_id=DEFAULT_BU_ID, id="ws-tg-4", name="rds",
+        repo_url="https://example.com/r.git", tf_working_dir=".",
+        aws_account_id="222222222222", environment="prod",
+    ))
+    await db_session.commit()
+
+    await ns.send_telegram_drift_detected(
+        db_session, workspace_id="ws-tg-4", workspace_name="rds",
+        summary="1 resource changed outside Terraform",
+    )
+    text = fake_telegram.sent[0]["text"]
+    assert "Drift detected" in text
+    assert "https://tdt.example.com/workspaces/ws-tg-4" in text
+
+
+@pytest.mark.asyncio
+async def test_telegram_senders_noop_for_unknown_workspace(db_session, fake_telegram):
+    await _configure_telegram(db_session)
+    await ns.send_telegram_run_failed(
+        db_session, workspace_id="does-not-exist", workspace_name="x",
+        run_id="r", command="apply",
+    )
+    assert fake_telegram.sent == []
