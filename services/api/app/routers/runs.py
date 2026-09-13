@@ -298,7 +298,7 @@ async def patch_run(
     # because the bot path is independent of the legacy webhook/email path
     # and can fire on more events (auto-approved, failed) where the legacy
     # path does not.
-    slack_bot_events: list[tuple[str, dict]] = []
+    bot_events: list[tuple[str, dict]] = []
 
     if body.status is not None:
         try:
@@ -370,7 +370,7 @@ async def patch_run(
                     from app.services.run_worker import enqueue_job
 
                     await enqueue_job(db, run_id=run.id, phase="apply")
-                slack_bot_events.append((
+                bot_events.append((
                     "auto_approved",
                     {
                         "workspace_id": run.workspace_id,
@@ -392,7 +392,7 @@ async def patch_run(
                     "workspace_name": ws.name if ws else run.workspace_id,
                     "plan_output": run.plan_output or "",
                 }
-                slack_bot_events.append((
+                bot_events.append((
                     "awaiting_approval",
                     {
                         "workspace_id": run.workspace_id,
@@ -436,7 +436,7 @@ async def patch_run(
                     failed_stage = failed_step.name
             except Exception:  # noqa: BLE001 — best-effort enrichment
                 failed_stage = None
-            slack_bot_events.append((
+            bot_events.append((
                 "failed",
                 {
                     "workspace_id": run.workspace_id,
@@ -485,30 +485,44 @@ async def patch_run(
                 exc_info=True,
             )
 
-    # Slack-bot dispatch — separate session so it can't roll back the FSM
-    # transition. Failures are absorbed inside each helper, so we don't
-    # wrap them again here.
-    if slack_bot_events:
+    # Bot-channel dispatch — separate session so it can't roll back the FSM
+    # transition. Each channel is wrapped on its own: a Telegram outage must
+    # not suppress the Slack message, and vice versa.
+    if bot_events:
         from app.services.notification_service import (
             send_slack_run_auto_approved,
             send_slack_run_awaiting_approval,
             send_slack_run_failed,
+            send_telegram_run_auto_approved,
+            send_telegram_run_awaiting_approval,
+            send_telegram_run_failed,
         )
 
-        async with _db.AsyncSessionLocal() as ns:
-            for kind, payload in slack_bot_events:
-                try:
-                    if kind == "auto_approved":
-                        await send_slack_run_auto_approved(ns, **payload)
-                    elif kind == "awaiting_approval":
-                        await send_slack_run_awaiting_approval(ns, **payload)
-                    elif kind == "failed":
-                        await send_slack_run_failed(ns, **payload)
-                except Exception:  # noqa: BLE001 — best-effort
-                    logger.warning(
-                        "Slack-bot notification (%s) failed for run %s",
-                        kind, run.id, exc_info=True,
-                    )
+        senders = {
+            "auto_approved": (
+                ("slack", send_slack_run_auto_approved),
+                ("telegram", send_telegram_run_auto_approved),
+            ),
+            "awaiting_approval": (
+                ("slack", send_slack_run_awaiting_approval),
+                ("telegram", send_telegram_run_awaiting_approval),
+            ),
+            "failed": (
+                ("slack", send_slack_run_failed),
+                ("telegram", send_telegram_run_failed),
+            ),
+        }
+
+        async with _db.AsyncSessionLocal() as ns_session:
+            for kind, payload in bot_events:
+                for channel, send in senders.get(kind, ()):
+                    try:
+                        await send(ns_session, **payload)
+                    except Exception:  # noqa: BLE001 — best-effort
+                        logger.warning(
+                            "%s notification (%s) failed for run %s",
+                            channel, kind, run.id, exc_info=True,
+                        )
 
     return run
 

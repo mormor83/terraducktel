@@ -94,28 +94,37 @@ async def submit_drift_report_internal(
                 workspace_id, exc_info=True,
             )
 
-    # Slack notification on transition into drifted state. Best-effort —
-    # the report has already been committed so a Slack outage cannot lose
-    # the drift record.
+    # Bot-channel notification on transition into drifted state. Best-effort —
+    # the report is already committed, so an outage cannot lose the drift
+    # record. Each channel is wrapped separately so one failing does not
+    # suppress the other.
     if body.has_drift:
-        try:
-            from app.services.notification_service import send_slack_drift_detected
+        from app.services.notification_service import (
+            send_slack_drift_detected,
+            send_telegram_drift_detected,
+        )
 
-            await send_slack_drift_detected(
-                db,
-                workspace_id=workspace_id,
-                workspace_name=ws.name,
-                summary=body.summary or "",
-                environment=ws.environment,
-                region=ws.region,
-                working_dir=ws.tf_working_dir,
-            )
-        except Exception:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).warning(
-                "Slack drift notification failed for workspace %s",
-                workspace_id, exc_info=True,
-            )
+        for channel, send in (
+            ("slack", send_slack_drift_detected),
+            ("telegram", send_telegram_drift_detected),
+        ):
+            try:
+                await send(
+                    db,
+                    workspace_id=workspace_id,
+                    workspace_name=ws.name,
+                    summary=body.summary or "",
+                    environment=ws.environment,
+                    region=ws.region,
+                    working_dir=ws.tf_working_dir,
+                )
+            except Exception:  # noqa: BLE001
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "%s drift notification failed for workspace %s",
+                    channel, workspace_id, exc_info=True,
+                )
 
     return DriftReportOut(
         report_id=report.id,
