@@ -36,12 +36,11 @@ URL, insecure TLS) plus general preferences:
 - **Refresh interval (seconds)** — how often the tool window polls while
   visible (default 30).
 - **Runs limit** — how many recent runs to fetch (default 200).
-- **Approval poll seconds (0 = off)** — reserved for a future release: the
-  setting is stored and editable here, but nothing in this build polls on
-  it or raises approval notifications in the background. The only
-  "awaiting approval" balloon you'll see today is for a run you started (or
-  are actively watching) in this IDE session — see **Reviewing and
-  approving** below.
+- **Approval poll seconds (0 = off)** — how often the plugin polls for runs
+  awaiting approval in the background, independent of which IDE window or
+  tool window is open; positive values below 15 are floored to 15, and `0`
+  disables the poll entirely (default 60). See **Approval notifications**
+  below.
 - **Show status bar item** — a status-bar item next to the caret position
   showing which Terraducktel workspace the active `.tf`/`.tfvars`/`.hcl` file
   maps to; click it (or **Tools → Terraducktel → Terraducktel Actions for
@@ -129,6 +128,35 @@ one offers **Show plan** and **Approve…** directly from the balloon.
 
 All of the above require write access (operator/admin in the active business
 unit) — the actions are hidden entirely for a read-only session.
+
+## Approval notifications
+
+While signed in, the plugin polls `GET /runs?status=awaiting_approval` for
+the active business unit every **Approval poll seconds** (Settings → Tools
+→ Terraducktel; default 60; positive values below 15 are floored to 15;
+`0` disables the poll entirely). Polling runs regardless of which tool
+window is open, and stops while signed out.
+
+Each run newly seen awaiting approval raises a sticky balloon (notification
+group **Terraducktel approvals**): `TDT: <workspace> <command> awaits
+approval`, with `+N to add, ~N to change, -N to destroy, ±N to replace`
+when the graph summary is known, and **Approve…**, **Reject…**, **Open**
+actions — each delegates to the same gated flow the Runs tree's context
+menu uses (Approve still goes through the confirmation modal; nothing is
+applied from the balloon click alone). A run is announced at most once per
+24 hours: the set of already-announced run ids is kept in
+`terraducktel.xml`, so it survives an IDE restart.
+
+A run you started (or are actively watching) is announced by its own
+"awaiting approval" balloon only (see **Triggering runs** above) — that run
+is marked as seen the moment that balloon appears, so the background poll
+never raises a second notification for it.
+
+On sign-in (or a profile/business-unit switch) nothing fires for runs
+already awaiting approval at that moment — they're recorded as seen
+immediately so you aren't sprayed with a backlog; the Runs tab's `Runs · N`
+badge still reflects them. Only runs that newly enter `awaiting_approval`
+afterwards produce a notification.
 
 ## Troubleshooting
 

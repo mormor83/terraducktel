@@ -118,7 +118,7 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
                 row("Runs limit:") {
                     intTextField(10..1000).bindIntText(working::runsLimit)
                 }
-                row("Approval poll seconds (0 = off) (reserved for a future release):") {
+                row("Approval poll seconds (0 = off):") {
                     intTextField(0..3600).bindIntText(working::approvalsPollSeconds)
                 }
                 row { checkBox("Show status bar item").bindSelected(working::statusBarEnabled) }

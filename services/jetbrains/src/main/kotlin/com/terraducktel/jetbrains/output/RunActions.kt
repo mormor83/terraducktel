@@ -22,11 +22,12 @@ import com.terraducktel.jetbrains.state.Store
  */
 object RunActions {
 
-    /** Advisory dedupe hook for Plan 2's `ApprovalWatcher.markSeen` — told about a run landing in
-     *  `awaiting_approval` BEFORE this window's own toast goes up, so a background approval poll
-     *  never announces the same run a second time. A failure here must never suppress the toast
-     *  itself — see [announceAwaiting]. Unused in 0.1.0; wired by plan 2 (editor mapping /
-     *  approval notifications). */
+    /** Advisory dedupe hook for [com.terraducktel.jetbrains.notifications.ApprovalWatcher.markSeen]
+     *  — told about a run landing in `awaiting_approval` BEFORE this window's own toast goes up, so
+     *  a background approval poll never announces the same run a second time. A failure here must
+     *  never suppress the toast itself — see [announceAwaiting]. Wired by
+     *  [com.terraducktel.jetbrains.session.TdtSessionStarter] to
+     *  [com.terraducktel.jetbrains.notifications.ApprovalService.markSeen]. */
     var onAwaitingHook: ((Run) -> Unit)? = null
 
     /** Wired by [com.terraducktel.jetbrains.session.TdtSessionStarter] to [PlanDocument.open] /

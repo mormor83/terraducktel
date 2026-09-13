@@ -4,15 +4,17 @@
   <vendor url="https://github.com/mormor83/terraducktel">Terraducktel</vendor>
   <description><![CDATA[
     Terraducktel (TDT) inside your IDE: workspaces and runs trees, plan / apply / destroy with
-    live step output, plan review, and gated approvals — against any self-hosted Terraducktel
-    deployment. Sign in with email + password, an API key, or SSO.
+    live step output, plan review, gated approvals, and approval notifications — against any
+    self-hosted Terraducktel deployment. Sign in with email + password, an API key, or SSO.
   ]]></description>
   <depends>com.intellij.modules.platform</depends>
   <extensions defaultExtensionNs="com.intellij">
     <notificationGroup id="Terraducktel" displayType="BALLOON"/>
+    <notificationGroup id="Terraducktel approvals" displayType="STICKY_BALLOON"/>
     <applicationConfigurable parentId="tools" instance="com.terraducktel.jetbrains.settings.TdtConfigurable"
                               id="com.terraducktel.jetbrains.settings" displayName="Terraducktel"/>
     <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.session.TdtSessionStarter"/>
+    <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.notifications.ApprovalService$Starter"/>
     <toolWindow id="Terraducktel" anchor="left" icon="/icons/tdt.svg"
                 factoryClass="com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory"/>
     <statusBarWidgetFactory id="Terraducktel.Profile" implementation="com.terraducktel.jetbrains.editor.ProfileStatusBarWidgetFactory"
