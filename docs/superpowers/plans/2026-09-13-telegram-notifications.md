@@ -77,14 +77,14 @@ Create `services/api/tests/test_telegram_service.py`:
 
 httpx.AsyncClient is monkeypatched; no test here touches the network.
 """
-import json
-
 import httpx
 import pytest
 
 from app.services import telegram as tg
 
-pytestmark = pytest.mark.asyncio
+# No pytestmark: pyproject sets asyncio_mode = "auto", so async tests need no
+# mark, and a blanket asyncio mark would wrongly decorate this module's sync
+# tests.
 
 
 class _FakeResponse:
@@ -566,7 +566,8 @@ import pytest
 
 from app.services import telegram as tg
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("default_bu")]
+# asyncio_mode = "auto" in pyproject.toml, so no asyncio mark is needed.
+pytestmark = pytest.mark.usefixtures("default_bu")
 
 BASE = "/api/v1/integrations/telegram"
 
@@ -1703,7 +1704,8 @@ import pytest
 from app.models.business_unit import DEFAULT_BU_ID
 from app.services import notification_service as ns
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("default_aws_account")]
+# asyncio_mode = "auto" in pyproject.toml, so no asyncio mark is needed.
+pytestmark = pytest.mark.usefixtures("default_aws_account")
 
 
 async def _make_run(factory, status):
