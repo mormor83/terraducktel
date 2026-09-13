@@ -1,14 +1,17 @@
 package com.terraducktel.jetbrains.output
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.terraducktel.jetbrains.actions.ActionUtil
+import com.terraducktel.jetbrains.api.ApiError
 import com.terraducktel.jetbrains.api.GraphSummary
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.state.Store
+import java.io.IOException
 
 /**
  * The gated-approval modal shared by every caller that can approve a run: the Runs tree context
@@ -18,35 +21,68 @@ import com.terraducktel.jetbrains.state.Store
  */
 object Approvals {
 
+    /** Test seam: overridden by `ApprovalsTest` to swap in a fixed [Messages.YES]/[Messages.NO]/
+     *  [Messages.CANCEL] answer, so the gate itself — nothing is POSTed to `/approve` without an
+     *  explicit Approve — can be asserted deterministically against a stub server. Driving this
+     *  through [Messages.setTestDialog] instead was considered and rejected: that hook is
+     *  documented against `Messages.showYesNoDialog`'s two-way `TestDialog`, and was not verified
+     *  to intercept [MessageDialogBuilder.YesNoCancel]'s three-way result in the 2026.1 platform,
+     *  so this explicit seam is the deterministic choice instead of relying on unverified
+     *  behaviour. */
+    internal var confirm: (Project, Run, GraphSummary) -> Int = { project, run, summary -> defaultConfirm(project, run, summary) }
+
+    private fun defaultConfirm(project: Project, run: Run, summary: GraphSummary): Int =
+        MessageDialogBuilder.yesNoCancel(
+            "Approve ${run.command} on ${RunActions.wsName(run)}?",
+            "+${summary.add} to add, ~${summary.change} to change, -${summary.destroy} to destroy, " +
+                "±${summary.replace} to replace.",
+        )
+            .yesText("Approve")
+            .noText("Show plan")
+            .cancelText("Cancel")
+            .asWarning()
+            .show(project)
+
     /** Loads the plan's add/change/destroy/replace summary (best-effort — a failed fetch shows the
      *  dialog with all-zero counts rather than blocking the approval) then, on the EDT, asks
      *  Approve / Show plan / Cancel. Must be called on the EDT; the network calls run in
-     *  background tasks. */
+     *  background tasks.
+     *
+     *  [TdtSession.requireClient] is called OUTSIDE the summary try/catch: a signed-out session
+     *  must fail fast (the same "not signed in" balloon every other action shows, via
+     *  [ActionUtil.runBackground]'s own catch), not silently present an all-zero approve dialog as
+     *  if the fetch had merely come back empty. Only [ApiError]/[IOException]/
+     *  [IllegalStateException] — the set [ActionUtil.runBackground] itself treats as "expected,
+     *  show a balloon" — are swallowed into a zero-count summary; a bare `catch (e: Exception)`
+     *  here would also swallow `ProcessCanceledException` (and any other
+     *  [com.intellij.openapi.progress.ProcessCanceledException]/`ControlFlowException`), silently
+     *  breaking cooperative cancellation instead of letting it propagate. */
     fun approve(project: Project, run: Run) {
         val wsName = RunActions.wsName(run)
         ActionUtil.runBackground(project, "TDT: loading plan summary…") {
+            val client = TdtSession.getInstance().requireClient()
             val summary = try {
-                TdtSession.getInstance().requireClient().getGraph(run.id).summary
-            } catch (e: Exception) {
+                client.getGraph(run.id).summary
+            } catch (e: ApiError) {
+                GraphSummary()
+            } catch (e: IOException) {
+                GraphSummary()
+            } catch (e: IllegalStateException) {
                 GraphSummary()
             }
-            ApplicationManager.getApplication().invokeLater {
-                val choice = MessageDialogBuilder.yesNoCancel(
-                    "Approve ${run.command} on $wsName?",
-                    "+${summary.add} to add, ~${summary.change} to change, -${summary.destroy} to destroy, " +
-                        "±${summary.replace} to replace.",
-                )
-                    .yesText("Approve")
-                    .noText("Show plan")
-                    .cancelText("Cancel")
-                    .asWarning()
-                    .show(project)
-                when (choice) {
-                    Messages.YES -> doApprove(project, run, wsName)
-                    Messages.NO -> PlanDocument.open(project, run.id, wsName)
-                    else -> Unit
-                }
-            }
+            // A disposed-project guard: a project can close while the summary fetch above is in
+            // flight, and this must never pop a modal dialog (or touch Store/RunActions below) at
+            // a dying project.
+            ApplicationManager.getApplication().invokeLater(
+                {
+                    when (confirm(project, run, summary)) {
+                        Messages.YES -> doApprove(project, run, wsName)
+                        Messages.NO -> PlanDocument.open(project, run.id, wsName)
+                        else -> Unit
+                    }
+                },
+                ModalityState.nonModal(),
+            ) { project.isDisposed }
         }
     }
 
@@ -55,9 +91,10 @@ object Approvals {
             TdtSession.getInstance().requireClient().approve(run.id)
             ActionUtil.notify(project, "TDT: approved $wsName ${run.command}.")
             Store.getInstance().refreshAndWait()
-            ApplicationManager.getApplication().invokeLater {
-                RunActions.watch(project, run)
-            }
+            ApplicationManager.getApplication().invokeLater(
+                { RunActions.watch(project, run) },
+                ModalityState.nonModal(),
+            ) { project.isDisposed }
         }
     }
 }

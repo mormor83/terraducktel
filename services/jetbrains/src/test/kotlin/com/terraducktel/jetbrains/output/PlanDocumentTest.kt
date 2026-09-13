@@ -39,6 +39,16 @@ class PlanDocumentTest {
         assertEquals(PlanLineKind.CHANGE, PlanDocument.classifyLine("+/- resource \"a\" \"b\" (replace)"))
     }
 
+    @Test fun `dash-slash-plus with no trailing space is still CHANGE`() {
+        // planDocument.ts uses a bare startsWith("-/+") with no space requirement — unlike the
+        // single-character +/-/~ markers, which do require one (see the bare-marker tests below).
+        assertEquals(PlanLineKind.CHANGE, PlanDocument.classifyLine("-/+resource \"a\" \"b\" (replace)"))
+    }
+
+    @Test fun `plus-slash-minus with no trailing space is still CHANGE`() {
+        assertEquals(PlanLineKind.CHANGE, PlanDocument.classifyLine("+/-resource \"a\" \"b\" (replace)"))
+    }
+
     @Test fun `comment lines are NONE`() {
         assertEquals(PlanLineKind.NONE, PlanDocument.classifyLine("  # aws_s3_bucket.b will be created"))
     }
@@ -83,9 +93,15 @@ class PlanDocumentPlatformTest : BasePlatformTestCase() {
         val textEditor = editor as TextEditor
         assertFalse("plan document must be read-only", textEditor.editor.document.isWritable)
 
+        val document = textEditor.editor.document
         val highlighters = textEditor.editor.markupModel.allHighlighters
         assertEquals(3, highlighters.size)
-        val keys = highlighters.mapNotNull { it.getTextAttributesKey() }.toSet()
-        assertEquals(setOf(DiffColors.DIFF_INSERTED, DiffColors.DIFF_DELETED, DiffColors.DIFF_MODIFIED), keys)
+
+        // Per-line, not just "the right set of keys somewhere" — swapping DIFF_INSERTED/
+        // DIFF_DELETED in PlanDocument.keyFor would still pass a set-only assertion.
+        val keyByLine = highlighters.associate { document.getLineNumber(it.startOffset) to it.getTextAttributesKey() }
+        assertEquals(DiffColors.DIFF_INSERTED, keyByLine[0]) // "+ a"
+        assertEquals(DiffColors.DIFF_DELETED, keyByLine[1]) // "- b"
+        assertEquals(DiffColors.DIFF_MODIFIED, keyByLine[2]) // "~ c"
     }
 }

@@ -1,6 +1,7 @@
 package com.terraducktel.jetbrains.output
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diff.DiffColors
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.HighlighterLayer
@@ -31,13 +32,16 @@ enum class PlanLineKind { ADD, DELETE, CHANGE, NONE }
 object PlanDocument {
 
     /** Pure port of `planDocument.ts`'s `planLineKinds` line classifier (folding "replace" into
-     *  [PlanLineKind.CHANGE] — see the enum doc). Leading whitespace before the marker is allowed;
-     *  the marker must be followed by a space, so a bare `-`/`+` (as can appear alone in a plan's
-     *  closing summary) classifies as [PlanLineKind.NONE], not [PlanLineKind.DELETE]/[PlanLineKind.ADD]. */
+     *  [PlanLineKind.CHANGE] — see the enum doc). Leading whitespace before the marker is allowed.
+     *  The two-character `-/+`/`+/-` replace marker classifies as [PlanLineKind.CHANGE] whether or
+     *  not it's followed by a space (matching `planDocument.ts`'s `startsWith("-/+")`); the
+     *  single-character `+`/`-`/`~` markers must be followed by a space, so a bare `-`/`+` (as can
+     *  appear alone in a plan's closing summary) classifies as [PlanLineKind.NONE], not
+     *  [PlanLineKind.DELETE]/[PlanLineKind.ADD]. */
     fun classifyLine(line: String): PlanLineKind {
         val t = line.trimStart()
         return when {
-            t.startsWith("-/+ ") || t.startsWith("+/- ") -> PlanLineKind.CHANGE
+            t.startsWith("-/+") || t.startsWith("+/-") -> PlanLineKind.CHANGE
             t.startsWith("+ ") -> PlanLineKind.ADD
             t.startsWith("- ") -> PlanLineKind.DELETE
             t.startsWith("~ ") -> PlanLineKind.CHANGE
@@ -53,9 +57,13 @@ object PlanDocument {
         ActionUtil.runBackground(project, "TDT: loading plan…") {
             val client = TdtSession.getInstance().requireClient()
             val text = client.getPlan(runId).plan_output ?: "(no plan output)"
-            ApplicationManager.getApplication().invokeLater {
-                openText(project, fileNameFor(label, runId), text)
-            }
+            // A disposed-project guard: a project can close while this background fetch is in
+            // flight, and FileEditorManager.getInstance(project) below must never run against a
+            // dead project.
+            ApplicationManager.getApplication().invokeLater(
+                { openText(project, fileNameFor(label, runId), text) },
+                ModalityState.nonModal(),
+            ) { project.isDisposed }
         }
     }
 
