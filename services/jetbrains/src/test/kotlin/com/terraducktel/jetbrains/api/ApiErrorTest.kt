@@ -33,4 +33,34 @@ class ApiErrorTest {
         assertEquals(502, e.status)
         assertEquals("HTTP 502", e.message)
     }
+
+    @Test fun `a JSON array falls back to HTTP status`() {
+        val e = ApiError.fromResponse(500, "[1,2,3]")
+        assertEquals(500, e.status)
+        assertEquals("HTTP 500", e.message)
+    }
+
+    @Test fun `a quoted JSON string falls back to HTTP status`() {
+        val e = ApiError.fromResponse(500, "\"x\"")
+        assertEquals(500, e.status)
+        assertEquals("HTTP 500", e.message)
+    }
+
+    @Test fun `a bare JSON number falls back to HTTP status`() {
+        val e = ApiError.fromResponse(500, "5")
+        assertEquals(500, e.status)
+        assertEquals("HTTP 500", e.message)
+    }
+
+    @Test fun `a bare JSON null falls back to HTTP status`() {
+        val e = ApiError.fromResponse(500, "null")
+        assertEquals(500, e.status)
+        assertEquals("HTTP 500", e.message)
+    }
+
+    @Test fun `unparseable multi-word text becomes the trimmed message`() {
+        val e = ApiError.fromResponse(400, "not json at all")
+        assertEquals(400, e.status)
+        assertEquals("not json at all", e.message)
+    }
 }
