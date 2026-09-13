@@ -19,9 +19,12 @@ import com.terraducktel.jetbrains.settings.Profile
 import com.terraducktel.jetbrains.settings.TdtSettings
 import com.terraducktel.jetbrains.settings.TdtSettingsListener
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Everything that depends on "which deployment / which BU / who am I". Rebuilt on every profile
@@ -29,22 +32,32 @@ import kotlinx.coroutines.launch
  * session.ts`'s `Session` class; every public method here is blocking (secret-store I/O, and
  * sometimes network I/O) and must be called off the EDT (actions do this via
  * [com.terraducktel.jetbrains.actions.ActionUtil.runBackground]).
+ *
+ * [reload] and [setBu] are `@Synchronized` on this instance: a whole reload cycle (settings read,
+ * [TokenManager.restore], client construction, cycle-listener swap) runs under the session's
+ * monitor, so two cycles can never interleave their writes to [profile]/[tokens]/[client]/[bu]/
+ * the cycle listeners. Holding the lock across [TokenManager.restore] is fine — it's a local
+ * PasswordSafe read — but it must never be held across network I/O or a listener callback; the
+ * sign-out balloon and every [publish] are dispatched via `invokeLater`, i.e. AFTER the method
+ * (and therefore the lock) has already returned. [reloadGen] is kept as a second line of defence
+ * (checked once [TokenManager.restore] returns, before any state is written or published) in case
+ * this locking discipline is ever loosened.
  */
 @Service(Service.Level.APP)
 class TdtSession(private val scope: CoroutineScope) : Disposable {
 
-    var profile: Profile? = null; private set
-    var tokens: TokenManager? = null; private set
-    var client: TdtClient? = null; private set
-    var bu: String = ""; private set
+    @Volatile var profile: Profile? = null; private set
+    @Volatile var tokens: TokenManager? = null; private set
+    @Volatile var client: TdtClient? = null; private set
+    @Volatile var bu: String = ""; private set
 
     /** Bumped by every [reload]. A cycle that finds itself superseded mid-call bails out rather
      *  than publishing its (now stale) profile/client over a newer one's. */
-    @Volatile private var reloadGen = 0
+    private val reloadGen = AtomicInteger(0)
 
     /** Removers for the current cycle's listeners (client sign-out, token change) — invoked at the
      *  top of the next [reload] (or [dispose]) so they never fire for a superseded cycle. */
-    private var cycleRemovers: List<() -> Unit> = emptyList()
+    @Volatile private var cycleRemovers: List<() -> Unit> = emptyList()
 
     /** Aborts the loopback listener of an SSO sign-in that is still waiting for the browser. */
     @Volatile private var cancelSso: (() -> Unit)? = null
@@ -70,6 +83,12 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
                 }
             },
         )
+        // Load the active profile at startup (see TdtSessionStarter, which just touches
+        // getInstance() so this actually runs) — otherwise `profile` stays null until something
+        // else happens to call getInstance() first. Fire-and-forget background work only; @Synchronized
+        // makes this safe to race against an explicit reload()/setActiveProfile() call from a test
+        // or another trigger.
+        scope.launch(Dispatchers.IO) { reload() }
     }
 
     fun isSignedIn(): Boolean = tokens?.isSignedIn() == true
@@ -99,35 +118,44 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         return c
     }
 
-    /** Rebuilds [profile]/[tokens]/[client]/[bu] from [TdtSettings]. Blocking — call off the EDT. */
+    /** Rebuilds [profile]/[tokens]/[client]/[bu] from [TdtSettings]. Blocking — call off the EDT.
+     *  `@Synchronized`: see the class doc for the concurrency invariants this maintains. */
+    @Synchronized
     fun reload() {
-        val gen = ++reloadGen
+        val gen = reloadGen.incrementAndGet()
         cycleRemovers.forEach { it() }
         cycleRemovers = emptyList()
 
         val settings = TdtSettings.getInstance()
         val next = settings.activeProfile()
-        profile = next
         if (next == null) {
+            // No slow I/O happened on this path, so the check is trivially true under the lock —
+            // kept anyway so this branch obeys the same "check before writing/publishing" rule as
+            // the one below rather than being a silent exception to it.
+            if (gen != reloadGen.get()) return
+            profile = null
             tokens = null
             client = null
             bu = ""
             publish()
             return
         }
-        bu = settings.state.buByProfile[next.name] ?: ""
+        val nextBu = settings.state.buByProfile[next.name] ?: ""
         val tm = TokenManager(secretStoreFactory(), next.name)
-        tm.restore()
-        if (gen != reloadGen) return // a newer reload() took over while we read the secret store
+        tm.restore() // local PasswordSafe read; the lock is held across this by design (see class doc)
+        if (gen != reloadGen.get()) return // second line of defence — see class doc
 
         val newClient = TdtClient(
             baseUrl = next.url,
-            bu = bu,
+            bu = nextBu,
             tokens = tm,
             insecureTls = next.insecureTls,
             trace = { line -> if (TdtSettings.getInstance().state.trace) TdtLog.trace(line) },
         )
         tm.attach(newClient)
+
+        profile = next
+        bu = nextBu
         tokens = tm
         client = newClient
 
@@ -152,7 +180,6 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         cycleRemovers = listOf(removeSignedOut, removeOnDidChange)
 
         publish()
-        if (gen != reloadGen) return
         onReloadedHook?.invoke()
     }
 
@@ -163,7 +190,10 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
     }
 
     /** Swaps in a `withBu()` clone of the SAME client/auth session — deliberately NOT a [reload],
-     *  so the sign-out listener and token-change listener installed this cycle keep firing. */
+     *  so the sign-out listener and token-change listener installed this cycle keep firing.
+     *  `@Synchronized` so it can never interleave with an in-flight [reload] rebuilding the same
+     *  fields. */
+    @Synchronized
     fun setBu(slug: String) {
         val p = profile ?: return
         val c = client ?: return
@@ -193,6 +223,7 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         val c = client ?: throw IllegalStateException("Add a profile under Settings → Tools → Terraducktel first.")
         cancelSso?.invoke()
         var mine: (() -> Unit)? = null
+        var pollJob: Job? = null
         val pair = try {
             Sso.runLoopbackLogin(
                 buildUrl = c::ssoLoginUrl,
@@ -200,7 +231,7 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
                 onCancel = { cancel ->
                     mine = cancel
                     cancelSso = cancel
-                    scope.launch {
+                    pollJob = scope.launch {
                         while (isActive && !indicator.isCanceled) delay(250)
                         if (indicator.isCanceled) cancel()
                     }
@@ -208,6 +239,9 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
             )
         } finally {
             if (cancelSso === mine) cancelSso = null
+            // Otherwise this ticker outlives a successful (or failed-but-not-cancelled) sign-in,
+            // polling `indicator.isCanceled` every 250ms forever.
+            pollJob?.cancel()
         }
         tm.signInWithTokenPair(pair, "sso")
     }

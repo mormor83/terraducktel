@@ -12,6 +12,7 @@
     <notificationGroup id="Terraducktel" displayType="BALLOON"/>
     <applicationConfigurable parentId="tools" instance="com.terraducktel.jetbrains.settings.TdtConfigurable"
                               id="com.terraducktel.jetbrains.settings" displayName="Terraducktel"/>
+    <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.session.TdtSessionStarter"/>
   </extensions>
   <actions>
     <group id="Terraducktel.Toolbar">
