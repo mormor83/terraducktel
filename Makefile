@@ -1,4 +1,4 @@
-.PHONY: up down build test test-api test-cli test-ui test-vscode build-vscode test-jetbrains build-jetbrains test-integration lint scan onboard seed-db logs ps metrics
+.PHONY: up down build test test-api test-cli test-ui test-vscode build-vscode test-jetbrains build-jetbrains verify-jetbrains test-integration lint scan onboard seed-db logs ps metrics
 
 up:
 	docker compose up -d --wait
@@ -33,6 +33,10 @@ test-jetbrains:
 	cd services/jetbrains && JAVA_HOME=$(JB_JAVA_HOME) ./gradlew --console=plain test
 build-jetbrains:
 	cd services/jetbrains && JAVA_HOME=$(JB_JAVA_HOME) ./gradlew --console=plain buildPlugin
+# Downloads the IDEs listed in build.gradle.kts's pluginVerification block on first run (cached
+# after that) and checks the built plugin against each for compatibility problems. Slow; be patient.
+verify-jetbrains:
+	cd services/jetbrains && JAVA_HOME=$(JB_JAVA_HOME) ./gradlew --console=plain verifyPlugin
 
 test-integration:
 	cd services/api && python -m pytest tests/test_integration_e2e.py -v -m integration

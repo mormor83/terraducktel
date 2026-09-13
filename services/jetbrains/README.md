@@ -42,15 +42,31 @@ cd services/jetbrains && JAVA_HOME=<a JDK 17+> ./gradlew test
 
 Both Make targets resolve a JDK automatically if `JAVA_HOME` is unset and no
 `java` is on `PATH` — see the Makefile comment above `JB_JAVA_HOME`, or
-`docs/JETBRAINS.md`'s "Building from source" section.
+`docs/JETBRAINS.md`'s "Building and verifying" section.
+
+## Verify
+
+```bash
+make verify-jetbrains
+```
+
+Runs the IntelliJ Plugin Verifier (`./gradlew verifyPlugin`) against the IDEs
+listed in `build.gradle.kts`'s `pluginVerification` block, failing on any
+compatibility problem (deprecation warnings are reported, not fatal). Slow
+the first time it runs (each listed IDE is downloaded and cached under
+`~/.gradle/caches`) — see `docs/JETBRAINS.md`'s "Building and verifying"
+section for what it checks and why it's separate from CI's
+`verifyPluginProjectConfiguration` step.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `src/main/kotlin/.../actions/` | `AnAction` implementations: `auth/` (sign in/out, switch profile, switch business unit), `run/` (approve, reject, cancel, show plan, watch run), `workspace/` (plan, apply, destroy, set tracked branch, sync from repo, open in browser, copy id), plus `RefreshAction` and the shared `ActionUtil` (background-task-to-balloon plumbing). |
+| `src/main/kotlin/.../actions/` | `AnAction` implementations: `auth/` (sign in/out, switch profile, switch business unit), `run/` (approve, reject, cancel, show plan, watch run), `workspace/` (plan, apply, destroy, set tracked branch, sync from repo, open in browser, copy id), `editor/` (plan the current file's leaf, reveal its workspace, the combined "actions for current file" popup), plus `RefreshAction` and the shared `ActionUtil` (background-task-to-balloon plumbing). |
 | `src/main/kotlin/.../api/` | Typed HTTP client (`TdtClient`, `HttpTransport`) and DTOs (`Types.kt`, `ApiError`) against `/api/v1`. |
 | `src/main/kotlin/.../auth/` | Credential/JWT handling, the SSO loopback listener (`Sso.kt`), the PasswordSafe-backed `SecretStore`, and `TokenManager` (refresh-on-401, single-flight). |
+| `src/main/kotlin/.../editor/` | Maps the active editor's file to a Terraducktel workspace (`Mapping`, pure Kotlin; `GitProbe` shells out to `git`), publishes that as `EditorStatus` (a project service, started by `EditorStatusStarter`), and renders it as two status-bar widgets (`TdtStatusBarWidget` for the current file, `ProfileStatusBarWidget` for the active profile/BU) plus their shared text/tooltip logic (`StatusText`, pure Kotlin). |
+| `src/main/kotlin/.../notifications/` | Polls for runs newly awaiting approval and raises balloons for them: `ApprovalService` (the app service that owns the one `ApprovalWatcher` and wires it to the session/settings/store, started by its own `$Starter`), `ApprovalWatcher` (the poll loop plus the persisted, 24h-deduped "already announced" set), `ApprovalNotifier` (turns a notice into a sticky balloon with its Approve…/Reject…/Open actions), and `Rearm` (the sign-out-races-prime guard used when re-arming the watcher on sign-in/profile/BU switch). |
 | `src/main/kotlin/.../output/` | Run console tailing (`RunConsoles`, `RunTail`), the diff-coloured plan document (`PlanDocument`), the gated approve modal (`Approvals`), and the shared trigger/watch/announce entry points (`RunActions`). |
 | `src/main/kotlin/.../session/` | `TdtSession` (the application-level light service holding sign-in state and the active client), `SignInFlow` (interactive sign-in UI), and the startup activity/listener that wire it in. |
 | `src/main/kotlin/.../settings/` | Persistent settings (`TdtSettings`), the Settings → Tools → Terraducktel page (`TdtConfigurable`), and the `Profile` model. |

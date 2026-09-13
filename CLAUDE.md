@@ -20,7 +20,7 @@ on docker compose; zero licensing cost; no SaaS dependency.
 | `services/api/` | FastAPI orchestrator. Auth, RBAC, workspaces, runs, approvals, drift, audit. |
 | `services/ui/` | React + Vite + Tailwind UI. Dashboard, Runs, Approvals, Settings. |
 | `services/vscode/` | VS Code extension: workspaces/runs trees, run triggering + step tailing, plan document, gated approvals. TypeScript, no runtime deps; endpoints pinned by `api_contract.json`. |
-| `services/jetbrains/` | JetBrains IDE plugin (2026.1+): same feature set as the VS Code extension — workspaces/runs tool window, run triggering + console tailing, plan document, gated approvals. Kotlin, no runtime deps; endpoints pinned by api_contract.json. |
+| `services/jetbrains/` | JetBrains IDE plugin (2026.1+): same feature set as the VS Code extension — workspaces/runs tool window, run triggering + console tailing, plan document, gated approvals, current-file→workspace status bar, approval notifications. Kotlin, no runtime deps; endpoints pinned by api_contract.json. |
 | `services/executor/` | Container image launched per run; runs `terraform plan/apply`. `Dockerfile.helm` is the Helm variant (helm/kubectl/helm-diff/aws-cli) for `kind=helm` workspaces. |
 | `services/drift-detector/` | Periodic job: compares live AWS state vs TF state. |
 | `services/liveness-detector/` | Simple health watchdog. |

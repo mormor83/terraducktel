@@ -3,18 +3,21 @@ package com.terraducktel.jetbrains.session
 import com.intellij.idea.AppMode
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.util.PlatformUtils
 import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.api.ApiError
 import com.terraducktel.jetbrains.api.AuthConfig
 import com.terraducktel.jetbrains.auth.SsoCancelled
 import com.terraducktel.jetbrains.settings.Profile
 import com.terraducktel.jetbrains.settings.TdtConfigurable
+import kotlinx.coroutines.CancellationException
 import java.io.IOException
 
 /** Drives the interactive sign-in UI: mode selection (SSO / password / API key) followed by the
@@ -56,7 +59,7 @@ object SignInFlow {
 
     private fun pickMode(project: Project?, session: TdtSession, profile: Profile, cfg: AuthConfig) {
         val modes = mutableListOf<Mode>()
-        if (cfg.oidc_enabled && cfg.cli_loopback == true && !AppMode.isRemoteDevHost()) modes += Mode.SSO
+        if (cfg.oidc_enabled && cfg.cli_loopback == true && !isRemoteDevHost()) modes += Mode.SSO
         if (cfg.mode != "oidc") modes += Mode.PASSWORD
         modes += Mode.API_KEY
 
@@ -102,6 +105,23 @@ object SignInFlow {
                 }
             }
         }
+    }
+
+    /** [AppMode.isRemoteDevHost] is `@ApiStatus.Internal` — it can be renamed or removed without
+     *  notice in a future IDE release. A hard dependency on it would turn a routine platform update
+     *  into a sign-in crash, so the call is isolated here and guarded: any [Throwable] (a removed
+     *  method surfaces as [NoSuchMethodError], a removed class as [NoClassDefFoundError] — both
+     *  [Error]s, not [Exception]s, so a plain `catch (Exception)` would miss them) falls back to the
+     *  same signal `AppMode` itself is built on, `idea.is.remote.dev.host`, plus
+     *  [PlatformUtils.isJetBrainsClient] for the JetBrains Client case. Worst case on a wrong
+     *  answer: SSO is offered or hidden when it shouldn't be — never a crash. */
+    private fun isRemoteDevHost(): Boolean = try {
+        AppMode.isRemoteDevHost()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        if (t is ControlFlowException) throw t
+        System.getProperty("idea.is.remote.dev.host") != null || PlatformUtils.isJetBrainsClient()
     }
 
     private fun notifySuccess(project: Project?, session: TdtSession, profile: Profile) {

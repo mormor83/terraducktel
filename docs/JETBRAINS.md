@@ -129,6 +129,60 @@ one offers **Show plan** and **Approve…** directly from the balloon.
 All of the above require write access (operator/admin in the active business
 unit) — the actions are hidden entirely for a read-only session.
 
+## Current file → workspace
+
+When **Show status bar item** is on (Settings → Tools → Terraducktel;
+default on) and the active editor holds a `.tf`, `.tfvars`, or `.hcl` file,
+a status-bar item next to the caret position shows which imported workspace
+that file belongs to:
+
+- It resolves the file's git root and remote (`git remote get-url origin`,
+  cached for ~10 seconds), takes the file's directory relative to that
+  root, and matches it against every known workspace's `tf_working_dir`,
+  preferring the **longest matching prefix** when more than one workspace's
+  directory contains the file (e.g. a leaf workspace nested under a region
+  workspace). A workspace whose `tf_working_dir` is `.` (the repo root) is
+  **never matched** — a root-level workspace would otherwise silently claim
+  every file in every repo, which is never the intent.
+- **Known remote**: the workspace's `repo_url` must resolve to the same
+  host+path as the file's git remote (scheme, port, `.git` suffix, and case
+  are normalized away first).
+- **Unknown or missing remote** (no `origin`, or a remote the plugin can't
+  parse): matching falls back to path alone. If exactly one workspace's
+  `tf_working_dir` prefixes the file's path, that's the match; if more than
+  one workspace ties on prefix length, the match is treated as ambiguous and
+  nothing is shown — the plugin never guesses between two equally-plausible
+  workspaces.
+- Local (`local://`) checkouts always match by path alone, regardless of any
+  git remote.
+- When mapped, the item reads `TDT: <workspace>[ · <last run status>]`, with
+  a tooltip giving the exact `tf_working_dir`, `(parent leaf)` when the match
+  isn't the file's own directory, the checked-out branch when it differs
+  from the workspace's tracked branch, and "Click for actions". When no
+  workspace claims the file, it reads `TDT: not imported` instead — the item
+  still shows (so there's always something to click), it just says nothing
+  is imported here yet.
+- A second, smaller item to its left shows the active profile (and business
+  unit, once signed in); click it to switch profiles.
+
+Click the item (or run **Tools → Terraducktel → Terraducktel Actions for
+Current File**, also on the editor's right-click menu as **Plan This Leaf**
+/ **Reveal Workspace**) for a popup:
+
+- **Plan this leaf** — triggers a plan for the mapped workspace. If the
+  file's checked-out branch differs from the workspace's tracked
+  `repo_ref`, a choice appears first: **Plan on `<branch>` (pins the
+  workspace)** re-points the workspace's tracked branch to the checked-out
+  one before planning, or **Plan on `<repo_ref>`** plans on the
+  already-tracked branch without changing anything. Nothing is pinned
+  silently — the choice is always explicit.
+- **Show last plan** (only offered when the workspace has a run) opens that
+  run's plan document.
+- **Reveal in tool window** expands and selects the workspace in the
+  Workspaces tree.
+- **Open in browser** opens the web UI's root — the only action offered
+  when no workspace claims the file.
+
 ## Approval notifications
 
 While signed in, the plugin polls `GET /runs?status=awaiting_approval` for
@@ -176,20 +230,82 @@ afterwards produce a notification.
   left-hand tool window bar's stripe (right-click the bar → Terraducktel) or
   via **View → Tool Windows → Terraducktel**.
 
-## Building from source
+## Building and verifying
 
 ```bash
-make test-jetbrains    # ./gradlew test, JDK auto-resolved (see below)
-make build-jetbrains   # ./gradlew buildPlugin -> services/jetbrains/build/distributions/*.zip
+make test-jetbrains     # ./gradlew test, JDK auto-resolved (see below)
+make build-jetbrains    # ./gradlew buildPlugin -> services/jetbrains/build/distributions/*.zip
+make verify-jetbrains   # ./gradlew verifyPlugin -> IntelliJ Plugin Verifier report
 ```
 
-Both targets need a JDK ≥ 17 on `JAVA_HOME` to run Gradle itself (Gradle then
-auto-provisions the JDK 21 toolchain the plugin compiles against). If neither
-`JAVA_HOME` nor a `java` on `PATH` is available, the Makefile falls back to a
-Toolbox-installed JetBrains Runtime under
+All three targets need a JDK ≥ 17 on `JAVA_HOME` to run Gradle itself (Gradle
+then auto-provisions the JDK 21 toolchain the plugin compiles against). If
+neither `JAVA_HOME` nor a `java` on `PATH` is available, the Makefile falls
+back to a Toolbox-installed JetBrains Runtime under
 `~/.local/share/JetBrains/Toolbox/apps/*/jbr`.
+
+`verify-jetbrains` runs the IntelliJ Plugin Verifier against every IDE listed
+in `build.gradle.kts`'s `intellijPlatform.pluginVerification.ides` block:
+IntelliJ IDEA 2026.1 (pinned, matching `dependencies.intellijPlatform`) plus
+whatever `recommended()` currently resolves to — several recent 2026.1/2026.2
+builds JetBrains itself recommends verifying against. The first run downloads
+each IDE distribution (multiple GB; cached under `~/.gradle/caches`
+afterwards), so expect it to take several minutes and need network access the
+first time.
+
+`failureLevel` is set to only `COMPATIBILITY_PROBLEMS` (a call to an API that
+doesn't exist in the target IDE) — everything else the verifier reports
+(deprecated / experimental / internal API usage) is printed but doesn't fail
+the build; the Gradle plugin's own default would fail on all of those, which
+is stricter than this task needs. As of the 0.1.0 release the plugin is
+compatible with every verified IDE with zero compatibility problems; the
+verifier does flag 19 deprecated-API overrides (mostly platform interface
+defaults like `ToolWindowFactory.isApplicable`/`isDoNotActivateOnStart` and
+`StatusBarWidget.MultipleTextValuesPresentation.getMaxValue`), 6 experimental
+API usages, and 2 internal API usages (`AppMode.isRemoteDevHost()` in
+`SignInFlow`, used to hide SSO on a remote-dev host — guarded by a
+try/catch that falls back to the `idea.is.remote.dev.host` system property
+and `PlatformUtils.isJetBrainsClient()` if that internal method ever
+disappears). CI runs `test`, `buildPlugin`, and
+`verifyPluginProjectConfiguration` (a fast, static sanity check of
+`plugin.xml`/`build.gradle.kts` — not the same task as `verifyPlugin`) on
+every push and PR; `verifyPlugin` itself is a local/manual check given how
+long it takes.
 
 Every endpoint the plugin calls is listed in
 `services/jetbrains/api_contract.json` and guarded by
 `services/api/tests/test_jetbrains_api_contract.py` — the same pattern as the
 VS Code extension's contract (see [VSCODE](VSCODE.md)) and the `tdt` CLI's.
+
+## Differences from the VS Code extension
+
+The two clients cover the same features against the same API, but four
+things are deliberately different, each for a reason specific to the
+IntelliJ Platform rather than an oversight:
+
+1. **Profiles are a structured table, not a name→URL map.** VS Code's
+   settings UI can only edit a flat JSON-ish map, so its profile store is
+   shaped to fit that; the JetBrains Settings page can render a real table
+   (name, API URL, UI URL, insecure TLS, an active-profile picker), so the
+   plugin's `TdtSettings` stores profiles as a list instead. The behaviour
+   is identical either way — this is a settings-UI shape difference, not a
+   feature difference.
+2. **The active business unit is remembered per profile, application-wide —
+   not per project/window.** VS Code keeps a separate BU override per open
+   window; the JetBrains plugin's session and polling store are
+   application-level services shared by every open project, so the BU lives
+   with the profile instead. Switching business unit switches it for every
+   open project at once.
+3. **Run output is a console tab in the Terraducktel tool window**, not a
+   separate output panel — the IntelliJ Platform's console view
+   (`ConsoleView`) is the idiomatic equivalent of VS Code's `OutputChannel`,
+   and reusing the tool window keeps everything in one place.
+4. **Network requests go through `HttpURLConnection`, not a shared HTTP
+   client.** This lets each request's TLS trust be configured independently
+   per connection, which is what makes the per-profile **Insecure TLS**
+   toggle possible without affecting any other profile's requests.
+
+Out of scope for both clients, for now: Marketplace publishing/signing,
+editing workspace settings or creating/importing workspaces from inside the
+IDE (both link out to the browser for that), and sharing credential storage
+with the `tdt` CLI or with each other.

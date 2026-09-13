@@ -133,6 +133,24 @@ jobs:
           name: terraducktel-vscode
           path: services/vscode/terraducktel-vscode.vsix
 
+  jetbrains:
+    name: JetBrains plugin (unit + platform tests, build zip)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test + build
+        working-directory: services/jetbrains
+        run: ./gradlew --console=plain --no-daemon test buildPlugin verifyPluginProjectConfiguration
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraducktel-jetbrains
+          path: services/jetbrains/build/distributions/*.zip
+
   release-version:
     name: Release version logic
     runs-on: ubuntu-latest
@@ -176,7 +194,7 @@ jobs:
   # ── release: cut the tag BEFORE the image tag is computed ──────────────────
   release:
     name: Create GitHub Release
-    needs: [api-tests, cli-tests, ui, vscode, release-version]
+    needs: [api-tests, cli-tests, ui, vscode, jetbrains, release-version]
     # Three ways in: a push to the repo's own default branch (auto-computed
     # from conventional commits), an explicit `v*.*.*` tag push, or a manual
     # dispatch. `branches: [main, dev]` above covers the public (`main`) and
@@ -239,7 +257,7 @@ jobs:
   # ── docs site: publish docs/ to gh-pages under /docs/ ──────────────────────
   docs:
     name: Publish docs
-    needs: [api-tests, cli-tests, ui, vscode, release-version]
+    needs: [api-tests, cli-tests, ui, vscode, jetbrains, release-version]
     # Only from the repo's own default branch. A PR must still *build* the docs
     # (the build step below runs on PRs via `mkdocs build --strict`), but only a
     # merge publishes.
