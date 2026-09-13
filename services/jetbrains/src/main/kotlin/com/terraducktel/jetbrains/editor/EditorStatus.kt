@@ -16,11 +16,12 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListPopup
 import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
-import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager
 import com.terraducktel.jetbrains.TdtLog
 import com.terraducktel.jetbrains.actions.ActionUtil
+import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.Workspace
 import com.terraducktel.jetbrains.output.PlanDocument
 import com.terraducktel.jetbrains.output.RunActions
@@ -35,7 +36,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 private val TF_EXTENSIONS = setOf("tf", "tfvars", "hcl")
@@ -64,9 +64,14 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
     @Volatile var view: StatusText.View? = null
         private set
 
+    /** Test seam: sets [view] directly, bypassing [refresh]'s whole file/git/workspace resolution
+     *  pipeline — for a widget test that just needs a known [StatusText.View] to render (or none),
+     *  not a real editor/checkout round trip. Never touches [current] or fires the widget-update
+     *  side effects [show]/[hide] do; a test reads the widget's own getters straight afterward. */
+    internal fun setViewForTest(v: StatusText.View?) { view = v }
+
     private val seq = AtomicInteger(0)
     private val gitProbe = GitProbe()
-    private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
     init {
         val projectConnection = project.messageBus.connect(this)
@@ -94,13 +99,6 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         )
         Store.getInstance().addListener(this) { refresh() }
         refresh()
-    }
-
-    /** Fires [l] after every published change (whether it ends up hiding the item or not);
-     *  removed automatically when [parent] is disposed. Mirrors [Store.addListener]. */
-    fun addListener(parent: Disposable, l: () -> Unit) {
-        listeners += l
-        Disposer.register(parent) { listeners -= l }
     }
 
     /** Re-resolves the active file to a workspace. Safe to call from any thread; the actual work
@@ -160,7 +158,6 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         if (!isCurrent(my)) return
         current = null
         view = null
-        fireListeners()
         updateWidgetOnEdt()
     }
 
@@ -173,8 +170,15 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         if (!isCurrent(my)) return
         current = cur
         view = if (cur != null) StatusText.mapped(cur, Store.getInstance().runsFor(cur.ws.id).firstOrNull()) else StatusText.unmapped(git)
-        fireListeners()
         updateWidgetOnEdt()
+    }
+
+    /** Test seam: how [refreshWidgetAvailability] asks the platform to re-evaluate one factory's
+     *  availability — defaults to the real [StatusBarWidgetsManager] call. A light test fixture's
+     *  status bar is a dummy that never actually (re)creates widgets, so a test can't observe the
+     *  real call's effect; swapping this in lets it instead assert both factory classes were asked. */
+    internal var widgetRefresher: (Class<out StatusBarWidgetFactory>) -> Unit = { factoryClass ->
+        project.service<StatusBarWidgetsManager>().updateWidget(factoryClass)
     }
 
     /** Re-evaluates whether each status-bar widget factory should be enabled/disabled — a settings
@@ -187,25 +191,11 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
     private fun refreshWidgetAvailability() {
         ApplicationManager.getApplication().invokeLater(
             {
-                val manager = project.service<StatusBarWidgetsManager>()
-                manager.updateWidget(TdtStatusBarWidgetFactory::class.java)
-                manager.updateWidget(ProfileStatusBarWidgetFactory::class.java)
+                widgetRefresher(TdtStatusBarWidgetFactory::class.java)
+                widgetRefresher(ProfileStatusBarWidgetFactory::class.java)
             },
             ModalityState.any(),
         ) { project.isDisposed }
-    }
-
-    private fun fireListeners() {
-        for (l in listeners) {
-            try {
-                l()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (t: Throwable) {
-                if (t is ControlFlowException) throw t
-                TdtLog.LOG.warn("Terraducktel: an EditorStatus listener threw", t)
-            }
-        }
     }
 
     private fun updateWidgetOnEdt() {
@@ -295,29 +285,45 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
     fun actionsPopup(): ListPopup {
         data class Item(val label: String, val act: () -> Unit)
         val cur = current
-        val items = if (cur != null) {
-            val last = Store.getInstance().runsFor(cur.ws.id).firstOrNull()
-            buildList {
-                add(Item("Plan this leaf") { planCurrent() })
-                if (last != null) add(Item("Show last plan") { PlanDocument.open(project, last.id, cur.ws.name) })
-                add(Item("Reveal in tool window") { TdtToolWindowFactory.revealWorkspace(project, cur.ws.id) })
-                add(Item("Open in browser") { openInBrowser() })
+        val last = cur?.let { Store.getInstance().runsFor(it.ws.id).firstOrNull() }
+        val items = popupItems(cur, last).map { label ->
+            Item(label) {
+                when (label) {
+                    "Plan this leaf" -> planCurrent()
+                    "Show last plan" -> PlanDocument.open(project, last!!.id, cur.ws.name)
+                    "Reveal in tool window" -> TdtToolWindowFactory.revealWorkspace(project, cur!!.ws.id)
+                    "Open in browser" -> openInBrowser()
+                }
             }
-        } else {
-            listOf(Item("Open in browser") { openInBrowser() })
         }
-        // Same placeholder shape as `status.ts`'s showQuickPick: `<name> · <tf_working_dir>[ ·
-        // branch <branch>]`.
-        val title = cur?.let {
-            val branchSuffix = it.git?.branch?.let { b -> " · branch $b" } ?: ""
-            "${it.ws.name} · ${it.ws.tf_working_dir}$branchSuffix"
-        }
-        val step = object : BaseListPopupStep<Item>(title, items) {
+        val step = object : BaseListPopupStep<Item>(popupTitle(cur), items) {
             override fun getTextFor(value: Item): String = value.label
             override fun onChosen(selectedValue: Item, finalChoice: Boolean): PopupStep<*>? =
                 doFinalStep { safely(selectedValue.act) }
         }
         return JBPopupFactory.getInstance().createListPopup(step)
+    }
+
+    /** Pure decision behind [actionsPopup]'s item list — labels only, no actions bound — so a test
+     *  can assert exactly which items show up for a given (mapped/unmapped, has-a-last-run) state
+     *  without driving a real Swing popup. Mirrors `status.ts`'s `actions()` branching: unmapped
+     *  collapses to the single "Open in browser" item; "Show last plan" only when [lastRun] is
+     *  non-null. */
+    internal fun popupItems(cur: CurrentFile?, lastRun: Run?): List<String> {
+        if (cur == null) return listOf("Open in browser")
+        return buildList {
+            add("Plan this leaf")
+            if (lastRun != null) add("Show last plan")
+            add("Reveal in tool window")
+            add("Open in browser")
+        }
+    }
+
+    /** Pure decision behind [actionsPopup]'s title — same placeholder shape as `status.ts`'s
+     *  `showQuickPick`: `<name> · <tf_working_dir>[ · branch <branch>]`; null when unmapped. */
+    internal fun popupTitle(cur: CurrentFile?): String? = cur?.let {
+        val branchSuffix = it.git?.branch?.let { b -> " · branch $b" } ?: ""
+        "${it.ws.name} · ${it.ws.tf_working_dir}$branchSuffix"
     }
 
     private fun openInBrowser() {

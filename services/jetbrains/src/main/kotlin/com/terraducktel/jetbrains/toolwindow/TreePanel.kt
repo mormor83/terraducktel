@@ -24,6 +24,7 @@ import com.terraducktel.jetbrains.toolwindow.nodes.RunNode
 import com.terraducktel.jetbrains.toolwindow.nodes.StepNode
 import com.terraducktel.jetbrains.toolwindow.nodes.TdtNode
 import com.terraducktel.jetbrains.toolwindow.nodes.WorkspaceNode
+import org.jetbrains.concurrency.Promise
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeExpansionListener
@@ -193,10 +194,12 @@ abstract class TreePanel(
      *  finds a match. Never descends into a [RunNode]/[StepNode]/[MessageNode] subtree (see
      *  [revealAction]) — a workspace is never nested inside a run, so there's nothing to find
      *  there, and descending would force every visited run's steps to be fetched. Called by
-     *  [com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory.revealWorkspace]. */
-    fun revealWorkspace(id: String) {
+     *  [com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory.revealWorkspace]. Returns the
+     *  underlying selection [Promise] (rather than discarding it) so a test can wait on it instead
+     *  of racing the async tree; production callers are free to ignore it. */
+    fun revealWorkspace(id: String): Promise<TreePath> {
         val targetId = "ws:$id"
-        TreeUtil.promiseSelect(
+        return TreeUtil.promiseSelect(
             tree,
             TreeVisitor { path -> revealAction(TreeUtil.getLastUserObject(TdtNode::class.java, path), targetId) },
         )

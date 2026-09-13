@@ -61,7 +61,12 @@ object Mapping {
 
     /** Directory of `filePath` relative to `gitRoot`, posix-separated; "" at the root; null when outside. */
     fun relativeDir(gitRoot: String, filePath: String): String? {
-        val parent = Paths.get(filePath).parent ?: return null
+        // `Paths.get("main.tf").parent` is null for a bare filename with no directory component at
+        // all, whereas mapping.ts's `dirname("main.tf")` gives "." — this is a line-by-line port, so
+        // match that contract with "" rather than treating a bare filename as "outside the root".
+        // EditorStatus always passes an absolute resolved path (whose parent is never null), so this
+        // branch is unreachable today.
+        val parent = Paths.get(filePath).parent ?: return ""
         val rel = try {
             Paths.get(gitRoot).relativize(parent)
         } catch (e: IllegalArgumentException) {

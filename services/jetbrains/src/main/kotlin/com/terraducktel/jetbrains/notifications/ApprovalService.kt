@@ -15,8 +15,9 @@ import com.terraducktel.jetbrains.settings.TdtSettings
 import com.terraducktel.jetbrains.settings.TdtSettingsListener
 import com.terraducktel.jetbrains.state.Store
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
 
 /**
  * Application service owning the one [ApprovalWatcher] the IDE runs. Wires it to [TdtSession] (who
@@ -45,10 +46,9 @@ class ApprovalService(val scope: CoroutineScope) : Disposable {
     private val watcher = ApprovalWatcher(
         client = { TdtSession.getInstance().clientOrNull() },
         workspaceName = { id -> Store.getInstance().workspace(id)?.name ?: id.take(8) },
-        notify = { notice ->
-            ApprovalNotifier.show(activeProject(), notice)
-            Store.getInstance().refresh()
-        },
+        notify = { notice -> ApprovalNotifier.show(activeProject(), notice) },
+        // Once per poll that found fresh runs, not once per notice — see ApprovalWatcher's KDoc.
+        onBatchNotified = { Store.getInstance().refresh() },
         seen = SettingsSeenStore,
         trace = { line -> if (TdtSettings.getInstance().state.trace) TdtLog.trace(line) },
         scope = scope,
@@ -58,6 +58,16 @@ class ApprovalService(val scope: CoroutineScope) : Disposable {
      *  test. Overriding this down (e.g. to a few hundred ms) lets a test's `approvalsPollSeconds`
      *  setting translate into an actually-fast background poll instead of being floored back up. */
     internal var minIntervalMs: Long = 15_000L
+
+    // rearmAsync() is fired from TWO independent message-bus subscriptions that routinely land
+    // together — a single Settings > Apply publishes both a settings change AND (via TdtSession's
+    // own reload) a session change — each dispatching its own `rearm()` onto Dispatchers.IO with no
+    // ordering between them. [Rearm]/[ApprovalWatcher] are now internally safe under concurrent
+    // calls (see their KDocs), but there is no reason to let two rearms actually race in the first
+    // place: funnel them through a single dedicated thread so they always run one at a time, in the
+    // order they were published. Owned (and shut down) by this service, not the shared [scope].
+    private val rearmExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "tdt-approval-rearm") }
+    private val rearmDispatcher = rearmExecutor.asCoroutineDispatcher()
 
     // Named distinctly from the public rearm() below (rather than just `rearm`) so there is no
     // property/function name overlap to reason about at call sites.
@@ -86,7 +96,7 @@ class ApprovalService(val scope: CoroutineScope) : Disposable {
     }
 
     private fun rearmAsync() {
-        scope.launch(Dispatchers.IO) { rearm() }
+        scope.launch(rearmDispatcher) { rearm() }
     }
 
     /** `"<profile>:<bu>"` while signed in, else null — [Rearm]'s prime-once-per-key guard against
@@ -129,6 +139,7 @@ class ApprovalService(val scope: CoroutineScope) : Disposable {
 
     override fun dispose() {
         watcher.dispose()
+        rearmDispatcher.close()
     }
 
     /** Touches [getInstance] once per IDE run so this light service (and its [ApprovalWatcher]) is

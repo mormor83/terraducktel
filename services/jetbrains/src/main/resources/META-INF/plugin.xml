@@ -63,7 +63,8 @@
       <reference ref="Terraducktel.RevealCurrentWorkspace"/>
       <reference ref="Terraducktel.CurrentFileActions"/>
     </group>
-    <group id="Terraducktel.EditorMenu" text="Terraducktel" popup="true">
+    <group id="Terraducktel.EditorMenu" text="Terraducktel" popup="true"
+           class="com.terraducktel.jetbrains.actions.editor.TerraducktelEditorGroup">
       <add-to-group group-id="EditorPopupMenu" anchor="last"/>
       <reference ref="Terraducktel.PlanCurrentFile"/>
       <reference ref="Terraducktel.RevealCurrentWorkspace"/>

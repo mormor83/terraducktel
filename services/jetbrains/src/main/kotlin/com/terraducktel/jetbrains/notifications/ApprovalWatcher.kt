@@ -38,6 +38,11 @@ class ApprovalWatcher(
     private val client: () -> TdtClient?,
     private val workspaceName: (String) -> String,
     private val notify: (ApprovalNotice) -> Unit,
+    // Called once per poll, after every fresh run in the batch has been offered to [notify] — never
+    // once per notice. A caller that pokes some other refresh (e.g. ApprovalService re-pulling the
+    // Runs tab's badge count) only needs to know "did this poll find anything new", not be re-run
+    // once per run in a batch of several.
+    private val onBatchNotified: () -> Unit = {},
     private val seen: SeenStore,
     private val now: () -> Long = System::currentTimeMillis,
     private val trace: ((String) -> Unit)? = null,
@@ -90,7 +95,10 @@ class ApprovalWatcher(
         val c = client() ?: return null
         return try {
             c.listRuns(limit = 100, status = listOf("awaiting_approval"))
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable, not just Exception — consistent with getGraph/notify below: an Error
+            // (e.g. the AssertionError IntelliJ's LOG.error throws in test/EAP builds) must not
+            // escape here either, or it takes down the poll loop that called this.
             traceSafe("approvals poll failed: ${e.message ?: e}")
             null
         }
@@ -210,8 +218,17 @@ class ApprovalWatcher(
                 traceSafe("approvals notify failed: ${e.message ?: e}")
             }
         }
+        // Once per poll that actually found something new — not once per run in [fresh] — so a
+        // caller wiring this to e.g. a tool-window refresh doesn't redo it N times for a batch of N.
+        if (fresh.isNotEmpty()) onBatchNotified()
     }
 
+    // start()/stop() both read-modify-write loopJob; unsynchronized, two concurrent start()s (or a
+    // start() racing a stop()) could interleave so one call's stop() reads loopJob before the
+    // other's start() assigns it — orphaning a loop that then polls forever with nothing able to
+    // reach it. Synchronized on `this` closes that window; neither method does I/O itself (the
+    // launched coroutine body isn't run under this lock), so this never blocks on network calls.
+    @Synchronized
     fun start(intervalMs: Long) {
         stop()
         if (intervalMs <= 0) return
@@ -228,6 +245,7 @@ class ApprovalWatcher(
         }
     }
 
+    @Synchronized
     fun stop() {
         loopJob?.cancel()
         loopJob = null

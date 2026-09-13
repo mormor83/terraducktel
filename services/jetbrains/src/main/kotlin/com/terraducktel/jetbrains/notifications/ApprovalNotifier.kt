@@ -1,10 +1,13 @@
 package com.terraducktel.jetbrains.notifications
 
 import com.intellij.ide.BrowserUtil
+import com.intellij.ide.impl.ProjectUtil
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.actions.run.RejectAction
 import com.terraducktel.jetbrains.output.Approvals
 import com.terraducktel.jetbrains.session.TdtSession
@@ -23,9 +26,20 @@ import com.terraducktel.jetbrains.session.TdtSession
 object ApprovalNotifier {
     private const val GROUP_ID = "Terraducktel approvals"
 
+    /** The project to act against for a balloon action click — resolved lazily AT CLICK TIME, not
+     *  when the balloon was shown: the balloon (an app-level notification) can easily outlive the
+     *  project it was posted for (welcome screen, or every project closed while it was sitting
+     *  there), and the original `project?.let { … }` pattern just silently did nothing in that case
+     *  even if a project was open again by the time the user actually clicked. Falls back to any
+     *  open project when there's no "active" one (e.g. focus is on the welcome screen). */
+    private fun projectForAction(): Project? =
+        ProjectUtil.getActiveProject() ?: ProjectManager.getInstance().openProjects.firstOrNull()
+
     /** Shows the balloon. [project] may be null (no project is open, or none is currently active)
-     *  — the balloon itself still shows (the group is application-level); an action whose click
-     *  needs a project just no-ops if none is available by the time it fires. */
+     *  — the balloon itself still shows (the group is application-level); Approve…/Reject… resolve
+     *  their own project lazily at click time (see [projectForAction]) rather than closing over
+     *  [project], so they still work if [project] was null (or has since closed) but some project
+     *  is open by the time the user clicks. */
     fun show(project: Project?, n: ApprovalNotice) {
         val summary = n.summary
         // RunGraph.summary is non-nullable (an all-zero default) — a null ApprovalNotice.summary
@@ -47,12 +61,14 @@ object ApprovalNotifier {
         notification.setImportant(true)
         notification.addAction(
             NotificationAction.createSimpleExpiring("Approve…") {
-                project?.let { Approvals.approve(it, n.run) }
+                val p = projectForAction()
+                if (p != null) Approvals.approve(p, n.run) else noProjectOpenError()
             },
         )
         notification.addAction(
             NotificationAction.createSimpleExpiring("Reject…") {
-                project?.let { RejectAction.reject(it, n.run) }
+                val p = projectForAction()
+                if (p != null) RejectAction.reject(p, n.run) else noProjectOpenError()
             },
         )
         notification.addAction(
@@ -61,5 +77,11 @@ object ApprovalNotifier {
             },
         )
         notification.notify(project)
+    }
+
+    /** Shown in place of a silent no-op when Approve…/Reject… is clicked with no project open at
+     *  all (welcome screen, every project closed). `Open` needs no project and is unaffected. */
+    private fun noProjectOpenError() {
+        ActionUtil.notify(null, "Terraducktel: open a project to approve or reject this run.", NotificationType.ERROR)
     }
 }

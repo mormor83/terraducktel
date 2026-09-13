@@ -15,10 +15,13 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.content.ContentFactory
+import com.terraducktel.jetbrains.TdtLog
 import com.terraducktel.jetbrains.session.TdtSessionListener
 import com.terraducktel.jetbrains.state.Store
+import org.jetbrains.concurrency.Promise
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
+import javax.swing.tree.TreePath
 
 /** The "Terraducktel" tool window: a Workspaces tab and a Runs tab, each a [TreePanel] wrapped in
  *  its own toolbar-carrying [SimpleToolWindowPanel] (the shared `Terraducktel.Toolbar` action
@@ -99,15 +102,45 @@ class TdtToolWindowFactory : ToolWindowFactory, DumbAware {
         /** Activates the tool window, selects the Workspaces tab, and reveals [wsId] in it — the
          *  editor status bar's "Reveal in tool window" action and its "Reveal Workspace" menu
          *  counterpart both go through here. No-op if the tool window isn't registered (shouldn't
-         *  happen) or [wsId] isn't currently in the Workspaces tree (see [TreePanel.revealWorkspace]). */
+         *  happen) or [wsId] isn't currently in the Workspaces tree (see [TreePanel.revealWorkspace]) —
+         *  each of those (and the two casts below) logs a warning explaining which step failed,
+         *  rather than bailing out silently. */
         fun revealWorkspace(project: Project, wsId: String) {
-            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel") ?: return
+            revealWorkspaceForTest(project, wsId)
+        }
+
+        /** Same as [revealWorkspace], but returns the underlying [Promise] (or null if it bailed
+         *  out before reaching [TreePanel.revealWorkspace]) so a test can wait on the actual
+         *  selection instead of racing [ToolWindow.activate]'s async callback. */
+        internal fun revealWorkspaceForTest(project: Project, wsId: String): Promise<TreePath>? {
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel")
+            if (toolWindow == null) {
+                TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — the Terraducktel tool window isn't registered for this project")
+                return null
+            }
+            var promise: Promise<TreePath>? = null
             toolWindow.activate {
-                val content = toolWindow.contentManager.contents.firstOrNull { it.displayName == "Workspaces" } ?: return@activate
+                // Matched by the content's wrapped panel TYPE, not its display name — robust to a
+                // title change (e.g. the Runs tab's own "Runs · N" badge) and to tab reordering.
+                val content = toolWindow.contentManager.contents.firstOrNull { (it.component as? SimpleToolWindowPanel)?.content is WorkspacesPanel }
+                if (content == null) {
+                    TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — no tool window content wraps a WorkspacesPanel")
+                    return@activate
+                }
                 toolWindow.contentManager.setSelectedContent(content)
                 val panel = content.component as? SimpleToolWindowPanel
-                (panel?.content as? WorkspacesPanel)?.revealWorkspace(wsId)
+                if (panel == null) {
+                    TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — the matched content's component wasn't a SimpleToolWindowPanel")
+                    return@activate
+                }
+                val workspacesPanel = panel.content as? WorkspacesPanel
+                if (workspacesPanel == null) {
+                    TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — the matched content's wrapped panel wasn't a WorkspacesPanel")
+                    return@activate
+                }
+                promise = workspacesPanel.revealWorkspace(wsId)
             }
+            return promise
         }
 
         /** Recomputed (never incrementally tracked) from every open project's tool window

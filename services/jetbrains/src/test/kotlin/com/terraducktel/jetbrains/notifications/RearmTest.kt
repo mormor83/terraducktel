@@ -126,4 +126,56 @@ class RearmTest {
         assertFalse("p1 thread never finished", p1.isAlive)
         assertEquals(listOf("stop", "prime:a:default", "stop", "prime:b:default", "start:b:default"), calls)
     }
+
+    /** A single Settings > Apply fires BOTH `settingsChanged` and (via `TdtSession.reload()`'s own
+     *  publish) `sessionChanged`, each dispatching its own `rearm()` onto a pooled thread with no
+     *  ordering between them — the exact "two concurrent rearm() calls for the same key" shape a
+     *  plain check-then-act on `primedFor` used to mishandle: whichever call's `stop()` landed
+     *  AFTER the other had already re-armed the loop would kill it, and the late `stop()`'s own
+     *  call would then see itself superseded (by the generation check) and never `start()` again —
+     *  net result, nothing polling at all. Modeled here with a fake "loop" (a simple cancel flag)
+     *  standing in for [com.terraducktel.jetbrains.notifications.ApprovalWatcher]'s real coroutine
+     *  job: `start` records a new loop as current, `stop` cancels whatever is current. */
+    @Test
+    fun `two concurrent rearms for the same key never orphan the poll loop`() {
+        class FakeLoop { val cancelled = java.util.concurrent.atomic.AtomicBoolean(false) }
+
+        val key = "local:default"
+        val current = AtomicReference<FakeLoop?>(null)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val primeCalls = AtomicInteger(0)
+
+        val rearm = Rearm(
+            key = { key },
+            prime = {
+                // Only the FIRST prime() (the one that actually transitioned primedFor) blocks —
+                // it stands in for a slow network round trip racing a second, faster rearm() for
+                // the very same key.
+                if (primeCalls.incrementAndGet() == 1) {
+                    entered.countDown()
+                    assertTrue("release latch was never opened", release.await(5, TimeUnit.SECONDS))
+                }
+            },
+            start = { current.set(FakeLoop()) },
+            stop = { current.get()?.cancelled?.set(true) },
+        )
+
+        val t1 = Thread { rearm.invoke() } // enters prime() first and hangs on the gate
+        t1.start()
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+
+        val t2 = Thread { rearm.invoke() } // same key: skips prime() (already primed), starts a loop
+        t2.start()
+        t2.join(5_000)
+        assertFalse("t2 thread never finished", t2.isAlive)
+
+        release.countDown()
+        t1.join(5_000) // t1's prime() finally resolves; it must detect it was superseded and NOT start()
+        assertFalse("t1 thread never finished", t1.isAlive)
+
+        val loop = current.get()
+        assertTrue("exactly one loop must be armed after both rearms finish", loop != null)
+        assertFalse("the surviving loop must not have been cancelled by a stale stop()", loop!!.cancelled.get())
+    }
 }
