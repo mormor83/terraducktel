@@ -13,6 +13,8 @@
     <applicationConfigurable parentId="tools" instance="com.terraducktel.jetbrains.settings.TdtConfigurable"
                               id="com.terraducktel.jetbrains.settings" displayName="Terraducktel"/>
     <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.session.TdtSessionStarter"/>
+    <toolWindow id="Terraducktel" anchor="left" icon="/icons/tdt.svg"
+                factoryClass="com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory"/>
   </extensions>
   <actions>
     <group id="Terraducktel.Toolbar">
@@ -20,6 +22,7 @@
       <action id="Terraducktel.SignOut" class="com.terraducktel.jetbrains.actions.auth.SignOutAction" text="Sign Out"/>
       <action id="Terraducktel.SwitchProfile" class="com.terraducktel.jetbrains.actions.auth.SwitchProfileAction" text="Switch Profile…"/>
       <action id="Terraducktel.SwitchBu" class="com.terraducktel.jetbrains.actions.auth.SwitchBusinessUnitAction" text="Switch Business Unit…"/>
+      <action id="Terraducktel.Refresh" class="com.terraducktel.jetbrains.actions.RefreshAction" text="Refresh" icon="AllIcons.Actions.Refresh"/>
     </group>
     <group id="Terraducktel.ToolsMenu" text="Terraducktel" popup="true">
       <add-to-group group-id="ToolsMenu" anchor="last"/>
@@ -28,5 +31,9 @@
       <reference ref="Terraducktel.SwitchProfile"/>
       <reference ref="Terraducktel.SwitchBu"/>
     </group>
+    <!-- Filled by Tasks 10 (workspace actions) and 11 (run actions) — installed as the
+         Workspaces/Runs trees' context menus by TreePanel/WorkspacesPanel/RunsPanel. -->
+    <group id="Terraducktel.WorkspaceMenu" popup="true"/>
+    <group id="Terraducktel.RunMenu" popup="true"/>
   </actions>
 </idea-plugin>

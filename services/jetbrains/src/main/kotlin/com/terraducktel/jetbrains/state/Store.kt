@@ -171,6 +171,13 @@ class Store(private val scope: CoroutineScope) : Disposable {
         fireChanged()
     }
 
+    /** Used by Task 9's tree tests to simulate a failed refresh (the warning [MessageNode] at the
+     *  top of both trees) without going through a real [refresh]. */
+    internal fun setLastErrorForTest(t: Throwable?) {
+        lastError = t
+        fireChanged()
+    }
+
     override fun dispose() {
         stop()
     }
