@@ -10,9 +10,11 @@ import java.io.File
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.security.KeyStore
+import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
 
 /**
  * [HttpTransport]'s security-relevant claim (see its class KDoc): `insecureTls` relaxes trust and
@@ -37,6 +39,18 @@ class HttpTransportTlsTest {
     private lateinit var server2: HttpsServer
     private lateinit var keystoreFile: File
 
+    // The JVM-wide TLS defaults this test finds on arrival, and the strict factory it installs in
+    // their place for its own duration. Installing our own is not incidental: when the whole suite
+    // runs in one JVM, an IntelliJ platform test may already have initialised the IDE's
+    // CertificateManager, whose default SSLSocketFactory accepts unknown certificates — under which
+    // the negative assertion below would pass a self-signed certificate and prove nothing about
+    // OUR code. A strict default (the JDK's own trust managers, i.e. the system CA store, which
+    // cannot possibly trust a cert minted seconds ago) makes the assertion deterministic and
+    // actually about `insecureTls` staying per-connection. Restored in @After.
+    private lateinit var savedFactory: SSLSocketFactory
+    private lateinit var savedVerifier: HostnameVerifier
+    private lateinit var strictFactory: SSLSocketFactory
+
     @Before
     fun startServer() {
         keystoreFile = File.createTempFile("tdt-test-keystore", ".p12")
@@ -56,6 +70,11 @@ class HttpTransportTlsTest {
 
         server = startHttpsServer(sslContext)
         server2 = startHttpsServer(sslContext)
+
+        savedFactory = HttpsURLConnection.getDefaultSSLSocketFactory()
+        savedVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
+        strictFactory = SSLContext.getInstance("TLS").apply { init(null, null, null) }.socketFactory
+        HttpsURLConnection.setDefaultSSLSocketFactory(strictFactory)
     }
 
     private fun startHttpsServer(sslContext: SSLContext): HttpsServer {
@@ -73,6 +92,8 @@ class HttpTransportTlsTest {
 
     @After
     fun stopServer() {
+        HttpsURLConnection.setDefaultSSLSocketFactory(savedFactory)
+        HttpsURLConnection.setDefaultHostnameVerifier(savedVerifier)
         server.stop(0)
         server2.stop(0)
         keystoreFile.delete()
@@ -101,22 +122,21 @@ class HttpTransportTlsTest {
     }
 
     @Test fun `without insecureTls the same self-signed server is rejected and the JVM default is untouched`() {
-        val defaultFactory = HttpsURLConnection.getDefaultSSLSocketFactory()
-        val defaultVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
-
         // Relax trust for ONE request first — this is what must not leak into the plain request
         // below, against the very same host (a different port of it — see `server2`'s KDoc).
         val relaxed = HttpTransport.request("GET", url, emptyMap(), null, insecureTls = true)
         assertEquals(200, relaxed.status)
 
+        // A fresh handshake under the JVM's (strict) defaults must still reject the self-signed
+        // certificate. Had `insecureTls` installed its trust-all factory JVM-wide, this would
+        // succeed instead.
         assertThrows(IOException::class.java) {
             HttpTransport.request("GET", url2, emptyMap(), null, insecureTls = false, connectTimeoutMs = 3_000, readTimeoutMs = 3_000)
         }
 
-        // The JVM-wide defaults are exactly what they were before either request — proving the
-        // per-connection relaxation above never touched them.
-        assertSame(defaultFactory, HttpsURLConnection.getDefaultSSLSocketFactory())
-        assertSame(defaultVerifier, HttpsURLConnection.getDefaultHostnameVerifier())
+        // And the defaults are still, identically, the ones in force before either request.
+        assertSame(strictFactory, HttpsURLConnection.getDefaultSSLSocketFactory())
+        assertSame(savedVerifier, HttpsURLConnection.getDefaultHostnameVerifier())
     }
 
     private companion object {
