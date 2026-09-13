@@ -120,7 +120,15 @@ def _truncate(text: str) -> str:
     cut = text[:_TRUNCATE_AT]
     nl = cut.rfind("\n")
     if nl > 0:
+        # Tags never span a newline, so rewinding to the last line boundary
+        # can't leave a dangling tag behind.
         cut = cut[:nl]
+    else:
+        # No newline to rewind to: the straight cut can land mid-tag (e.g.
+        # "<pr" with the closing "e>" sliced off). `_TAG_RE` needs a
+        # terminating `>` to recognise a tag at all, so `_close_open_tags`
+        # can't repair that — strip the dangling fragment instead.
+        cut = re.sub(r"<[^>]*$", "", cut)
     return _close_open_tags(cut + _TRUNCATION_MARKER)
 
 

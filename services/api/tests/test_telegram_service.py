@@ -2,14 +2,10 @@
 
 httpx.AsyncClient is monkeypatched; no test here touches the network.
 """
-import json
-
 import httpx
 import pytest
 
 from app.services import telegram as tg
-
-pytestmark = pytest.mark.asyncio
 
 
 class _FakeResponse:
@@ -190,6 +186,21 @@ async def test_truncation_closes_tags_left_open():
     assert len(out) <= tg.MAX_MESSAGE_CHARS
     assert out.endswith("</pre>")
     assert out.count("<pre>") == out.count("</pre>")
+
+
+async def test_truncation_strips_dangling_tag_when_no_newline_to_rewind_to():
+    # No newline anywhere in this message, so `_truncate` cannot rewind to a
+    # line boundary and the straight 3900-char cut lands mid-tag: it keeps
+    # "<pr" but not the closing "e>". `_TAG_RE` requires a terminating `>` to
+    # recognise a tag at all, so `_close_open_tags` can't repair a dangling
+    # "<pr" — it has to be stripped before the marker is appended, or
+    # Telegram rejects the whole message with "can't parse entities".
+    text = "x" * 3897 + "<pre>" + "y" * 300
+    assert len(text) > tg.MAX_MESSAGE_CHARS
+    assert "\n" not in text
+    out = tg._truncate(text)
+    assert len(out) <= tg.MAX_MESSAGE_CHARS
+    assert "<" not in out
 
 
 def test_close_open_tags_handles_nesting():
