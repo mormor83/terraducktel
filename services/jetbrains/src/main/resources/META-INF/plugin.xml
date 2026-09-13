@@ -15,6 +15,7 @@
                               id="com.terraducktel.jetbrains.settings" displayName="Terraducktel"/>
     <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.session.TdtSessionStarter"/>
     <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.notifications.ApprovalService$Starter"/>
+    <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.editor.EditorStatusStarter"/>
     <toolWindow id="Terraducktel" anchor="left" icon="/icons/tdt.svg"
                 factoryClass="com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory"/>
     <statusBarWidgetFactory id="Terraducktel.Profile" implementation="com.terraducktel.jetbrains.editor.ProfileStatusBarWidgetFactory"
@@ -60,6 +61,7 @@
       <separator/>
       <reference ref="Terraducktel.PlanCurrentFile"/>
       <reference ref="Terraducktel.RevealCurrentWorkspace"/>
+      <reference ref="Terraducktel.CurrentFileActions"/>
     </group>
     <group id="Terraducktel.EditorMenu" text="Terraducktel" popup="true">
       <add-to-group group-id="EditorPopupMenu" anchor="last"/>

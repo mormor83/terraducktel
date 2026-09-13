@@ -1,6 +1,7 @@
 package com.terraducktel.jetbrains.editor
 
 import com.intellij.ide.BrowserUtil
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
@@ -17,6 +18,7 @@ import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.WindowManager
+import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager
 import com.terraducktel.jetbrains.TdtLog
 import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.api.Workspace
@@ -84,7 +86,10 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         appConnection.subscribe(
             TdtSettingsListener.TOPIC,
             object : TdtSettingsListener {
-                override fun settingsChanged() = refresh()
+                override fun settingsChanged() {
+                    refresh()
+                    refreshWidgetAvailability()
+                }
             },
         )
         Store.getInstance().addListener(this) { refresh() }
@@ -126,7 +131,7 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         val signedIn = TdtSession.getInstance().isSignedIn()
         if (!enabled || !isTfFile || !signedIn) {
             if (!isCurrent(my)) return
-            hide()
+            hide(my)
             return
         }
 
@@ -143,11 +148,16 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
             }
         }
         val cur = match?.let { CurrentFile(it.ws, git, it.exact, resolvedPath) }
-        show(cur, git)
+        show(my, cur, git)
     }
 
-    /** Disabled / no active Terraform file / signed out — the widget disappears entirely. */
-    private fun hide() {
+    /** Disabled / no active Terraform file / signed out — the widget disappears entirely.
+     *  [my] is re-checked immediately before the [current]/[view] assignment (not just earlier in
+     *  [doRefresh]): two IO-dispatcher threads can genuinely run concurrently, so a call that
+     *  passed its check further up could still be descheduled right up until this point and let a
+     *  newer, already-published refresh be overwritten with stale content. */
+    private fun hide(my: Int) {
+        if (!isCurrent(my)) return
         current = null
         view = null
         fireListeners()
@@ -156,12 +166,33 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
 
     /** A tf file is active and the gate passed — always publishes a visible item: either
      *  [StatusText.mapped] ([cur] non-null) or [StatusText.unmapped] (no workspace claims it, but
-     *  the item still shows so the user can act on it). */
-    private fun show(cur: CurrentFile?, git: GitInfo?) {
+     *  the item still shows so the user can act on it). [my] is re-checked immediately before the
+     *  assignment — see [hide]'s doc for why that final check (not just the earlier ones in
+     *  [doRefresh]) matters. */
+    private fun show(my: Int, cur: CurrentFile?, git: GitInfo?) {
+        if (!isCurrent(my)) return
         current = cur
         view = if (cur != null) StatusText.mapped(cur, Store.getInstance().runsFor(cur.ws.id).firstOrNull()) else StatusText.unmapped(git)
         fireListeners()
         updateWidgetOnEdt()
+    }
+
+    /** Re-evaluates whether each status-bar widget factory should be enabled/disabled — a settings
+     *  change (e.g. adding the FIRST profile, or re-enabling "Show status bar item") flips
+     *  [StatusBarWidgetFactory.isAvailable][com.intellij.openapi.wm.StatusBarWidgetFactory
+     *  .isAvailable], but nothing re-asks the platform about that on its own; a plain
+     *  `StatusBar.updateWidget` (used by [updateWidgetOnEdt] for content changes) only refreshes an
+     *  ALREADY-shown widget's text/tooltip, it does not add or remove one. Without this, a fresh
+     *  profile added after startup would need an IDE restart before its widget appeared. */
+    private fun refreshWidgetAvailability() {
+        ApplicationManager.getApplication().invokeLater(
+            {
+                val manager = project.service<StatusBarWidgetsManager>()
+                manager.updateWidget(TdtStatusBarWidgetFactory::class.java)
+                manager.updateWidget(ProfileStatusBarWidgetFactory::class.java)
+            },
+            ModalityState.any(),
+        ) { project.isDisposed }
     }
 
     private fun fireListeners() {
@@ -208,15 +239,23 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
             ApplicationManager.getApplication().invokeLater(
                 {
                     if (branch != null && branch != ws.repo_ref) {
-                        showBranchChoice(branch, ws.repo_ref) { chosen -> RunActions.trigger(project, ws, "plan", chosen) }
+                        branchChooser(branch, ws.repo_ref) { chosen -> triggerPlanSafely(ws, chosen) }
                     } else {
-                        RunActions.trigger(project, ws, "plan", null)
+                        triggerPlanSafely(ws, null)
                     }
                 },
                 ModalityState.any(),
             ) { project.isDisposed }
         }
     }
+
+    /** Test seam for "which branch to plan on" once [planCurrent] has determined the checked-out
+     *  branch differs from the workspace's tracked one — production default shows the real
+     *  two-item popup ([showBranchChoice]); tests swap this in to bypass Swing and choose
+     *  deterministically. [onChosen] receives the branch to pin to, or null to plan on the
+     *  workspace's already-tracked branch (no pin). */
+    internal var branchChooser: (branch: String, repoRef: String, onChosen: (String?) -> Unit) -> Unit =
+        { branch, repoRef, onChosen -> showBranchChoice(branch, repoRef, onChosen) }
 
     private fun showBranchChoice(branch: String, repoRef: String, onChosen: (String?) -> Unit) {
         data class Item(val label: String, val branch: String?)
@@ -232,9 +271,27 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         JBPopupFactory.getInstance().createListPopup(step).showCenteredInCurrentWindow(project)
     }
 
+    /** [RunActions.trigger] itself must run on the EDT (it shows the Apply/Destroy confirmation
+     *  dialogs synchronously); wrapping it here — rather than leaving a raw throw to reach the
+     *  platform as an uncaught exception — mirrors `status.ts`'s `pick.act().catch(...)`. */
+    private fun triggerPlanSafely(ws: Workspace, branch: String?) = safely { RunActions.trigger(project, ws, "plan", branch) }
+
+    private fun safely(action: () -> Unit) {
+        try {
+            action()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            if (t is ControlFlowException) throw t
+            ActionUtil.notify(project, "Terraducktel: ${t.message ?: "an unexpected error occurred"}", NotificationType.ERROR)
+        }
+    }
+
     /** The status-bar item's click popup — a port of `status.ts`'s `actions()`. When [current] is
      *  null every item collapses to just "Open in browser" (mirroring `status.ts`, which skips the
-     *  quick pick entirely and opens the browser directly in that case). */
+     *  quick pick entirely and opens the browser directly in that case). Each item's action is
+     *  wrapped so a throw surfaces as an error balloon (mirrors `status.ts`'s `pick.act().catch`)
+     *  instead of reaching the platform as a raw, unhandled exception. */
     fun actionsPopup(): ListPopup {
         data class Item(val label: String, val act: () -> Unit)
         val cur = current
@@ -249,11 +306,16 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         } else {
             listOf(Item("Open in browser") { openInBrowser() })
         }
-        val title = cur?.let { "${it.ws.name} · ${it.ws.tf_working_dir}" }
+        // Same placeholder shape as `status.ts`'s showQuickPick: `<name> · <tf_working_dir>[ ·
+        // branch <branch>]`.
+        val title = cur?.let {
+            val branchSuffix = it.git?.branch?.let { b -> " · branch $b" } ?: ""
+            "${it.ws.name} · ${it.ws.tf_working_dir}$branchSuffix"
+        }
         val step = object : BaseListPopupStep<Item>(title, items) {
             override fun getTextFor(value: Item): String = value.label
             override fun onChosen(selectedValue: Item, finalChoice: Boolean): PopupStep<*>? =
-                doFinalStep { selectedValue.act() }
+                doFinalStep { safely(selectedValue.act) }
         }
         return JBPopupFactory.getInstance().createListPopup(step)
     }
