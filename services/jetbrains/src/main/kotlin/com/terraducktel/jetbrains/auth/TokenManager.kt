@@ -51,7 +51,10 @@ class TokenManager(
     private fun fire() { changeListeners.toList().forEach { it() } }
 
     /** Idempotent: only the first caller reads the secret store; concurrent callers — an explicit
-     *  `restore()` and a lazy load from `getAccessToken()` alike — observe the same result. */
+     *  `restore()` and a lazy load from `getAccessToken()` alike — observe the same result. The
+     *  monitor is held across the PasswordSafe read itself, on purpose: that's what makes
+     *  `loadPromise`'s "single shared read" guarantee hold under real threads, not just a shared
+     *  promise. Callers must therefore be off the EDT — PasswordSafe access can block. */
     fun restore() {
         synchronized(this) {
             if (loaded) return
@@ -63,9 +66,16 @@ class TokenManager(
     }
     private fun ensureLoaded() = restore()
 
+    /** Assigns `cred` and writes/deletes the secret under ONE monitor acquisition, so a
+     *  concurrent redemption's `secrets.set` (see [redeem]) and this call's `secrets.set`/
+     *  `secrets.delete` can never land out of order. [fire] runs outside the lock — it invokes
+     *  listener callbacks, which must never happen while holding a lock. */
     private fun persist(c: StoredCredential?) {
-        synchronized(this) { loaded = true; cred = c }
-        if (c != null) secrets.set(key, TdtJson.encodeToString(c)) else secrets.delete(key)
+        synchronized(this) {
+            loaded = true
+            cred = c
+            if (c != null) secrets.set(key, TdtJson.encodeToString(c)) else secrets.delete(key)
+        }
         fire()
     }
 
@@ -88,8 +98,8 @@ class TokenManager(
         access = pair.access_token
         persist(StoredCredential(kind = kind, refresh_token = pair.refresh_token))
     }
-    fun signInWithApiKey(key: String) {
-        val k = key.trim()
+    fun signInWithApiKey(apiKey: String) {
+        val k = apiKey.trim()
         require(k.startsWith("tdt_")) { "That doesn't look like a TDT API key (expected tdt_…)" }
         access = k
         persist(StoredCredential(kind = "api_key", api_key = k))
@@ -139,17 +149,32 @@ class TokenManager(
 
     private fun redeem(client: TdtClient, cred: StoredCredential): String? = try {
         val pair = client.refresh(cred.refresh_token!!)
-        if (this.cred !== cred) {
-            // Signed out (or signed back in) while this redemption was in flight. The rotated
-            // token belongs to a session that no longer exists: dropping it is right, writing it
-            // over a cleared or brand-new credential would not be. Answer with whatever is
-            // current.
-            if (this.cred != null) access else null
-        } else {
-            access = pair.access_token
-            persist(cred.copy(refresh_token = pair.refresh_token))
-            access
+        // The identity check and the write must happen under ONE monitor acquisition: checking
+        // then writing as two separate steps (the latter via a separately-locked `persist()`)
+        // leaves a window where a `signOut()` lands in between and gets undone by this write —
+        // the rotated refresh token would be persisted, and `isSignedIn()` would flip back to
+        // true, after the user explicitly signed out. Doing the `secrets.set` itself inside the
+        // lock is fine: it's local PasswordSafe/in-memory I/O, not network I/O.
+        var changed = false
+        val result = synchronized(this) {
+            if (this.cred !== cred) {
+                // Signed out (or signed back in) while this redemption was in flight. The
+                // rotated token belongs to a session that no longer exists: dropping it is
+                // right, writing it over a cleared or brand-new credential would not be. Answer
+                // with whatever is current.
+                if (this.cred != null) access else null
+            } else {
+                val updated = cred.copy(refresh_token = pair.refresh_token)
+                this.cred = updated
+                loaded = true
+                access = pair.access_token
+                secrets.set(key, TdtJson.encodeToString(updated))
+                changed = true
+                access
+            }
         }
+        if (changed) fire() // outside the lock — never invoke listeners while holding it.
+        result
     } catch (e: ApiError) {
         // 4xx = the server rejected this refresh token (expired / revoked / wrong): the
         // credential is dead, so resolve null and let the caller sign out. Everything else is

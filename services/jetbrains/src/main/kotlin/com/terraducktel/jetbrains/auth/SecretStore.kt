@@ -12,8 +12,9 @@ interface SecretStore {
     fun delete(key: String)
 }
 
-/** PasswordSafe-backed [SecretStore]. Not unit-tested here (no headless PasswordSafe outside a
- *  platform test) — [TokenManager]'s own tests use an in-memory store instead. */
+/** PasswordSafe-backed [SecretStore]. Round-tripped against the in-memory PasswordSafe the
+ *  platform test framework provides in [PasswordSafeSecretStoreTest] — [TokenManager]'s own
+ *  tests use a plain in-memory fake instead, since they don't need the IDE. */
 class PasswordSafeSecretStore : SecretStore {
     private fun attrs(key: String) = CredentialAttributes(generateServiceName("Terraducktel", key), key)
     override fun get(key: String): String? = PasswordSafe.instance.getPassword(attrs(key))

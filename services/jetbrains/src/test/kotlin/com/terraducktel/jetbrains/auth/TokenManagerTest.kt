@@ -5,7 +5,9 @@ import com.terraducktel.jetbrains.api.TdtClient
 import com.terraducktel.jetbrains.testutil.StubServer
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.IOException
 import java.util.Base64
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -61,6 +63,7 @@ class TokenManagerTest {
 
         assertEquals("tdt_abc", tm.getAccessToken())
         assertNull(tm.claims())
+        assertEquals("api_key", tm.kind())
         assertEquals("""{"kind":"api_key","api_key":"tdt_abc"}""", store.get("terraducktel.cred.prod"))
     }
 
@@ -93,6 +96,7 @@ class TokenManagerTest {
             assertEquals("""{"kind":"password","refresh_token":"r1"}""", store.get("terraducktel.cred.prod"))
             assertEquals("a@b", tm.claims()?.email)
             assertEquals("operator", tm.claims()?.role)
+            assertEquals("password", tm.kind())
             assertTrue(tm.isSignedIn())
         }
     }
@@ -120,13 +124,18 @@ class TokenManagerTest {
     }
 
     // 5. Concurrent getAccessToken() from 4 threads on a cold manager coalesces into exactly one
-    //    POST /auth/refresh (the refresh token rotates, so two redemptions would race).
+    //    POST /auth/refresh (the refresh token rotates, so two redemptions would race). A
+    //    CountDownLatch(4), counted down by each caller thread right before it calls
+    //    getAccessToken(), and awaited by the stub handler, proves all four are genuinely in
+    //    flight before the single refresh is allowed to answer — a fixed handler-side sleep would
+    //    let this pass merely because the calls happened to serialize quickly enough.
     @Test fun `concurrent getAccessToken from 4 threads makes exactly one refresh request`() {
         StubServer().use { srv ->
             val store = InMemorySecretStore()
             store.set("terraducktel.cred.prod", """{"kind":"password","refresh_token":"r1"}""")
+            val arrived = CountDownLatch(4)
             srv.on("POST", "/api/v1/auth/refresh") { _, ex ->
-                Thread.sleep(25)
+                arrived.await(5, TimeUnit.SECONDS)
                 StubServer.respond(ex, 200, """{"access_token":"${fakeJwt("role" to "viewer")}","refresh_token":"r2"}""")
             }
             val tm = TokenManager(store, "prod")
@@ -135,7 +144,12 @@ class TokenManagerTest {
 
             val pool = Executors.newFixedThreadPool(4)
             val results = try {
-                val futures = (1..4).map { pool.submit<String?> { tm.getAccessToken() } }
+                val futures = (1..4).map {
+                    pool.submit<String?> {
+                        arrived.countDown()
+                        tm.getAccessToken()
+                    }
+                }
                 futures.map { it.get(10, TimeUnit.SECONDS) }
             } finally { pool.shutdown() }
 
@@ -198,13 +212,19 @@ class TokenManagerTest {
     }
 
     // 8. A refresh that completes AFTER signOut() ran mid-flight must not resurrect the
-    //    credential: the rotated token belongs to a session that no longer exists.
+    //    credential: the rotated token belongs to a session that no longer exists. This is also
+    //    the regression test for the redeem() check-then-act race: the stub only answers once the
+    //    test has counted down `signedOut` — which it does right after `signOut()` returns — so
+    //    the server's response (and therefore redeem()'s post-refresh identity check) is
+    //    guaranteed to land after signOut() has already nulled the credential, deterministically,
+    //    instead of relying on a fixed sleep outracing signOut().
     @Test fun `a refresh landing after signOut does not resurrect the credential`() {
         StubServer().use { srv ->
             val store = InMemorySecretStore()
             store.set("terraducktel.cred.prod", """{"kind":"password","refresh_token":"r1"}""")
+            val signedOut = CountDownLatch(1)
             srv.on("POST", "/api/v1/auth/refresh") { _, ex ->
-                Thread.sleep(40)
+                signedOut.await(5, TimeUnit.SECONDS)
                 StubServer.respond(ex, 200, """{"access_token":"${fakeJwt("role" to "viewer")}","refresh_token":"r2"}""")
             }
             val tm = TokenManager(store, "prod")
@@ -214,14 +234,32 @@ class TokenManagerTest {
             val pool = Executors.newSingleThreadExecutor()
             try {
                 val inFlight = pool.submit<String?> { tm.refreshAccessToken() }
-                Thread.sleep(10)
                 tm.signOut()                                   // user signs out mid-redemption
+                signedOut.countDown()
                 assertNull(inFlight.get(10, TimeUnit.SECONDS))
             } finally { pool.shutdown() }
 
             assertFalse(tm.isSignedIn())
             assertNull(store.get("terraducktel.cred.prod"))    // "r2" was never written back
         }
+    }
+
+    // Regression companion for the same race, exercised via refreshAccessToken()'s IOException
+    // path rather than a 4xx/5xx ApiError: a client pointed at a closed local port never gets a
+    // response at all, so the transient failure must be rethrown with the credential untouched.
+    @Test fun `a transient IOException from refresh is rethrown and keeps the credential`() {
+        val store = InMemorySecretStore()
+        store.set("terraducktel.cred.prod", """{"kind":"password","refresh_token":"r1"}""")
+        val tm = TokenManager(store, "prod")
+        // Port 9 (discard) on loopback is never listening, so the OS refuses the connection
+        // almost instantly (ECONNREFUSED) — no need to actually wait out the connect timeout.
+        val client = TdtClient("http://127.0.0.1:9", "default", tm)
+        tm.attach(client)
+
+        assertThrows(IOException::class.java) { tm.refreshAccessToken() }
+
+        assertEquals("""{"kind":"password","refresh_token":"r1"}""", store.get("terraducktel.cred.prod"))
+        assertTrue(tm.isSignedIn())
     }
 
     // Extra: restores a stored credential on construction.
