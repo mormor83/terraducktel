@@ -78,7 +78,8 @@ class TelegramChat:
 
 
 def _esc(value) -> str:
-    """Escape one interpolated value for parse_mode=HTML.
+    """Escape one interpolated value for parse_mode=HTML. Safe to use both in
+    text content and inside a double-quoted HTML attribute (e.g. `href="..."`).
 
     `&` MUST be replaced first: doing `<` first would turn the `&` of the
     resulting `&lt;` into `&amp;lt;`, and Telegram would render the literal
@@ -89,6 +90,7 @@ def _esc(value) -> str:
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
+        .replace('"', "&quot;")
     )
 
 

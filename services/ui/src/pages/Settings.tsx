@@ -1636,6 +1636,28 @@ function SlackSection() {
 
 // ─── Telegram (bot token + chat) ───────────────────────────────────────────
 
+// FastAPI's own request validation (e.g. the token's `min_length=8` or the
+// chat id's `max_length=64` on `TelegramUpdate`) rejects a bad request BEFORE
+// the handler runs, so the 422 body's `detail` is a *list* of Pydantic error
+// objects, not a string. React cannot render an array of objects as a JSX
+// child and throws — with no ErrorBoundary in this app, that unmounts the
+// whole Settings root. Route every error through this before rendering it.
+// Module-scope (not just within TelegramSection) so SlackSection — which has
+// the identical latent bug — can adopt it in one line later.
+function errText(e: any, fallback: string): string {
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d: any) => (typeof d === "string" ? d : d?.msg))
+      .filter(Boolean);
+    if (msgs.length) return msgs.join("; ");
+  } else if (detail != null && typeof detail === "object") {
+    if (typeof detail.msg === "string") return detail.msg;
+  }
+  return e?.message ?? fallback;
+}
+
 type TelegramStatus = {
   configured: boolean;
   token_tail?: string | null;
@@ -1672,7 +1694,7 @@ function TelegramSection() {
       setChatInput(r.data?.chat_id ?? "");
       setError(null);
     } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e?.message ?? "Failed to load");
+      setError(errText(e, "Failed to load"));
     } finally {
       setLoading(false);
     }
@@ -1694,7 +1716,7 @@ function TelegramSection() {
       setEditing(false);
       await load();
     } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e?.message ?? "Save failed");
+      setError(errText(e, "Save failed"));
     } finally {
       setSubmitting(false);
     }
@@ -1709,7 +1731,7 @@ function TelegramSection() {
       await api.put("/v1/integrations/telegram", { chat_id: chatInput.trim() });
       await load();
     } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e?.message ?? "Save failed");
+      setError(errText(e, "Save failed"));
     } finally {
       setSubmitting(false);
     }
@@ -1725,7 +1747,7 @@ function TelegramSection() {
       setConfirmRemove(false);
       await load();
     } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e?.message ?? "Remove failed");
+      setError(errText(e, "Remove failed"));
     } finally {
       setSubmitting(false);
     }
@@ -1738,7 +1760,7 @@ function TelegramSection() {
       const r = await api.post("/v1/integrations/telegram/test");
       setTest(r.data);
     } catch (e: any) {
-      setTest({ ok: false, detail: e?.response?.data?.detail ?? e?.message ?? "Test failed" });
+      setTest({ ok: false, detail: errText(e, "Test failed") });
     } finally {
       setTesting(false);
     }
@@ -1751,7 +1773,7 @@ function TelegramSection() {
       const r = await api.post("/v1/integrations/telegram/test-message");
       setTest(r.data);
     } catch (e: any) {
-      setTest({ ok: false, detail: e?.response?.data?.detail ?? e?.message ?? "Send failed" });
+      setTest({ ok: false, detail: errText(e, "Send failed") });
     } finally {
       setSending(false);
     }
@@ -1881,7 +1903,13 @@ function TelegramSection() {
                 </Button>
               )}
               {status?.configured && (
-                <Button type="button" variant="ghost" onClick={() => setConfirmRemove(true)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="ml-auto text-red-500 hover:text-red-400"
+                  onClick={() => setConfirmRemove(true)}
+                  disabled={submitting}
+                >
                   Remove
                 </Button>
               )}

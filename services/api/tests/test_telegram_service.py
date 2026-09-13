@@ -65,6 +65,13 @@ def test_esc_handles_none_and_numbers():
     assert tg._esc(42) == "42"
 
 
+def test_esc_escapes_double_quote_for_attribute_safety():
+    # _esc is used inside `<a href="{_esc(link)}">` in notification_service.py;
+    # an unescaped `"` there would close the attribute early and let the rest
+    # of the value break out into the surrounding HTML.
+    assert tg._esc('say "hi"') == "say &quot;hi&quot;"
+
+
 # ─── getMe / getChat ─────────────────────────────────────────────────────────
 
 
