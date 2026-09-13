@@ -43,7 +43,11 @@ the same three auth modes — SSO (including the CLI's loopback hand-off),
 email + password, and API key — and pins the endpoints it calls in
 `services/vscode/api_contract.json`, guarded by
 `services/api/tests/test_vscode_api_contract.py` the same way the CLI's own
-contract file is guarded.
+contract file is guarded. The JetBrains plugin (`services/jetbrains/`, see
+[JETBRAINS](JETBRAINS.md)) is a third IDE client with the same feature set
+and auth modes, ported to Kotlin against the IntelliJ Platform; it pins its
+own endpoint list in `services/jetbrains/api_contract.json`, guarded the same
+way by `services/api/tests/test_jetbrains_api_contract.py`.
 
 ## 2. Service topology
 
