@@ -56,6 +56,15 @@ class ApprovalWatcher(
     private val pollLock = Any()
     private var inflight: CompletableFuture<Unit>? = null
 
+    /** Guards every seen-map read-modify-write (recordSilently, markSeen, doPoll's own update):
+     *  markSeen() is called from the run-console tail thread while the poll loop may be inside
+     *  doPoll() on its own thread, and an unsynchronised read -> mutate -> [SeenStore.set] from
+     *  either side can lose the other's write — dropping a markSeen() entry and re-announcing a
+     *  run this window already announced, which is the exact failure this class exists to
+     *  prevent. Never held across the getGraph fetch or the notify() call below — both can be
+     *  arbitrarily slow (network, a flaky UI callback) and neither touches the seen map. */
+    private val seenLock = Any()
+
     /** The current poll loop, if [start] has been called; cancelled by [stop]. Cancelling this Job
      *  is the Kotlin equivalent of the TS `loopEpoch` bump: a tick's blocking [poll] call keeps
      *  running to completion (it's not a suspension point), but once it returns, the loop's own
@@ -98,14 +107,16 @@ class ApprovalWatcher(
      *  actually landed. A store we could not persist to would otherwise let the very next poll
      *  treat the whole backlog as fresh; and a rejecting store must never throw out of [prime]. */
     private fun recordSilently(runs: List<Run>) {
-        val map = seenSnapshot().toMutableMap()
-        val t = now()
-        for (r in runs) map.putIfAbsent(r.id, t)
-        try {
-            seen.set(map)
-            primed = true
-        } catch (e: Exception) {
-            traceSafe("approvals prime seen.set failed: ${e.message ?: e}")
+        synchronized(seenLock) {
+            val map = seenSnapshot().toMutableMap()
+            val t = now()
+            for (r in runs) map.putIfAbsent(r.id, t)
+            try {
+                seen.set(map)
+                primed = true
+            } catch (e: Exception) {
+                traceSafe("approvals prime seen.set failed: ${e.message ?: e}")
+            }
         }
     }
 
@@ -113,12 +124,14 @@ class ApprovalWatcher(
      *  toast for runs started from this window; without this the poll loop would announce the very
      *  same run a second time. */
     fun markSeen(runId: String) {
-        val map = seenSnapshot().toMutableMap()
-        map[runId] = now()
-        try {
-            seen.set(map)
-        } catch (e: Exception) {
-            traceSafe("approvals markSeen failed: ${e.message ?: e}")
+        synchronized(seenLock) {
+            val map = seenSnapshot().toMutableMap()
+            map[runId] = now()
+            try {
+                seen.set(map)
+            } catch (e: Exception) {
+                traceSafe("approvals markSeen failed: ${e.message ?: e}")
+            }
         }
     }
 
@@ -156,36 +169,44 @@ class ApprovalWatcher(
             recordSilently(runs)
             return
         }
-        val before = seen.get()
-        val map = seenSnapshot().toMutableMap()
-        val fresh = runs.filter { it.id !in map }
-        val t = now()
-        for (r in fresh) map[r.id] = t
-        if (fresh.isNotEmpty() || map.size != before.size) {
-            // A rejecting persistence call must not stop the runs below from being notified, nor
-            // take down the poll loop that called us.
-            try {
-                seen.set(map)
-            } catch (e: Exception) {
-                traceSafe("approvals seen.set failed: ${e.message ?: e}")
+        val fresh: List<Run>
+        synchronized(seenLock) {
+            val before = seen.get()
+            val map = seenSnapshot().toMutableMap()
+            fresh = runs.filter { it.id !in map }
+            val t = now()
+            for (r in fresh) map[r.id] = t
+            if (fresh.isNotEmpty() || map.size != before.size) {
+                // A rejecting persistence call must not stop the runs below from being notified,
+                // nor take down the poll loop that called us.
+                try {
+                    seen.set(map)
+                } catch (e: Exception) {
+                    traceSafe("approvals seen.set failed: ${e.message ?: e}")
+                }
             }
         }
         val c = client()
         for (r in fresh) {
             var summary: GraphSummary? = null
             if (c != null) {
+                // Catches Throwable, not just Exception: an Error (e.g. the AssertionError
+                // IntelliJ's LOG.error throws in test/EAP builds) must not escape here either —
+                // this run is about to be marked seen either way, so letting an Error propagate
+                // would both skip the rest of the batch AND make this run never get announced.
                 try {
                     summary = c.getGraph(r.id).summary
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     summary = null
                     traceSafe("approvals getGraph failed: ${e.message ?: e}")
                 }
             }
-            // One run's notify() throwing (e.g. a flaky platform notification) must not swallow
-            // the rest of this batch — each run gets its own try/catch.
+            // One run's notify() throwing (e.g. a flaky platform notification, or an assertion
+            // firing in a test/EAP build) must not swallow the rest of this batch — each run gets
+            // its own try/catch, over Throwable for the same reason as getGraph above.
             try {
                 notify(ApprovalNotice(r, workspaceName(r.workspace_id), summary))
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 traceSafe("approvals notify failed: ${e.message ?: e}")
             }
         }

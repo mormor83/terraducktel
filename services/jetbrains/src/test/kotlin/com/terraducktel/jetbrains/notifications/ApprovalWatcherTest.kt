@@ -13,6 +13,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.serialization.encodeToString
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -33,6 +34,38 @@ private class FakeTokens : TokenProvider {
 private class MemSeenStore(initial: Map<String, Long> = emptyMap()) : SeenStore {
     @Volatile var value: Map<String, Long> = initial
     override fun get(): Map<String, Long> = value
+    override fun set(v: Map<String, Long>) {
+        value = v
+    }
+}
+
+/** A [SeenStore] whose [get] can be told to pause the *next* call made from a specific thread —
+ *  used to force a deterministic window, mid read-modify-write, in which a genuinely concurrent
+ *  writer (were the caller not holding [ApprovalWatcher]'s internal seen-map lock) could interleave
+ *  and clobber the other side's update. */
+private class GatedSeenStore(initial: Map<String, Long> = emptyMap()) : SeenStore {
+    @Volatile var value: Map<String, Long> = initial
+    @Volatile private var gateThread: Thread? = null
+    private val entered = CountDownLatch(1)
+    private val release = CountDownLatch(1)
+
+    fun pauseNextGetFrom(t: Thread) {
+        gateThread = t
+    }
+
+    fun awaitEntered(timeoutMs: Long = 5_000): Boolean = entered.await(timeoutMs, TimeUnit.MILLISECONDS)
+
+    fun release() = release.countDown()
+
+    override fun get(): Map<String, Long> {
+        if (Thread.currentThread() === gateThread) {
+            gateThread = null
+            entered.countDown()
+            assertTrue("release latch was never opened", release.await(5, TimeUnit.SECONDS))
+        }
+        return value
+    }
+
     override fun set(v: Map<String, Long>) {
         value = v
     }
@@ -197,6 +230,9 @@ class ApprovalWatcherTest {
             }
 
             assertEquals(1, max.get())
+            // Three concurrent polls that merely serialised (rather than genuinely joining the
+            // one in-flight request) would still leave max==1 but issue three requests.
+            assertEquals(1, srv.calls("GET", "/api/v1/runs").size)
             assertTrue(notices.isEmpty())
         }
     }
@@ -325,6 +361,7 @@ class ApprovalWatcherTest {
             w.poll() // resolves first — and must stay silent
             assertTrue(notices.isEmpty())
             priming.join(5_000)
+            assertFalse("prime() thread never finished", priming.isAlive)
             assertTrue(notices.isEmpty())
         }
     }
@@ -403,6 +440,55 @@ class ApprovalWatcherTest {
             Thread.sleep(20)
             assertEquals(0, srv.calls.size)
             w.dispose()
+        }
+    }
+
+    // --- concurrent markSeen() vs. the poll's own seen-map read-modify-write ------------------
+
+    @Test
+    fun `markSeen() from another thread cannot lose its write to a concurrent poll's seen-map update`() {
+        StubServer().use { srv ->
+            var awaiting = listOf<Run>()
+            srv.on("GET", "/api/v1/runs") { _, ex -> StubServer.respond(ex, 200, TdtJson.encodeToString(awaiting)) }
+            srv.json("GET", "/api/v1/runs/rOther/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            val seen = GatedSeenStore()
+            val notices = mutableListOf<ApprovalNotice>()
+            val w = mk(client(srv.url), seen) { notices += it }
+            w.prime() // primed on an empty backlog, before rOther exists and before the gate is armed
+            awaiting = listOf(run("rOther"))
+
+            val pollThread = Thread { w.poll() }
+            seen.pauseNextGetFrom(pollThread)
+            pollThread.start()
+            // Poll is now parked inside doPoll()'s synchronized seen-map section — holding the
+            // lock, if the fix is in place — on its very first `seen.get()`.
+            assertTrue("poll never reached the gated seen.get()", seen.awaitEntered())
+
+            val markSeenDone = AtomicBoolean(false)
+            val markSeenThread = Thread {
+                w.markSeen("rX")
+                markSeenDone.set(true)
+            }
+            markSeenThread.start()
+            // Give markSeen() a real chance to run to completion if it weren't blocked on the
+            // watcher's seen-map lock — this is the window in which the unsynchronised version of
+            // doPoll()/markSeen() could interleave and clobber each other's write.
+            Thread.sleep(150)
+            assertFalse("markSeen() must not proceed while poll holds the seen-map lock", markSeenDone.get())
+            assertFalse("markSeen()'s write must not land before poll's section releases the lock", seen.value.containsKey("rX"))
+
+            seen.release() // let poll's paused read return; poll finishes its own read-modify-write
+            pollThread.join(5_000)
+            assertFalse("poll thread never finished", pollThread.isAlive)
+            markSeenThread.join(5_000)
+            assertFalse("markSeen thread never finished", markSeenThread.isAlive)
+
+            // Both operations landed without clobbering each other: poll's own run was fresh at
+            // the time it read the seen map (nobody had marked it) and was correctly notified;
+            // markSeen()'s entry for the unrelated run was not lost to poll's overwrite.
+            assertEquals(listOf("rOther"), notices.map { it.run.id })
+            assertTrue(seen.value.containsKey("rOther"))
+            assertTrue(seen.value.containsKey("rX"))
         }
     }
 }

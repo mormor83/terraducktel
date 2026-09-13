@@ -1,6 +1,7 @@
 package com.terraducktel.jetbrains.notifications
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
@@ -83,6 +84,7 @@ class RearmTest {
         key.set(null) // sign-out races the still-in-flight prime
         release.countDown()
         p1.join(5_000)
+        assertFalse("p1 thread never finished", p1.isAlive)
 
         assertEquals(listOf("stop", "prime"), calls) // must NOT have start()ed with a signed-out session
     }
@@ -115,11 +117,13 @@ class RearmTest {
         val p2 = Thread { rearm.invoke() } // seq=2: primes for "b:default" (different key), runs to completion
         p2.start()
         p2.join(5_000)
+        assertFalse("p2 thread never finished", p2.isAlive)
 
         assertEquals(listOf("stop", "prime:a:default", "stop", "prime:b:default", "start:b:default"), calls)
 
         release.countDown()
         p1.join(5_000) // p1 finally resolves, but must not start() again — it was superseded
+        assertFalse("p1 thread never finished", p1.isAlive)
         assertEquals(listOf("stop", "prime:a:default", "stop", "prime:b:default", "start:b:default"), calls)
     }
 }
