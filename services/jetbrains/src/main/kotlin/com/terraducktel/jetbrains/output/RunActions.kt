@@ -26,8 +26,8 @@ object RunActions {
      *  itself — see [announceAwaiting]. */
     var onAwaitingHook: ((Run) -> Unit)? = null
 
-    /** Wired by Task 11; until then "Show plan"/"Approve…" on the awaiting-approval balloon are
-     *  no-ops. */
+    /** Wired by [com.terraducktel.jetbrains.session.TdtSessionStarter] to [PlanDocument.open] /
+     *  [Approvals.approve] — the awaiting-approval balloon's "Show plan"/"Approve…" actions. */
     var showPlanHook: ((Project, Run) -> Unit)? = null
     var approveHook: ((Project, Run) -> Unit)? = null
 

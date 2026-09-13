@@ -2,6 +2,9 @@ package com.terraducktel.jetbrains.session
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import com.terraducktel.jetbrains.output.Approvals
+import com.terraducktel.jetbrains.output.PlanDocument
+import com.terraducktel.jetbrains.output.RunActions
 
 /**
  * Touches [TdtSession] once per IDE run so its application-level light service is actually
@@ -9,9 +12,16 @@ import com.intellij.openapi.startup.ProjectActivity
  * startup), which in turn runs its `init` block's initial background [TdtSession.reload]. Without
  * this, `profile` stays null until some action happens to call [TdtSession.getInstance] first —
  * e.g. "Sign In…" would wrongly report "no profile configured" even when one is.
+ *
+ * Also wires [RunActions.showPlanHook]/[RunActions.approveHook] (Task 11) — the awaiting-approval
+ * balloon's "Show plan"/"Approve…" actions — here rather than in some `object`'s lazy initializer,
+ * so they're guaranteed set once per IDE session before any balloon can appear, regardless of
+ * which class happens to load first.
  */
 class TdtSessionStarter : ProjectActivity {
     override suspend fun execute(project: Project) {
         TdtSession.getInstance()
+        RunActions.showPlanHook = { p, r -> PlanDocument.open(p, r.id, RunActions.wsName(r)) }
+        RunActions.approveHook = { p, r -> Approvals.approve(p, r) }
     }
 }

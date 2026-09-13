@@ -25,6 +25,10 @@
     <action id="Terraducktel.OpenInBrowser" class="com.terraducktel.jetbrains.actions.workspace.OpenInBrowserAction" text="Open in Browser"/>
     <action id="Terraducktel.CopyId" class="com.terraducktel.jetbrains.actions.workspace.CopyIdAction" text="Copy Id"/>
     <action id="Terraducktel.WatchRun" class="com.terraducktel.jetbrains.actions.run.WatchRunAction" text="Watch Run…" description="Watch a run's live output"/>
+    <action id="Terraducktel.ShowPlan" class="com.terraducktel.jetbrains.actions.run.ShowPlanAction" text="Show Plan" description="Open the run's plan output"/>
+    <action id="Terraducktel.Approve" class="com.terraducktel.jetbrains.actions.run.ApproveAction" text="Approve…" description="Approve a run awaiting approval"/>
+    <action id="Terraducktel.Reject" class="com.terraducktel.jetbrains.actions.run.RejectAction" text="Reject…" description="Reject a run awaiting approval"/>
+    <action id="Terraducktel.CancelRun" class="com.terraducktel.jetbrains.actions.run.CancelRunAction" text="Cancel Run" description="Request cancellation of a run"/>
     <group id="Terraducktel.Toolbar">
       <action id="Terraducktel.SignIn" class="com.terraducktel.jetbrains.actions.auth.SignInAction" text="Sign In…" icon="AllIcons.Actions.Execute"/>
       <action id="Terraducktel.SignOut" class="com.terraducktel.jetbrains.actions.auth.SignOutAction" text="Sign Out"/>
@@ -43,8 +47,7 @@
       <reference ref="Terraducktel.WatchRun"/>
     </group>
     <!-- Installed as the Workspaces/Runs trees' context menus by
-         TreePanel/WorkspacesPanel/RunsPanel. Task 11 prepends Show Plan / Approve… / Reject… /
-         Cancel Run to Terraducktel.RunMenu. -->
+         TreePanel/WorkspacesPanel/RunsPanel. -->
     <group id="Terraducktel.WorkspaceMenu" popup="true">
       <reference ref="Terraducktel.Plan"/>
       <reference ref="Terraducktel.Apply"/>
@@ -57,6 +60,11 @@
       <reference ref="Terraducktel.CopyId"/>
     </group>
     <group id="Terraducktel.RunMenu" popup="true">
+      <reference ref="Terraducktel.ShowPlan"/>
+      <reference ref="Terraducktel.Approve"/>
+      <reference ref="Terraducktel.Reject"/>
+      <reference ref="Terraducktel.CancelRun"/>
+      <separator/>
       <reference ref="Terraducktel.WatchRun"/>
       <reference ref="Terraducktel.OpenInBrowser"/>
       <reference ref="Terraducktel.CopyId"/>
