@@ -417,6 +417,83 @@ run_opa_policy_check() {
   return 0
 }
 
+# Cost Estimation. Best-effort: never fails the run, only marks the step
+# `skipped` with a reason.
+#
+# We use `infracost diff`, NOT `breakdown`. breakdown prices the resource set
+# the plan would leave behind — i.e. the whole workspace's monthly bill — which
+# is not the question an approver is asking. Worse, a destroy plan's post-state
+# is empty, so breakdown reported ~$0/mo and the approval screen read "this
+# change is free" when the truth was "this frees up $X/mo". diff reads the
+# before/after values already present in plan.json and reports past, planned
+# and delta, so plan / apply / destroy all surface a signed number.
+cost_estimate() {
+  step "Cost Estimation" running ""
+
+  if ! command -v infracost >/dev/null 2>&1; then
+    step "Cost Estimation" skipped "infracost CLI not installed in executor image"
+    return 0
+  fi
+  if [[ -z "${INFRACOST_API_KEY:-}" ]]; then
+    step "Cost Estimation" skipped "infracost not configured (set INFRACOST_API_KEY to enable)"
+    return 0
+  fi
+
+  export INFRACOST_API_KEY
+  export INFRACOST_CURRENCY="${INFRACOST_CURRENCY:-USD}"
+
+  # plan.json carries each change's before/after, which is all diff needs — no
+  # --compare-to baseline and no second plan run. Falling back to `.` re-parses
+  # the HCL, which loses the prior state, so the delta there is whole-workspace.
+  local cost_out cost_txt
+  if [[ -s /tmp/plan.json ]]; then
+    cost_out=$(infracost diff --path /tmp/plan.json --format json 2>/tmp/infracost.err) || {
+      step "Cost Estimation" skipped "infracost failed: $(tail -c 600 /tmp/infracost.err)"
+      return 0
+    }
+  else
+    cost_out=$(infracost diff --path . --format json 2>/tmp/infracost.err) || {
+      step "Cost Estimation" skipped "infracost failed: $(tail -c 600 /tmp/infracost.err)"
+      return 0
+    }
+  fi
+
+  # Render past → planned → delta into `output` for the timeline panel; keep the
+  # raw JSON in summary_json for the UI cards and cost trending later on.
+  cost_txt=$(printf '%s' "$cost_out" | jq -r --arg cur "${INFRACOST_CURRENCY}" '
+    def num: if . == null or . == "" then 0 else tonumber end;
+    # Fixed 2dp. jq has no printf, so carry cents as an int and pad by hand —
+    # tostring alone renders 412.50 as "412.5", which reads wrong for money.
+    def money:
+      (if . < 0 then -. else . end) * 100 | round
+      | "$\(. / 100 | floor).\(. % 100 | if . < 10 then "0\(.)" else "\(.)" end)";
+    def signed: if . > 0 then "+" + money elif . < 0 then "-" + money else money end;
+
+    (.pastTotalMonthlyCost | num) as $past
+    | (.totalMonthlyCost   | num) as $new
+    | (.diffTotalMonthlyCost | num) as $delta
+    | (
+        "Monthly cost (\($cur))\n"
+        + "  before:  \($past | money)\n"
+        + "  after:   \($new  | money)\n"
+        + "  change:  \($delta | signed)"
+        + (if $delta == 0 then "  (no change)" else "" end)
+        + "\n"
+      )
+    + (
+        [ .projects[]?.diff.resources[]?
+          | select((.monthlyCost | num) != 0)
+          | "  • \(.name)  →  \(.monthlyCost | num | signed)/mo"
+        ]
+        | if length == 0 then "" else "\nPer-resource change:\n" + join("\n") end
+      )
+  ' 2>/dev/null) || cost_txt="infracost ran"
+  [[ -z "$cost_txt" ]] && cost_txt="infracost ran (no resources priced)"
+
+  step "Cost Estimation" success "$cost_txt" "$cost_out"
+  return 0
+}
+
 # If a GitHub PAT was passed through, rewrite any github.com HTTPS URL to
 # include the token so private terraform modules (`module "x" { source =
 # "git::https://github.com/org/repo.git" }`) can be cloned during init. The
@@ -1208,40 +1285,10 @@ case "${TF_COMMAND}" in
       sleep $((i * 2))
     done
 
-    # Cost Estimation runs after plan but before pausing for approval.
-    # We feed infracost the plan.json we already produced — that's exact (uses
-    # the resource set Terraform actually planned) and avoids re-running plan.
-    step "Cost Estimation" running ""
-    if ! command -v infracost >/dev/null 2>&1; then
-      step "Cost Estimation" skipped "infracost CLI not installed in executor image"
-    elif [[ -z "${INFRACOST_API_KEY:-}" ]]; then
-      step "Cost Estimation" skipped "infracost not configured (set INFRACOST_API_KEY to enable)"
-    else
-      export INFRACOST_API_KEY
-      export INFRACOST_CURRENCY="${INFRACOST_CURRENCY:-USD}"
-      if [[ -s /tmp/plan.json ]]; then
-        COST_OUT=$(infracost breakdown --path /tmp/plan.json --format json 2>/tmp/infracost.err) && COST_OK=1 || COST_OK=0
-      else
-        COST_OUT=$(infracost breakdown --path . --format json 2>/tmp/infracost.err) && COST_OK=1 || COST_OK=0
-      fi
-      if [[ "$COST_OK" == "1" ]]; then
-        # Render a human-readable summary into `output` (totals + per-resource
-        # diff) so the timeline panel surfaces actual numbers; keep the full
-        # JSON in summary_json for downstream tools / future UI cards.
-        COST_TXT=$(printf '%s' "$COST_OUT" | jq -r --arg cur "${INFRACOST_CURRENCY}" '
-          def fmt: if . == null then "0.00" else (tonumber|. * 100|round/100|tostring) end;
-          ( .totalMonthlyCost // "0" | fmt ) as $tot
-          | ( .totalHourlyCost  // "0" | fmt ) as $hr
-          | "Estimated cost (\($cur)):  $\($tot)/month   (~$\($hr)/hour)\n\n"
-          + ( [ .projects[]?.breakdown.resources[]? |
-                "  • \(.name)  →  $\((.monthlyCost // "0") | fmt)/mo" ] | join("\n") )
-        ' 2>/dev/null) || COST_TXT="infracost ran"
-        [[ -z "$COST_TXT" ]] && COST_TXT="infracost ran (no resources priced)"
-        step "Cost Estimation" success "$COST_TXT" "$COST_OUT"
-      else
-        step "Cost Estimation" skipped "infracost failed: $(tail -c 600 /tmp/infracost.err)"
-      fi
-    fi
+    # Cost Estimation runs after plan but before pausing for approval, so the
+    # approver sees the cost delta next to the plan they are approving. Fed from
+    # the plan.json we already produced — no second plan run.
+    cost_estimate
 
     # Mark "Awaiting Approval" running so the timeline shows the pause clearly.
     step "Awaiting Approval" running "Plan complete — waiting for an approver. Use the ✓ Approve / ✗ Reject buttons on the run row (4-eyes: a different user must approve)."
@@ -1260,31 +1307,5 @@ case "${TF_COMMAND}" in
 esac
 
 # 11. Cost Estimation (best-effort; skipped without an Infracost token).
-step "Cost Estimation" running ""
-if ! command -v infracost >/dev/null 2>&1; then
-  step "Cost Estimation" skipped "infracost CLI not installed in executor image"
-elif [[ -z "${INFRACOST_API_KEY:-}" ]]; then
-  step "Cost Estimation" skipped "infracost not configured (set INFRACOST_API_KEY to enable)"
-else
-  export INFRACOST_API_KEY
-  export INFRACOST_CURRENCY="${INFRACOST_CURRENCY:-USD}"
-  if [[ -s /tmp/plan.json ]]; then
-    COST_OUT=$(infracost breakdown --path /tmp/plan.json --format json 2>/tmp/infracost.err) && COST_OK=1 || COST_OK=0
-  else
-    COST_OUT=$(infracost breakdown --path . --format json 2>/tmp/infracost.err) && COST_OK=1 || COST_OK=0
-  fi
-  if [[ "$COST_OK" == "1" ]]; then
-    COST_TXT=$(printf '%s' "$COST_OUT" | jq -r --arg cur "${INFRACOST_CURRENCY}" '
-      def fmt: if . == null then "0.00" else (tonumber|. * 100|round/100|tostring) end;
-      ( .totalMonthlyCost // "0" | fmt ) as $tot
-      | ( .totalHourlyCost  // "0" | fmt ) as $hr
-      | "Estimated cost (\($cur)):  $\($tot)/month   (~$\($hr)/hour)\n\n"
-      + ( [ .projects[]?.breakdown.resources[]? |
-            "  • \(.name)  →  $\((.monthlyCost // "0") | fmt)/mo" ] | join("\n") )
-    ' 2>/dev/null) || COST_TXT="infracost ran"
-    [[ -z "$COST_TXT" ]] && COST_TXT="infracost ran (no resources priced)"
-    step "Cost Estimation" success "$COST_TXT" "$COST_OUT"
-  else
-    step "Cost Estimation" skipped "infracost failed: $(tail -c 600 /tmp/infracost.err)"
-  fi
-fi
+#     See cost_estimate() — reports the before/after/delta, not a bare total.
+cost_estimate
