@@ -307,14 +307,30 @@ async def _reap_stale(session_factory: async_sessionmaker) -> int:
                     run.transition(RunStatus.FAILED)
                 except ValueError:
                     pass
+                # Say only what we actually know: the heartbeat went stale.
+                # The old DONE-branch wording ("executor died before
+                # reporting any step status") was a guess, and a wrong one
+                # whenever the executor had already streamed steps and then
+                # exited mid-run — which is exactly what a crashing executor
+                # looks like. It sent at least one investigation hunting for
+                # a network fault instead of reading the executor's own logs.
                 reason_kind = (
-                    "no heartbeats from worker"
+                    "the worker never finished handing the job to an executor"
                     if job.state == RunJobState.PICKED
-                    else "executor died before reporting any step status"
+                    else (
+                        "the executor stopped sending heartbeats — it exited or "
+                        "was killed; read that run's executor container/task log"
+                    )
                 )
+                last_beat = ""
+                if job.heartbeat_at is not None:
+                    beat = job.heartbeat_at
+                    if beat.tzinfo is None:
+                        beat = beat.replace(tzinfo=timezone.utc)
+                    last_beat = f" (last heartbeat {int((_now() - beat).total_seconds())}s ago)"
                 run.error_output = (
-                    f"Run reaped after {int(stale_after)}s — {reason_kind} "
-                    f"({job.picked_by!r})."
+                    f"Run reaped after {int(stale_after)}s without a heartbeat"
+                    f"{last_beat} — {reason_kind}. Worker: {job.picked_by!r}."
                 )
                 # Best-effort: release the advisory lock on the workspace's
                 # state. The advisory-lock key is the workspace_id hashed to

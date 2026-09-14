@@ -227,7 +227,8 @@ async def test_reap_stale_fails_old_picked_jobs(db_session):
     await db_session.refresh(run)
     await db_session.refresh(job)
     assert run.status == RunStatus.FAILED
-    assert "no heartbeat" in (run.error_output or "")
+    assert "without a heartbeat" in (run.error_output or "")
+    assert "never finished handing the job to an executor" in (run.error_output or "")
     assert job.state == RunJobState.FAILED
 
 
@@ -274,7 +275,10 @@ async def test_reap_stale_reaps_done_job_with_non_terminal_run(db_session):
     await db_session.refresh(run)
     await db_session.refresh(job)
     assert run.status == RunStatus.FAILED
-    assert "executor died" in (run.error_output or "")
+    # The DONE branch must point the reader at the executor's own log —
+    # this reason is the only breadcrumb a stuck run leaves behind.
+    assert "stopped sending heartbeats" in (run.error_output or "")
+    assert "executor container/task log" in (run.error_output or "")
     assert job.state == RunJobState.FAILED
 
 
