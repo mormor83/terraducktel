@@ -62,7 +62,12 @@ async def lifespan(app: FastAPI):
     from app.auth.internal_token import _expected_internal_token, _expected_token
     from app.db import AsyncSessionLocal
     from app.services.repo_sync import repo_sync_loop
-    from app.services.run_worker import gauges_loop, reaper_loop, worker_loop
+    from app.services.run_worker import (
+        drift_retention_loop,
+        gauges_loop,
+        reaper_loop,
+        worker_loop,
+    )
 
     try:
         _expected_token()
@@ -84,7 +89,12 @@ async def lifespan(app: FastAPI):
     # dashboard can flag rows whose source folder was deleted/renamed in
     # the repo. Same in-process pattern as the run worker.
     sync_task = asyncio.create_task(repo_sync_loop(AsyncSessionLocal), name="repo-sync")
-    tasks = (worker_task, reaper_task, gauges_task, sync_task)
+    # Hourly drift_reports pruner — keeps the newest N reports per workspace
+    # (runtime-config dials `drift.retention_*`). Same in-process pattern.
+    retention_task = asyncio.create_task(
+        drift_retention_loop(AsyncSessionLocal), name="drift-retention"
+    )
+    tasks = (worker_task, reaper_task, gauges_task, sync_task, retention_task)
     try:
         yield
     finally:
