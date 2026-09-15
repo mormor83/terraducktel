@@ -102,8 +102,14 @@ services:
       # liveness-detector ONLY — deliberately absent from the executor's env
       # below, since an executor runs a workspace's own Terraform/Helm code.
       TERRADUCKTEL_INTERNAL_TOKEN: ${TERRADUCKTEL_INTERNAL_TOKEN}
-      S3_USE_LOCALSTACK: "true"
-      S3_STATE_BUCKET: terraducktel-state
+      # Fallback state bucket (non-AWS workspaces). Default = LocalStack for
+      # dev. Set S3_USE_LOCALSTACK=false + S3_ENDPOINT_URL + S3_STATE_* in
+      # .env to use any S3-compatible store (see deploy/docker-compose.external-db.yml).
+      S3_USE_LOCALSTACK: ${S3_USE_LOCALSTACK:-true}
+      S3_STATE_BUCKET: ${S3_STATE_BUCKET:-terraducktel-state}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_STATE_ACCESS_KEY_ID: ${S3_STATE_ACCESS_KEY_ID:-}
+      S3_STATE_SECRET_ACCESS_KEY: ${S3_STATE_SECRET_ACCESS_KEY:-}
       EXECUTOR_ENABLED: "true"
       # 4-eyes approval is now branch-scoped: enforced for runs on `dev`, off
       # elsewhere. The legacy TERRADUCKTEL_FOUR_EYES env var was removed in 012.

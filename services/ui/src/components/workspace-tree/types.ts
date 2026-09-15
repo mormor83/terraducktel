@@ -33,6 +33,11 @@ export type Workspace = {
   // authenticates. Drives top-level grouping (a GCP project gets its own group,
   // like an AWS account / Azure subscription).
   gcp_project_id?: string | null;
+  // Proxmox cluster this workspace deploys into. When set, the executor
+  // exports the cluster's API token for both bpg/proxmox and Telmate/proxmox.
+  // Drives top-level grouping (a cluster gets its own group; the Proxmox
+  // node name plays the "region" role).
+  proxmox_cluster_id?: string | null;
   // Where Terraform state is stored: "s3" (default), "azureblob", or "gcs".
   state_backend?: string;
   // Workspace kind. "terraform" (default) drives the existing plan/apply
@@ -79,6 +84,14 @@ export type GcpProjectLite = {
   // The GCP project id (what the `gcp/project-<id>/` repo path encodes — used
   // to match path-detected workspaces to a registration).
   project_id: string;
+  name: string;
+};
+
+export type ProxmoxClusterLite = {
+  // TDT primary key (what `workspace.proxmox_cluster_id` stores).
+  id: string;
+  // Operator-chosen slug (what the `proxmox/cluster-<slug>/` repo path encodes).
+  slug: string;
   name: string;
 };
 

@@ -51,6 +51,12 @@ class Workspace(Base):
     gcp_project_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("gcp_projects.id", ondelete="SET NULL"), nullable=True
     )
+    # Optional Proxmox cluster FK. When set, the executor exports the cluster's
+    # API token in both bpg/proxmox and Telmate/proxmox env-var vocabularies.
+    # Proxmox has no object store, so state_backend stays "s3" for these rows.
+    proxmox_cluster_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("proxmox_clusters.id", ondelete="SET NULL"), nullable=True
+    )
     # Which object store holds this workspace's Terraform state:
     #   "s3"        → AWS S3 (default; resolved via aws_account_id, unchanged)
     #   "azureblob" → the linked azure_subscription's Blob container

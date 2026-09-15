@@ -10,12 +10,13 @@ import { TagChip, TagList } from "../TagChip";
 import { useTagFilter } from "./tagFilter";
 import { RunModal } from "../RunModal";
 import { FileIcon, HelmChip } from "./icons";
-import { azureInfo, gcpInfo } from "./paths";
+import { azureInfo, gcpInfo, proxmoxInfo } from "./paths";
 import { BranchStatusChip, InlineLinkEditor, TreeRow } from "./primitives";
 import type {
   AwsAccountLite,
   AzureSubscriptionLite,
   GcpProjectLite,
+  ProxmoxClusterLite,
   Run,
   Workspace,
 } from "./types";
@@ -52,6 +53,7 @@ export function WorkspaceLeafRow({
   awsAccounts,
   azureSubscriptions,
   gcpProjects,
+  proxmoxClusters,
 }: {
   workspace: Workspace;
   displayName: string;
@@ -61,6 +63,7 @@ export function WorkspaceLeafRow({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
 }) {
   const user = useCurrentUser();
   const { onTagClick, activeTag } = useTagFilter();
@@ -95,6 +98,11 @@ export function WorkspaceLeafRow({
   const linkedGcpProject = gcpProjects.find(
     (p) => p.id === workspace.gcp_project_id,
   );
+  // Proxmox mirror: auto-derived from the proxmox/cluster-<slug>/ path or the
+  // explicit proxmox_cluster_id link. Read-only in the row. No state-backend
+  // option is added — Proxmox has no object store, state stays in S3.
+  const isProxmox = !!workspace.proxmox_cluster_id || !!proxmoxInfo(workspace);
+  const linkedProxmox = proxmoxClusters.find((c) => c.id === workspace.proxmox_cluster_id);
 
   // State backend is constrained by which cloud the workspace is linked to: s3
   // always works; azureblob/gcs need a linked Azure subscription / GCP project.
@@ -465,6 +473,20 @@ export function WorkspaceLeafRow({
                           : workspace.gcp_project_id
                             ? workspace.gcp_project_id
                             : "(auto-derived from path)"}
+                      </span>
+                    </MetaRow>
+                  )}
+                  {isProxmox && (
+                    <MetaRow
+                      label="proxmox cluster"
+                      title="Auto-derived from the workspace path (proxmox/cluster-<slug>/<node>/…); injects the cluster's API token for the bpg/proxmox and Telmate/proxmox providers."
+                    >
+                      <span className="font-mono text-[11px]">
+                        {linkedProxmox
+                          ? `${linkedProxmox.name} (cluster-${linkedProxmox.slug})`
+                          : workspace.proxmox_cluster_id
+                            ? workspace.proxmox_cluster_id
+                            : "(auto-derived from path — cluster not registered)"}
                       </span>
                     </MetaRow>
                   )}

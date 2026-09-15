@@ -20,20 +20,27 @@ class S3StateService:
         region: str = "us-east-1",
         access_key_id: Optional[str] = None,
         secret_access_key: Optional[str] = None,
+        endpoint_url: Optional[str] = None,
     ):
         """If access_key_id/secret_access_key are provided, the client uses them
         explicitly (one set of creds per AWS account, never inherited from the
-        ambient environment). Otherwise boto3 falls back to its default chain —
-        useful for LocalStack and tests.
+        ambient environment). Otherwise boto3 falls back to its default chain.
+
+        ``endpoint_url`` points the client at any S3-compatible store (Garage,
+        MinIO, Ceph RGW…). ``use_localstack`` is sugar for the compose
+        LocalStack endpoint and is ignored when ``endpoint_url`` is given.
+        Custom endpoints always use path-style addressing — virtual-host
+        style would need a wildcard DNS entry per bucket.
         """
         self.bucket = bucket
         kwargs: dict = {"region_name": region}
         if access_key_id and secret_access_key:
             kwargs["aws_access_key_id"] = access_key_id
             kwargs["aws_secret_access_key"] = secret_access_key
-        if use_localstack:
+        endpoint = endpoint_url or ("http://localstack:4566" if use_localstack else None)
+        if endpoint:
             from botocore.config import Config
-            kwargs["endpoint_url"] = "http://localstack:4566"
+            kwargs["endpoint_url"] = endpoint
             kwargs["config"] = Config(s3={"addressing_style": "path"})
         self._client = boto3.client("s3", **kwargs)
 

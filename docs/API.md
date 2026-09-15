@@ -352,7 +352,46 @@ structurally (must be a `service_account` key) and its embedded `project_id`
 must match — mismatch → **422**. `project_id` is unique per BU — duplicate → **409**.
 Set `state_bucket` to enable **GCS** as a Terraform state backend for workspaces
 flagged `state_backend=gcs`. Workspaces at `gcp/project-<id>/<region>/<stack>`
-auto-link to the matching project on import.
+auto-link to the matching project on import. Proxmox workspaces similarly auto-link
+when at `proxmox/cluster-<slug>/<node>/<stack>`; discovery stamps `aws_account_id="global"`
+and `region="global"` like other non-AWS paths, and the UI reads the node from the path;
+`state_backend` stays `s3`.
+
+---
+
+## Proxmox VE Clusters — `/api/v1/proxmox-clusters`
+
+Encrypted-at-rest Proxmox VE API tokens, mirroring the other providers.
+Workspaces that target `bpg/proxmox` or `Telmate/proxmox` link one of these;
+the executor exports both providers' env-var vocabularies from the one token.
+
+| Method | Path | Description | Min role | BU |
+|---|---|---|---|---|
+| GET | `/proxmox-clusters` | List clusters (secret + SSH key never returned; masked tail shown). | viewer | BU-scoped |
+| POST | `/proxmox-clusters` | Add a cluster (API token + optional SSH private key stored encrypted). | admin | BU-scoped |
+| PUT | `/proxmox-clusters/{cluster_pk}` | Update fields, rotate the token secret, set/clear SSH key, TLS flag, CA PEM. | admin | — |
+| DELETE | `/proxmox-clusters/{cluster_pk}` | Delete; linked workspaces are unlinked (FK SET NULL). | admin | — |
+| POST | `/proxmox-clusters/{cluster_pk}/test` | Test connection: GET the Proxmox `/api2/json/version` endpoint with the stored token; honours `tls_insecure` / `ca_cert_pem`. Returns `{ok, detail, version?}`. | admin | — |
+
+**POST /proxmox-clusters** body: `{slug, name, description?, endpoint,
+api_token_id, api_token_secret, ssh_username?, ssh_private_key?,
+tls_insecure?, ca_cert_pem?, color?}`. `slug` matches
+`^[a-z][a-z0-9-]{1,38}[a-z0-9]$` and is unique per BU (**409** on duplicate).
+`endpoint` must be `https://` (trailing `/api2/json` is stripped).
+`api_token_id` is `user@realm!tokenid`; an `=` in it is rejected (**422**) so a
+pasted `id=secret` pair never lands in a plaintext column. `ssh_private_key`
+requires `ssh_username`. Responses carry `token_secret_masked_tail` and
+`has_ssh_key` in place of the secrets. Workspaces at
+`proxmox/cluster-<slug>/<node>/<stack>` auto-link to the matching cluster on
+import; `state_backend` stays `s3`.
+
+**POST .../test** decrypts the stored token in memory and probes the Proxmox
+version endpoint, and always returns `{ok, detail?, version?}` —
+never raises even on network/auth failures. The response includes the version
+string on success.
+
+**Secrets:** Responses never include `api_token_secret` or `ssh_private_key` —
+only `token_secret_masked_tail` (e.g. `…5555`) and `has_ssh_key: true|false`.
 
 ---
 
@@ -397,7 +436,8 @@ state is stored. `azureblob` requires a linked `azure_subscription_id` whose
 `state_storage_account`/`state_container` are set; `gcs` requires a linked
 `gcp_project_id` whose `state_bucket` is set — create/update **422** otherwise.
 `gcp_project_id` links the workspace to a GCP project (google provider), the
-mirror of `azure_subscription_id`.
+mirror of `azure_subscription_id`. `proxmox_cluster_id` links the workspace to
+a registered Proxmox cluster (same-BU required); state stays `s3` for these.
 
 `tags` is a free-form key/value map (`{"team": "payments", "tier": "prod"}`).
 Keys are lowercased on write — `Team` and `team` are the same tag — while values
@@ -412,7 +452,7 @@ object, never `null`.
 | POST | `/workspaces/tags` | Bulk set/unset tags across many workspaces. | operator | BU-scoped |
 | GET | `/workspaces/{id}` | Get a single workspace. | viewer | BU-scoped |
 | POST | `/workspaces` | Create a workspace (manual). | admin | BU-scoped |
-| PUT | `/workspaces/{id}` | Update workspace (branch override, drift settings, `state_aws_account_id`, `azure_subscription_id`, `gcp_project_id`, `state_backend`, …). | admin-tier key or interactive operator+ | BU-scoped |
+| PUT | `/workspaces/{id}` | Update workspace (branch override, drift settings, `state_aws_account_id`, `azure_subscription_id`, `gcp_project_id`, `proxmox_cluster_id`, `state_backend`, …). | admin-tier key or interactive operator+ | BU-scoped |
 | POST | `/workspaces/discover` | Enumerate importable paths in a Git repo or local mount. | admin | BU-scoped |
 | POST | `/workspaces/import` | Bulk-import workspaces from a discovery result. | admin | BU-scoped |
 | GET | `/workspaces/{id}/branches` | List GitHub branches for the workspace's repo (falls back to free text if no token / non-GitHub remote). | viewer | BU-scoped |
