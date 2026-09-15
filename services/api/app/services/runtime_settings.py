@@ -31,6 +31,14 @@ DEFAULTS: dict[str, int | float] = {
     "worker.reaper_interval_seconds": 30.0,
     # Detectors (also read by the standalone detector containers via the API).
     "drift.interval_seconds": 300,
+    # drift_reports retention (run_worker.drift_retention_loop). Every scan
+    # inserts one row per workspace and nothing ever read history: the only
+    # consumer wants the newest row per workspace. Unbounded, prod reached
+    # 1.08M rows / 121 GB by 2026-09-15 (≈1 GB/day). Keep the newest N per
+    # workspace; delete the rest in batches so one sweep can't lock the table.
+    "drift.retention_per_workspace": 3,
+    "drift.retention_interval_seconds": 3600,
+    "drift.retention_batch_rows": 5000,
     "liveness.interval_seconds": 300,
     "liveness.grace_seconds_after_create": 600,
     # Audit / retention

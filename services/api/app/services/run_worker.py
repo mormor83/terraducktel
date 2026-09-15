@@ -449,6 +449,102 @@ async def reaper_loop(session_factory: async_sessionmaker) -> None:
         await asyncio.sleep(interval)
 
 
+# ─── drift_reports retention ────────────────────────────────────────────────
+# Every detector scan INSERTs one drift_reports row per workspace and nothing
+# ever reads history — drift.py:_latest_reports_by_workspace only wants the
+# newest row per workspace. Left unbounded, prod reached 1,078,822 rows /
+# 121 GB (≈1 GB/day, ~5,440 rows per workspace) by 2026-09-15, and the
+# 15-second gauge scan below was walking the whole heap each time.
+#
+# Keep the newest N per workspace, delete the rest in bounded batches so a
+# single sweep can never hold a long lock or a huge transaction on a table
+# this size. Window functions are portable to both PostgreSQL and the SQLite
+# test dialect (SQLite ≥ 3.25), and the IN-subquery-with-LIMIT shape is too.
+# Deleting frees space INSIDE the volume (growth stops, headroom returns); the
+# RDS allocation itself never shrinks without a dump/restore — see
+# docs/claude/drift.md → Tuning → Retention.
+
+DRIFT_RETENTION_INTERVAL_SECONDS = 3600.0
+DRIFT_RETENTION_PER_WORKSPACE = 3
+DRIFT_RETENTION_BATCH_ROWS = 5000
+
+
+async def _prune_drift_reports(
+    session_factory: async_sessionmaker, keep: int, batch: int
+) -> int:
+    """Delete up to `batch` drift_reports rows that are not among the newest
+    `keep` for their workspace. Returns rows deleted. Call repeatedly until it
+    returns 0 to drain a backlog; one call = one bounded transaction."""
+    from sqlalchemy import delete, func
+
+    from app.models.drift_report import DriftReport
+
+    keep = max(int(keep), 1)
+    batch = max(int(batch), 1)
+    ranked = (
+        select(
+            DriftReport.id.label("id"),
+            func.row_number()
+            .over(
+                partition_by=DriftReport.workspace_id,
+                order_by=(DriftReport.detected_at.desc(), DriftReport.id.desc()),
+            )
+            .label("rn"),
+        )
+    ).subquery("ranked")
+    victims = select(ranked.c.id).where(ranked.c.rn > keep).limit(batch)
+    async with session_factory() as session:
+        result = await session.execute(
+            delete(DriftReport).where(DriftReport.id.in_(victims))
+        )
+        await session.commit()
+        return int(result.rowcount or 0)
+
+
+async def drift_retention_loop(session_factory: async_sessionmaker) -> None:
+    """Hourly (by default) drift_reports pruner. Interval / keep / batch are
+    runtime-config dials (`drift.retention_*`), read each cycle."""
+    logger.info("run_worker: drift retention starting")
+    while True:
+        try:
+            async with session_factory() as session:
+                interval = await _get_float_setting(
+                    session, "drift.retention_interval_seconds", DRIFT_RETENTION_INTERVAL_SECONDS
+                )
+                keep = int(
+                    await _get_float_setting(
+                        session, "drift.retention_per_workspace", DRIFT_RETENTION_PER_WORKSPACE
+                    )
+                )
+                batch = int(
+                    await _get_float_setting(
+                        session, "drift.retention_batch_rows", DRIFT_RETENTION_BATCH_ROWS
+                    )
+                )
+            total = 0
+            while True:
+                n = await _prune_drift_reports(session_factory, keep, batch)
+                total += n
+                if n < batch:
+                    break
+                # Backlog drain: yield between batches so we never monopolise
+                # the pool or starve the request path on a large sweep.
+                await asyncio.sleep(0.5)
+            if total:
+                logger.info(
+                    "run_worker: drift retention pruned %d report(s) (keep=%d/workspace)",
+                    total,
+                    keep,
+                )
+        except asyncio.CancelledError:
+            logger.info("run_worker: drift retention cancelled")
+            raise
+        except Exception:
+            logger.exception("run_worker: drift retention error")
+            interval = DRIFT_RETENTION_INTERVAL_SECONDS
+        await asyncio.sleep(interval)
+
+
 async def heartbeat(session: AsyncSession, run_id: str) -> bool:
     """Bump heartbeat_at for the most recent non-terminal job of `run_id`.
 
