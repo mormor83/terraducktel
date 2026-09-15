@@ -1634,6 +1634,369 @@ function SlackSection() {
   );
 }
 
+// ─── Telegram (bot token + chat) ───────────────────────────────────────────
+
+// FastAPI's own request validation (e.g. the token's `min_length=8` or the
+// chat id's `max_length=64` on `TelegramUpdate`) rejects a bad request BEFORE
+// the handler runs, so the 422 body's `detail` is a *list* of Pydantic error
+// objects, not a string. React cannot render an array of objects as a JSX
+// child and throws — with no ErrorBoundary in this app, that unmounts the
+// whole Settings root. Route every error through this before rendering it.
+// Module-scope (not just within TelegramSection) so SlackSection — which has
+// the identical latent bug — can adopt it in one line later.
+function errText(e: any, fallback: string): string {
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d: any) => (typeof d === "string" ? d : d?.msg))
+      .filter(Boolean);
+    if (msgs.length) return msgs.join("; ");
+  } else if (detail != null && typeof detail === "object") {
+    if (typeof detail.msg === "string") return detail.msg;
+  }
+  return e?.message ?? fallback;
+}
+
+type TelegramStatus = {
+  configured: boolean;
+  token_tail?: string | null;
+  bot_username?: string | null;
+  chat_id?: string | null;
+  chat_title?: string | null;
+};
+
+type TelegramTestResult = {
+  ok: boolean;
+  detail?: string;
+  bot_username?: string;
+  chat_title?: string;
+};
+
+function TelegramSection() {
+  const [status, setStatus] = useState<TelegramStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [chatInput, setChatInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [test, setTest] = useState<TelegramTestResult | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+
+  async function load() {
+    try {
+      const r = await api.get("/v1/integrations/telegram");
+      setStatus(r.data);
+      setChatInput(r.data?.chat_id ?? "");
+      setError(null);
+    } catch (e: any) {
+      setError(errText(e, "Failed to load"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function saveToken(e: FormEvent) {
+    e.preventDefault();
+    if (!tokenInput) return;
+    setSubmitting(true);
+    setError(null);
+    setTest(null);
+    try {
+      await api.put("/v1/integrations/telegram", { token: tokenInput });
+      setTokenInput("");
+      setEditing(false);
+      await load();
+    } catch (e: any) {
+      setError(errText(e, "Save failed"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function saveChat() {
+    if (!chatInput) return;
+    setSubmitting(true);
+    setError(null);
+    setTest(null);
+    try {
+      await api.put("/v1/integrations/telegram", { chat_id: chatInput.trim() });
+      await load();
+    } catch (e: any) {
+      setError(errText(e, "Save failed"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function remove() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.delete("/v1/integrations/telegram");
+      setChatInput("");
+      setTest(null);
+      setConfirmRemove(false);
+      await load();
+    } catch (e: any) {
+      setError(errText(e, "Remove failed"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function runTest() {
+    setTesting(true);
+    setTest(null);
+    try {
+      const r = await api.post("/v1/integrations/telegram/test");
+      setTest(r.data);
+    } catch (e: any) {
+      setTest({ ok: false, detail: errText(e, "Test failed") });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function sendTestMessage() {
+    setSending(true);
+    setTest(null);
+    try {
+      const r = await api.post("/v1/integrations/telegram/test-message");
+      setTest(r.data);
+    } catch (e: any) {
+      setTest({ ok: false, detail: errText(e, "Send failed") });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div>
+      <ScopeBadge />
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="text-emerald-600 dark:text-emerald-400">
+              {ICON.telegram}
+            </svg>
+            <CardTitle>Telegram notifications</CardTitle>
+          </div>
+          {status?.configured && status.chat_id && <Badge tone="success">configured</Badge>}
+          {status?.configured && !status.chat_id && <Badge tone="warning">set a chat</Badge>}
+          {!status?.configured && <Badge tone="neutral">not set</Badge>}
+        </CardHeader>
+        <CardBody className="space-y-4">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Bot token + a chat id for run + drift notifications. We post on{" "}
+            <strong>auto-approved (0/0/0)</strong>, <strong>awaiting approval</strong>,{" "}
+            <strong>run failed</strong>, and <strong>drift detected</strong> — the same
+            four events as Slack, and both fire independently when both are configured.
+            The token is encrypted at rest and never returned.
+          </p>
+
+          {loading ? (
+            <p className="text-sm italic text-slate-500">Loading…</p>
+          ) : status?.configured ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Token" value={<span className="font-mono">{status.token_tail ?? "configured"}</span>} />
+              <Field label="Bot" value={status.bot_username ? `@${status.bot_username}` : "—"} />
+              <Field
+                label="Chat"
+                value={
+                  status.chat_id ? (
+                    <span>
+                      {status.chat_title ? <strong>{status.chat_title}</strong> : null}{" "}
+                      <span className="font-mono text-xs text-slate-500">{status.chat_id}</span>
+                    </span>
+                  ) : (
+                    <span className="text-amber-600">not set yet</span>
+                  )
+                }
+              />
+            </div>
+          ) : null}
+
+          {test && (
+            <div
+              className={
+                "rounded-md border px-3 py-2 text-xs " +
+                (test.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
+                  : "border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300")
+              }
+            >
+              {test.ok ? (
+                <p>
+                  ✓ {test.detail ?? "Connected"}
+                  {test.bot_username && <> · bot <code className="font-mono">@{test.bot_username}</code></>}
+                  {test.chat_title && <> · chat <strong>{test.chat_title}</strong></>}
+                </p>
+              ) : (
+                <p>✕ {test.detail ?? "Test failed"}</p>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+              {error}
+            </div>
+          )}
+
+          {editing ? (
+            <form onSubmit={saveToken} className="space-y-3">
+              <div>
+                <Label htmlFor="telegram-token">Bot token</Label>
+                <Input
+                  id="telegram-token"
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="123456789:AA…"
+                  autoComplete="off"
+                  required
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Saving verifies the token against{" "}
+                  <code className="font-mono">getMe</code> — rejected tokens never get
+                  persisted.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={submitting || !tokenInput}>
+                  {submitting ? <><Spinner /> Verifying…</> : "Save token"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditing(false);
+                    setTokenInput("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => setEditing(true)}>
+                {status?.configured ? "Replace token" : "Add token"}
+              </Button>
+              {status?.configured && (
+                <Button type="button" variant="secondary" onClick={runTest} disabled={testing}>
+                  {testing ? <><Spinner /> Testing…</> : "Test connection"}
+                </Button>
+              )}
+              {status?.configured && status.chat_id && (
+                <Button type="button" variant="secondary" onClick={sendTestMessage} disabled={sending}>
+                  {sending ? <><Spinner /> Sending…</> : "Send test message"}
+                </Button>
+              )}
+              {status?.configured && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="ml-auto text-red-500 hover:text-red-400"
+                  onClick={() => setConfirmRemove(true)}
+                  disabled={submitting}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          )}
+
+          {status?.configured && (
+            <div className="space-y-2 border-t border-slate-200 pt-4 dark:border-slate-700">
+              <Label htmlFor="telegram-chat">Chat id</Label>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  id="telegram-chat"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="-1001234567890 or @my_channel"
+                  autoComplete="off"
+                  className="max-w-xs font-mono"
+                />
+                <Button
+                  type="button"
+                  onClick={saveChat}
+                  disabled={submitting || !chatInput || chatInput === status.chat_id}
+                >
+                  {submitting ? <><Spinner /> Verifying…</> : "Verify & save chat"}
+                </Button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Saving resolves the chat with <code className="font-mono">getChat</code>.
+                That proves the bot can <em>see</em> the chat — in a channel it also needs
+                the <strong>Post messages</strong> admin right, which only{" "}
+                <strong>Send test message</strong> can confirm.
+              </p>
+              <button
+                type="button"
+                className="text-[11px] underline text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                onClick={() => setShowHelp((v) => !v)}
+              >
+                {showHelp ? "Hide setup steps" : "How do I get a token and chat id?"}
+              </button>
+              {showHelp && (
+                <ol className="ml-4 list-decimal space-y-1 text-[11px] text-slate-500">
+                  <li>
+                    Message <code className="font-mono">@BotFather</code> on Telegram,
+                    send <code className="font-mono">/newbot</code>, and copy the token
+                    it gives you.
+                  </li>
+                  <li>
+                    Add the bot to your group, or add it to a channel as an administrator
+                    with the <strong>Post messages</strong> right.
+                  </li>
+                  <li>
+                    For a public channel, the chat id is just{" "}
+                    <code className="font-mono">@channelusername</code>. For a private
+                    group, send a message in the group and open{" "}
+                    <code className="font-mono">
+                      https://api.telegram.org/bot&lt;token&gt;/getUpdates
+                    </code>{" "}
+                    — the numeric <code className="font-mono">chat.id</code> is in the
+                    response, and starts with <code className="font-mono">-100</code> for
+                    a supergroup.
+                  </li>
+                </ol>
+              )}
+            </div>
+          )}
+        </CardBody>
+      </Card>
+      <ConfirmDialog
+        open={confirmRemove}
+        tone="danger"
+        title="Remove Telegram integration"
+        message={
+          <>
+            Remove the Telegram integration? Future run / drift notifications will stop
+            going to this chat until a new token is set. Slack, if configured, is
+            unaffected.
+          </>
+        }
+        confirmLabel="Remove"
+        busy={submitting}
+        onConfirm={remove}
+        onCancel={() => setConfirmRemove(false)}
+      />
+    </div>
+  );
+}
+
 // ─── security (checkov gate) ───────────────────────────────────────────────
 
 function SecuritySection() {
@@ -2242,6 +2605,7 @@ const ICON = {
   about: <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm1 15h-2v-6h2Zm0-8h-2V7h2Z" />,
   changelog: <path d="M9 2a2 2 0 0 0-2 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2a2 2 0 0 0-2-2H9Zm0 2h6v2H9V4ZM7 10h10v2H7v-2Zm0 4h10v2H7v-2Z" />,
   slack: <path d="M5.04 15.16a2.13 2.13 0 1 1 0-4.26h2.13v2.13c0 1.18-.95 2.13-2.13 2.13Zm1.06-5.34A2.13 2.13 0 0 1 4 7.68 2.13 2.13 0 0 1 6.1 5.55a2.13 2.13 0 0 1 2.13 2.13v2.14H6.1Zm5.32 1.06a2.13 2.13 0 0 1-2.13-2.13 2.13 2.13 0 0 1 2.13-2.13 2.13 2.13 0 0 1 2.13 2.13v2.13h-2.13Zm0 7.46a2.13 2.13 0 0 1-2.13-2.13v-2.13h2.13a2.13 2.13 0 0 1 2.13 2.13c0 1.17-.95 2.13-2.13 2.13Zm5.32-7.46h-2.13V8.74a2.13 2.13 0 1 1 4.26 0 2.13 2.13 0 0 1-2.13 2.14Zm-1.06 1.07a2.13 2.13 0 1 1 0 4.26h-2.13v-2.13a2.13 2.13 0 0 1 2.13-2.13Z" />,
+  telegram: <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z" />,
   webhook: <path d="M10.46 19a3.54 3.54 0 1 1-7.08 0 3.54 3.54 0 0 1 5.59-2.89l3.15-5.46a4.95 4.95 0 1 1 8.4-2.27h-2.05a2.97 2.97 0 1 0-5.27 1.83l-4.36 7.55a3.55 3.55 0 0 1 1.62 1.24Zm6.04-7.78a3.54 3.54 0 1 1-2.85 5.62l-6.3 0a4.97 4.97 0 0 1-9.35-2.34 4.95 4.95 0 0 1 1.99-3.98l1.18 1.7a2.97 2.97 0 1 0 4.42 3.04h8.04a3.54 3.54 0 0 1 2.87-4.04Z" />,
   apikeys: <path d="M14 6a5 5 0 1 0-4.9 6h.9l2 2 2-2h1l2-2-2-2h-3.1A5 5 0 0 0 14 6Zm-7 1a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z" />,
   policies: <path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4Zm0 5a2.5 2.5 0 0 1 2.5 2.5c0 1-.6 1.7-1.2 2.2-.5.4-.8.7-.8 1.3h-1c0-1 .5-1.6 1.1-2.1.5-.4.9-.7.9-1.4A1.5 1.5 0 0 0 12 7a1.5 1.5 0 0 0-1.5 1.5h-1A2.5 2.5 0 0 1 12 6Zm-.5 8h1v1h-1v-1Z" />,
@@ -2265,6 +2629,7 @@ function LoggedInView() {
     { id: "policies", label: "Policies", icon: <Icon d={ICON.policies} />, roleGate: "admin" as UserRole, render: () => <Suspense fallback={<p className="text-sm italic text-slate-500">Loading editor…</p>}><PoliciesSection /></Suspense> },
     { id: "cost", label: "Cost (Infracost)", icon: <Icon d={ICON.cost} />, roleGate: "admin" as UserRole, render: () => <InfracostSection /> },
     { id: "slack", label: "Slack", icon: <Icon d={ICON.slack} />, roleGate: "admin" as UserRole, render: () => <SlackSection /> },
+    { id: "telegram", label: "Telegram", icon: <Icon d={ICON.telegram} />, roleGate: "admin" as UserRole, render: () => <TelegramSection /> },
     { id: "webhook", label: "Webhooks", icon: <Icon d={ICON.webhook} />, roleGate: "admin" as UserRole, render: () => <WebhookSection /> },
     { id: "api-keys", label: "API keys", icon: <Icon d={ICON.apikeys} />, roleGate: "admin" as UserRole, render: () => <ApiKeysSection /> },
     { id: "tunables", label: "Runtime tunables", icon: <Icon d={ICON.security} />, roleGate: "admin" as UserRole, render: () => <RuntimeTunablesSection /> },

@@ -24,12 +24,65 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 import time
 from typing import Any
 
 
 # ─── Logging ──────────────────────────────────────────────────────────────
+
+# Matches the bot-token segment of a Telegram Bot API URL path, e.g.
+# `/bot123456789:AAExampleTokenValue/getMe` -> `/bot***/getMe`. Telegram's
+# API puts the token in the URL itself (there's no auth header), so any
+# logger that prints a request URL at INFO can leak it verbatim.
+_BOT_TOKEN_RE = re.compile(r"/bot\d+:[^/\s\"]+")
+
+
+def _redact_bot_token(value: str) -> str:
+    return _BOT_TOKEN_RE.sub("/bot***", value)
+
+
+def _redact_arg(arg: Any) -> Any:
+    """Redact a Telegram bot token out of one %-style log arg.
+
+    `arg` may be a plain string or, for httpx's own request logging, an
+    `httpx.URL` object substituted via `%s` — so we check the string form
+    without unconditionally coercing every arg to `str` (that would corrupt
+    non-string args formatted with `%d` etc., e.g. httpx's status code).
+    Returns `arg` unchanged unless a token was actually found and stripped.
+    """
+    text = arg if isinstance(arg, str) else str(arg)
+    if "/bot" not in text:
+        return arg
+    redacted = _redact_bot_token(text)
+    return redacted if redacted != text else arg
+
+
+class _RedactBotTokenFilter(logging.Filter):
+    """Defence-in-depth: strip Telegram bot tokens from any log record.
+
+    We already pin the `httpx` logger to WARNING below (it logs full request
+    URLs at INFO, and the Telegram Bot API embeds the bot token in the URL
+    path — see `services/telegram.py`). This filter is the backstop so that
+    re-enabling debug/INFO logging on `httpx` (or any other logger that ever
+    prints a Telegram URL) later can't reintroduce the leak.
+
+    Must never raise: a filter that throws breaks all logging.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if isinstance(record.msg, str) and "/bot" in record.msg:
+                record.msg = _redact_bot_token(record.msg)
+            if record.args:
+                if isinstance(record.args, dict):
+                    record.args = {k: _redact_arg(v) for k, v in record.args.items()}
+                else:
+                    record.args = tuple(_redact_arg(a) for a in record.args)
+        except Exception:
+            pass
+        return True
 
 
 class JSONFormatter(logging.Formatter):
@@ -72,6 +125,7 @@ def configure_logging() -> None:
         root.removeHandler(h)
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JSONFormatter())
+    handler.addFilter(_RedactBotTokenFilter())
     root.addHandler(handler)
     root.setLevel(logging.INFO)
     # uvicorn's loggers should propagate to root; force them to not double-emit
@@ -79,6 +133,14 @@ def configure_logging() -> None:
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
+    # httpx logs every request's full URL at INFO ('HTTP Request: %s %s ...').
+    # The Telegram Bot API puts the bot token in the URL path itself
+    # (`/bot<token>/<method>`), so leaving this at INFO would print the
+    # plaintext token to stdout on every verify/getChat/send. WARNING still
+    # surfaces httpx's own warnings/errors — only the per-request info log
+    # is silenced. The `_RedactBotTokenFilter` above is the backstop in case
+    # this ever gets turned back up.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 # ─── Metrics registry ─────────────────────────────────────────────────────
