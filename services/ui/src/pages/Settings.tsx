@@ -1254,9 +1254,101 @@ type SlackStatus = {
   team_name?: string | null;
   channel_id?: string | null;
   channel_name?: string | null;
+  drift_channel_id?: string | null;
+  drift_channel_name?: string | null;
+  drift_alerts_enabled?: boolean;
 };
 
 type SlackChannel = { id: string; name: string; is_private?: boolean };
+
+// Select value for "don't post drift alerts"; "" means the default channel.
+const DRIFT_OFF = "__off__";
+
+function driftChoiceOf(s: SlackStatus | null): string {
+  if (s?.drift_alerts_enabled === false) return DRIFT_OFF;
+  return s?.drift_channel_id ?? "";
+}
+
+/**
+ * Where drift alerts go. Run notifications always use the main channel; drift
+ * can be split off to a quieter/louder channel, or switched off entirely.
+ */
+export function SlackDriftRouting({
+  status,
+  channels,
+  onSaved,
+}: {
+  status: SlackStatus;
+  channels: SlackChannel[] | null;
+  onSaved: (s: SlackStatus) => void;
+}) {
+  const [choice, setChoice] = useState(driftChoiceOf(status));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => setChoice(driftChoiceOf(status)), [status]);
+
+  const defaultLabel = status.channel_name ? `#${status.channel_name}` : status.channel_id ?? "not picked";
+  // Keep the saved drift channel selectable before the channel list is loaded.
+  const options: SlackChannel[] = (channels ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  if (status.drift_channel_id && !options.some((c) => c.id === status.drift_channel_id)) {
+    options.unshift({ id: status.drift_channel_id, name: status.drift_channel_name || status.drift_channel_id });
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    const off = choice === DRIFT_OFF;
+    const ch = options.find((c) => c.id === choice);
+    try {
+      const r = await api.put("/v1/integrations/slack/drift", {
+        drift_channel_id: off ? "" : choice,
+        drift_channel_name: off ? null : ch?.name ?? null,
+        drift_alerts_enabled: !off,
+      });
+      onSaved(r.data);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail ?? e?.message ?? "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-900/40">
+      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Drift alerts</span>
+      <p className="mb-2 mt-1 text-[11px] text-slate-500">
+        Posted once when a workspace goes from clean to drifted (e.g. someone edited a managed
+        resource's tags by hand). Defaults to the notification channel above. For a private channel,
+        invite the bot first.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          aria-label="Drift alerts destination"
+          value={choice}
+          onChange={(e) => setChoice(e.target.value)}
+          className="min-w-[14rem] rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm dark:border-slate-700 dark:bg-slate-950"
+        >
+          <option value="">Default channel ({defaultLabel})</option>
+          {options.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.is_private ? "🔒 " : "#"}
+              {c.name}
+            </option>
+          ))}
+          <option value={DRIFT_OFF}>Off — don't post drift alerts</option>
+        </select>
+        <Button type="button" size="sm" onClick={save} disabled={saving || choice === driftChoiceOf(status)}>
+          {saving ? <><Spinner /> Saving…</> : "Save"}
+        </Button>
+        {!channels && (
+          <span className="text-[11px] text-slate-500">Load channels above to pick a different one.</span>
+        )}
+      </div>
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
 
 type SlackTestResult = {
   ok: boolean;
@@ -1403,6 +1495,7 @@ function SlackSection() {
             encrypted at rest. The bot needs <code className="font-mono text-xs">chat:write</code>{" "}
             plus <code className="font-mono text-xs">channels:read</code> (for public channels)
             and/or <code className="font-mono text-xs">groups:read</code> (for private channels).
+            Drift alerts can be sent to a different channel below.
           </p>
 
           {loading ? (
@@ -1612,6 +1705,10 @@ function SlackSection() {
                 </p>
               )}
             </div>
+          )}
+
+          {status?.configured && (
+            <SlackDriftRouting status={status} channels={channels} onSaved={setStatus} />
           )}
         </CardBody>
       </Card>

@@ -390,7 +390,7 @@ async def test_run_event_builders_resolve_and_skip(db_session, monkeypatch):
     ws = await _make_ws(db_session)
     posted = []
 
-    async def rec(session, *, bu_slug, text, blocks=None, color=None):
+    async def rec(session, *, bu_slug, text, blocks=None, color=None, channel=None):
         posted.append(text)
 
     monkeypatch.setattr(ns, "send_slack_bot_notification", rec)
@@ -443,3 +443,43 @@ async def test_run_event_builders_resolve_and_skip(db_session, monkeypatch):
         db_session, workspace_id="missing", workspace_name="ws", summary="s"
     )
     assert posted == []
+
+
+async def test_drift_alert_routing(db_session, monkeypatch):
+    """Settings → Slack → Drift alerts: default channel unless overridden,
+    nothing at all when switched off. Run notifications ignore the override."""
+    from app.routers.integrations import (
+        SLACK_BOT_TOKEN_KEY,
+        SLACK_CHANNEL_ID_KEY,
+        SLACK_DRIFT_CHANNEL_ID_KEY,
+        SLACK_DRIFT_ENABLED_KEY,
+    )
+
+    ws = await _make_ws(db_session)
+    await _set(db_session, SLACK_BOT_TOKEN_KEY, "xoxb", bu="default")
+    await _set(db_session, SLACK_CHANNEL_ID_KEY, "C-DEFAULT", bu="default")
+    calls = []
+
+    async def ok(token, channel, text, blocks=None, color=None):
+        calls.append(channel)
+
+    monkeypatch.setattr(slack_svc, "post_message", ok)
+
+    async def drift():
+        await ns.send_slack_drift_detected(
+            db_session, workspace_id=ws.id, workspace_name="ws", summary="tags changed: +x"
+        )
+
+    await drift()
+    assert calls == ["C-DEFAULT"]
+
+    await _set(db_session, SLACK_DRIFT_CHANNEL_ID_KEY, "C-DRIFT", bu="default")
+    await drift()
+    await ns.send_slack_run_failed(
+        db_session, workspace_id=ws.id, workspace_name="ws", run_id="r", command="apply"
+    )
+    assert calls == ["C-DEFAULT", "C-DRIFT", "C-DEFAULT"]
+
+    await _set(db_session, SLACK_DRIFT_ENABLED_KEY, "false", bu="default")
+    await drift()
+    assert calls == ["C-DEFAULT", "C-DRIFT", "C-DEFAULT"]

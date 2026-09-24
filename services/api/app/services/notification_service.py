@@ -301,6 +301,7 @@ async def send_slack_bot_notification(
     text: str,
     blocks: list | None = None,
     color: str | None = None,
+    channel: str | None = None,
 ) -> None:
     """Post to the BU's configured Slack channel via bot token.
 
@@ -309,11 +310,13 @@ async def send_slack_bot_notification(
     flow (run PATCH, drift detector, etc.).
 
     `color` is the cloud account's hex (see `_account_badge`) and becomes the
-    message's left stripe.
+    message's left stripe. `channel` overrides the BU's default channel (drift
+    alerts can be routed elsewhere).
     """
     from app.services import slack as slack_svc
 
-    token, channel = await _slack_bot_creds(session, bu_slug)
+    token, default_channel = await _slack_bot_creds(session, bu_slug)
+    channel = channel or default_channel
     if not token or not channel:
         return
     try:
@@ -568,6 +571,22 @@ async def send_slack_run_failed(
     )
 
 
+async def _drift_channel(session: AsyncSession, bu_slug: str) -> tuple[bool, str | None]:
+    """(enabled, channel override) from Settings → Slack → Drift alerts.
+
+    Override None = the BU's default channel. Unset `enabled` counts as on, so
+    BUs that configured Slack before this setting existed keep getting alerts.
+    """
+    from app.routers.integrations import (
+        SLACK_DRIFT_CHANNEL_ID_KEY,
+        SLACK_DRIFT_ENABLED_KEY,
+    )
+
+    svc = _config_svc(session)
+    enabled = (await svc.get_for_bu(bu_slug, SLACK_DRIFT_ENABLED_KEY)) != "false"
+    return enabled, (await svc.get_for_bu(bu_slug, SLACK_DRIFT_CHANNEL_ID_KEY)) or None
+
+
 async def send_slack_drift_detected(
     session: AsyncSession,
     *,
@@ -580,6 +599,9 @@ async def send_slack_drift_detected(
 ) -> None:
     bu_slug = await _resolve_bu_slug_for_workspace(session, workspace_id)
     if not bu_slug:
+        return
+    enabled, channel = await _drift_channel(session, bu_slug)
+    if not enabled:
         return
     excerpt = (summary or "")[:800].strip()
     leaf = _leaf_path(working_dir, region)
@@ -609,7 +631,7 @@ async def send_slack_drift_detected(
         )
     blocks.append(_link_button_block("View workspace", link))
     await send_slack_bot_notification(
-        session, bu_slug=bu_slug, text=text, blocks=blocks, color=badge.hex
+        session, bu_slug=bu_slug, text=text, blocks=blocks, color=badge.hex, channel=channel
     )
 
 
