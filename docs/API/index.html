@@ -2827,7 +2827,7 @@ drift-detector service.</p>
 </table>
 <p>Reports are also accepted at the internal, state-token-authenticated path
 <code>POST /api/v1/internal/drift/{workspace_id}/report</code> (used by the real
-drift-detector service) and trigger a Slack alert whenever <code>has_drift=true</code>.
+drift-detector service); that path alerts Slack only on a clean→drifted transition (see below).
 Either path additionally refreshes the cloud-asset Inventory when the report
 includes an <code>assets[]</code> payload.</p>
 <p><strong>POST /drift/{workspace_id}/report</strong> body (<code>DriftReportIn</code>):
@@ -3249,7 +3249,7 @@ have <code>source="manual"</code> and <code>ref=null</code>.</p>
 <tr>
 <td>GET</td>
 <td><code>/integrations/slack</code></td>
-<td><code>{configured, token_tail, team_name, channel_id, channel_name}</code></td>
+<td><code>{configured, token_tail, team_name, channel_id, channel_name, drift_channel_id, drift_channel_name, drift_alerts_enabled}</code></td>
 </tr>
 <tr>
 <td>PUT</td>
@@ -3257,9 +3257,14 @@ have <code>source="manual"</code> and <code>ref=null</code>.</p>
 <td>Body: <code>{token?, channel_id?, channel_name?}</code>. Verifies the token via Slack <code>auth.test</code> before persisting; 422 if no token is saved yet and none is supplied.</td>
 </tr>
 <tr>
+<td>PUT</td>
+<td><code>/integrations/slack/drift</code></td>
+<td>Drift-alert destination. Body: <code>{drift_channel_id?, drift_channel_name?, drift_alerts_enabled}</code>. Empty <code>drift_channel_id</code> = the default channel; <code>drift_alerts_enabled=false</code> = no drift alerts. Doesn't touch or re-verify the token; 400 if Slack isn't configured.</td>
+</tr>
+<tr>
 <td>DELETE</td>
 <td><code>/integrations/slack</code></td>
-<td>Remove the bot token + channel.</td>
+<td>Remove the bot token + channel (and drift routing).</td>
 </tr>
 <tr>
 <td>POST</td>
@@ -3338,7 +3343,7 @@ the same private network as the API and authenticate with the
 <tr>
 <td>POST</td>
 <td><code>/internal/drift/{workspace_id}/report</code></td>
-<td>Drift report submission — identical body/behavior to the user-facing <code>POST /drift/{workspace_id}/report</code>, including the Slack drift alert and Inventory refresh.</td>
+<td>Drift report submission (the collector's path). Same body as the user-facing <code>POST /drift/{workspace_id}/report</code> plus <code>drift_checked</code> (default true; false = scan couldn't look, so <code>drift_status</code> is left alone). Posts the bot-token Slack drift alert only on a clean→drifted <strong>transition</strong>, to the BU's drift channel (default channel if unset). Refreshes the Inventory.</td>
 </tr>
 <tr>
 <td>GET</td>
