@@ -122,6 +122,9 @@ async def test_duplicate_slug_409_and_404s(auth_client, admin_token):
         {"endpoint": "https://pve:8006/?x=1"},  # query string
         {"endpoint": "https://////"},  # empty host
         {"endpoint": "https://pve:8006/foo"},  # unrecognised path
+        {"endpoint": "https://admin:hunter2@pve.local:8006"},  # userinfo w/ password
+        {"endpoint": "https://admin@pve.local:8006"},  # userinfo, username only
+        {"endpoint": "admin:hunter2@pve.local:8006"},  # userinfo, scheme-less
     ],
 )
 async def test_validation_422(auth_client, admin_token, over):

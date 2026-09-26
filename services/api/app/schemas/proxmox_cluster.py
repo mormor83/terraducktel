@@ -28,6 +28,10 @@ def _https_endpoint(v: str) -> str:
         raise ValueError("endpoint must start with https://")
     if not parts.netloc:
         raise ValueError("endpoint must include a host")
+    # The endpoint column is plaintext and visible to viewers, so embedded
+    # credentials would be stored and served in clear.
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("endpoint must not include credentials (user@host)")
     if parts.query:
         raise ValueError("endpoint must not include a query string")
     if parts.fragment:
