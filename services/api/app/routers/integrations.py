@@ -52,6 +52,11 @@ SLACK_BOT_TOKEN_KEY = "slack.bot_token"
 SLACK_CHANNEL_ID_KEY = "slack.channel_id"
 SLACK_CHANNEL_NAME_KEY = "slack.channel_name"
 SLACK_TEAM_NAME_KEY = "slack.team_name"
+# Drift-alert routing. No drift channel = post to SLACK_CHANNEL_ID_KEY (the
+# default); enabled "false" = don't post drift alerts at all.
+SLACK_DRIFT_CHANNEL_ID_KEY = "slack.drift_channel_id"
+SLACK_DRIFT_CHANNEL_NAME_KEY = "slack.drift_channel_name"
+SLACK_DRIFT_ENABLED_KEY = "slack.drift_alerts_enabled"
 TELEGRAM_BOT_TOKEN_KEY = "telegram.bot_token"
 TELEGRAM_CHAT_ID_KEY = "telegram.chat_id"
 TELEGRAM_CHAT_TITLE_KEY = "telegram.chat_title"
@@ -988,6 +993,18 @@ class SlackStatus(BaseModel):
     team_name: Optional[str] = None
     channel_id: Optional[str] = None
     channel_name: Optional[str] = None
+    # Drift-alert destination; None = same as channel_id.
+    drift_channel_id: Optional[str] = None
+    drift_channel_name: Optional[str] = None
+    drift_alerts_enabled: bool = True
+
+
+class SlackDriftRouting(BaseModel):
+    """PUT /slack/drift payload. An empty/omitted `drift_channel_id` resets
+    drift alerts to the default channel."""
+    drift_channel_id: Optional[str] = Field(default=None, max_length=64)
+    drift_channel_name: Optional[str] = Field(default=None, max_length=128)
+    drift_alerts_enabled: bool = True
 
 
 class SlackUpdate(BaseModel):
@@ -1030,7 +1047,16 @@ async def get_slack_status(
         team_name=await svc.get_for_bu(slug, SLACK_TEAM_NAME_KEY),
         channel_id=await svc.get_for_bu(slug, SLACK_CHANNEL_ID_KEY),
         channel_name=await svc.get_for_bu(slug, SLACK_CHANNEL_NAME_KEY),
+        **await _drift_routing(svc, slug),
     )
+
+
+async def _drift_routing(svc: ConfigService, slug: str) -> dict:
+    return {
+        "drift_channel_id": await svc.get_for_bu(slug, SLACK_DRIFT_CHANNEL_ID_KEY),
+        "drift_channel_name": await svc.get_for_bu(slug, SLACK_DRIFT_CHANNEL_NAME_KEY),
+        "drift_alerts_enabled": (await svc.get_for_bu(slug, SLACK_DRIFT_ENABLED_KEY)) != "false",
+    }
 
 
 @router.put("/slack", response_model=SlackStatus)
@@ -1105,6 +1131,58 @@ async def set_slack_config(
         team_name=identity.team,
         channel_id=body.channel_id or await svc.get_for_bu(slug, SLACK_CHANNEL_ID_KEY),
         channel_name=body.channel_name or await svc.get_for_bu(slug, SLACK_CHANNEL_NAME_KEY),
+        **await _drift_routing(svc, slug),
+    )
+
+
+@router.put("/slack/drift", response_model=SlackStatus)
+async def set_slack_drift_routing(
+    body: SlackDriftRouting,
+    current_user: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Choose where drift alerts go: the default channel, another channel the
+    bot can see, or nowhere. Separate from PUT /slack so changing the route
+    doesn't re-verify (or need) the bot token."""
+    slug = _require_bu(bu)
+    svc = _config_svc(db)
+    token = await svc.get_for_bu(slug, SLACK_BOT_TOKEN_KEY)
+    if not token:
+        raise HTTPException(status_code=400, detail="No Slack token configured")
+
+    channel_id = (body.drift_channel_id or "").strip()
+    if channel_id:
+        await svc.set_for_bu(
+            slug, SLACK_DRIFT_CHANNEL_ID_KEY, channel_id,
+            is_secret=False,
+            description=f"Slack channel id for drift alerts in BU '{slug}'.",
+            updated_by=current_user.id,
+        )
+        await svc.set_for_bu(
+            slug, SLACK_DRIFT_CHANNEL_NAME_KEY, (body.drift_channel_name or "").strip(),
+            is_secret=False,
+            description=f"Slack channel name for drift alerts in BU '{slug}'.",
+            updated_by=current_user.id,
+        )
+    else:
+        await svc.delete_for_bu(slug, SLACK_DRIFT_CHANNEL_ID_KEY)
+        await svc.delete_for_bu(slug, SLACK_DRIFT_CHANNEL_NAME_KEY)
+    await svc.set_for_bu(
+        slug, SLACK_DRIFT_ENABLED_KEY, "true" if body.drift_alerts_enabled else "false",
+        is_secret=False,
+        description=f"Whether drift alerts post to Slack in BU '{slug}'.",
+        updated_by=current_user.id,
+    )
+    await db.commit()
+
+    return SlackStatus(
+        configured=True,
+        token_tail=_mask_tail(token),
+        team_name=await svc.get_for_bu(slug, SLACK_TEAM_NAME_KEY),
+        channel_id=await svc.get_for_bu(slug, SLACK_CHANNEL_ID_KEY),
+        channel_name=await svc.get_for_bu(slug, SLACK_CHANNEL_NAME_KEY),
+        **await _drift_routing(svc, slug),
     )
 
 
@@ -1121,6 +1199,9 @@ async def delete_slack_config(
         SLACK_TEAM_NAME_KEY,
         SLACK_CHANNEL_ID_KEY,
         SLACK_CHANNEL_NAME_KEY,
+        SLACK_DRIFT_CHANNEL_ID_KEY,
+        SLACK_DRIFT_CHANNEL_NAME_KEY,
+        SLACK_DRIFT_ENABLED_KEY,
     ):
         await svc.delete_for_bu(slug, k)
     await db.commit()
