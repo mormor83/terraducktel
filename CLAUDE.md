@@ -79,7 +79,8 @@ Login URL: http://localhost:3001  ·  API: http://localhost:8001  ·  Forgejo: h
   viewer). The legacy `users.role` column is still populated for one release
   as a fallback. See the Business Units section of `docs/ARCHITECTURE.md`.
 - **State backend:** pluggable per workspace via `workspaces.state_backend`
-  (`s3` default | `azureblob` | `gcs`), keyed by `{tf_working_dir}/terraform.tfstate`.
+  (`s3` default | `azureblob` | `gcs`), keyed by `{tf_working_dir}/terraform.tfstate`
+  (`proxmox/…` paths get a `bu-{business_unit_id}/` prefix — slugs are per-BU).
   The executor always talks Terraform's `backend "http"` to the API; the API is
   the only component that touches the object store, selecting the backend in
   `routers/state.py:_service_for` (S3/Azure Blob/GCS implement the `StateStore`

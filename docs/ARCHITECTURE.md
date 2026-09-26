@@ -409,7 +409,10 @@ behind the API.
   the workspace's git path exactly (`app/routers/state.py::_service_for`).
   Isolation between workspaces comes from the per-account dedicated bucket,
   not a key prefix, so two same-named leaves under different account
-  directories never collide. (`Workspace.state_path`/`state_key`, which build
+  directories never collide. Exception: `proxmox/…` paths are keyed
+  `bu-{business_unit_id}/{tf_working_dir}/terraform.tfstate`, because a
+  Proxmox slug is unique only per BU and those workspaces share the
+  fallback bucket. (`Workspace.state_path`/`state_key`, which build
   a `tfstate/{account}/{region}/{env}/...` key, are legacy and unused by the
   live state backend.)
 - **Locking**: `pg_try_advisory_lock` on a numeric key derived from the

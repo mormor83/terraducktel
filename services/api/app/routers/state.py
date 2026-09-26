@@ -53,10 +53,17 @@ def _state_key_for(ws: Workspace) -> str:
     object store mirrors the layout in git: e.g.
         account-111111111111/eu-central-1/region-shared-resources/terraform.tfstate
     Identical across every backend (S3 key / Azure blob name / GCS object).
+
+    Proxmox paths are prefixed with the business unit: a Proxmox slug is
+    unique only per BU (unlike an AWS account id / Azure GUID / GCP project
+    id), and these workspaces share the fallback bucket, so without the
+    prefix two BUs with a `home` cluster would share one state object.
     """
     leaf_path = (ws.tf_working_dir or ".").strip("/")
     if leaf_path in ("", "."):
         leaf_path = ws.name
+    if leaf_path.split("/", 1)[0].lower() == "proxmox":
+        return f"bu-{ws.business_unit_id}/{leaf_path}/terraform.tfstate"
     return f"{leaf_path}/terraform.tfstate"
 
 

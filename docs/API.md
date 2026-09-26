@@ -1019,7 +1019,9 @@ backend config.
 
 State lives in S3 (LocalStack in dev) at
 `{tf_working_dir}/terraform.tfstate` inside the bucket owned by the
-workspace's (or its `state_aws_account_id` override's) AWS account. Locking
+workspace's (or its `state_aws_account_id` override's) AWS account.
+`proxmox/…` workspaces are additionally prefixed `bu-{business_unit_id}/`
+so two BUs with the same cluster slug never share state. Locking
 is `pg_try_advisory_lock`-based, not DynamoDB.
 
 ---
