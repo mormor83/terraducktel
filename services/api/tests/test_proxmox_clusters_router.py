@@ -108,6 +108,23 @@ async def test_duplicate_slug_409_and_404s(auth_client, admin_token):
     assert (await auth_client.delete("/api/v1/proxmox-clusters/x", headers=_h(admin_token))).status_code == 404
 
 
+async def test_create_non_integrity_commit_failure_is_not_reported_as_duplicate(
+    auth_client, admin_token, monkeypatch
+):
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    async def _boom(self):
+        raise OperationalError("INSERT", {}, Exception("value too long"))
+
+    monkeypatch.setattr(AsyncSession, "commit", _boom)
+    try:
+        r = await auth_client.post("/api/v1/proxmox-clusters", json=_body(slug="fresh"), headers=_h(admin_token))
+    except OperationalError:
+        return  # propagated as a server error — correct
+    assert r.status_code != 409, r.text
+
+
 @pytest.mark.parametrize(
     "over",
     [
