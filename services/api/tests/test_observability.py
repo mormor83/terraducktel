@@ -91,3 +91,71 @@ class TestRegistry:
         obs.counter_inc("c", {"b": "2", "a": "1"})
         text = obs.render_prom_text()
         assert 'c{a="1",b="2"}' in text
+
+
+class TestTelegramTokenNotLogged:
+    """Regression coverage for C1: the Telegram bot token must never reach
+    stdout, even at INFO/DEBUG on the `httpx` logger (which logs full request
+    URLs and would otherwise print `.../bot<token>/<method>` verbatim)."""
+
+    def test_httpx_logger_is_at_least_warning_after_configure(self):
+        # httpx logs 'HTTP Request: %s %s ...' at INFO; the Telegram Bot API
+        # embeds the token in that URL's path, so INFO (or lower) here would
+        # leak the plaintext token to stdout on every call.
+        obs.configure_logging()
+        assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+
+    def test_filter_redacts_a_realistic_telegram_url_in_the_message(self):
+        f = obs._RedactBotTokenFilter()
+        record = logging.LogRecord(
+            name="httpx",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="HTTP Request: %s %s",
+            args=("POST", "https://api.telegram.org/bot123456789:AA-Example_Token-Value/getMe"),
+            exc_info=None,
+        )
+        assert f.filter(record) is True
+        formatted = record.getMessage()
+        assert "123456789:AA-Example_Token-Value" not in formatted
+        assert "/bot***/getMe" in formatted
+
+    def test_filter_leaves_a_token_free_record_unchanged(self):
+        f = obs._RedactBotTokenFilter()
+        record = logging.LogRecord(
+            name="httpx",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="HTTP Request: %s %s",
+            args=("GET", "https://api.telegram.org/health"),
+            exc_info=None,
+        )
+        assert f.filter(record) is True
+        assert record.getMessage() == "HTTP Request: GET https://api.telegram.org/health"
+
+    def test_without_the_filter_the_token_would_appear_in_the_formatted_message(self):
+        # Discriminating proof: run the *same* record through the formatter
+        # with no filter applied, showing the leak this filter exists to stop.
+        record = logging.LogRecord(
+            name="httpx",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="HTTP Request: %s %s",
+            args=("POST", "https://api.telegram.org/bot123456789:AA-Example_Token-Value/getMe"),
+            exc_info=None,
+        )
+        # No filter applied here — this is what reaches the formatter today
+        # if `_RedactBotTokenFilter` is removed from the handler.
+        assert "123456789:AA-Example_Token-Value" in record.getMessage()
+
+    def test_filter_is_attached_to_the_stdout_handler_after_configure(self):
+        obs.configure_logging()
+        root = logging.getLogger()
+        assert any(
+            isinstance(f, obs._RedactBotTokenFilter)
+            for h in root.handlers
+            for f in h.filters
+        )

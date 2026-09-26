@@ -57,6 +57,15 @@ SLACK_TEAM_NAME_KEY = "slack.team_name"
 SLACK_DRIFT_CHANNEL_ID_KEY = "slack.drift_channel_id"
 SLACK_DRIFT_CHANNEL_NAME_KEY = "slack.drift_channel_name"
 SLACK_DRIFT_ENABLED_KEY = "slack.drift_alerts_enabled"
+TELEGRAM_BOT_TOKEN_KEY = "telegram.bot_token"
+TELEGRAM_CHAT_ID_KEY = "telegram.chat_id"
+TELEGRAM_CHAT_TITLE_KEY = "telegram.chat_title"
+TELEGRAM_BOT_USERNAME_KEY = "telegram.bot_username"
+# Drift-alert routing, mirroring the Slack keys above. No drift chat = post to
+# TELEGRAM_CHAT_ID_KEY; enabled "false" = don't post drift alerts at all.
+TELEGRAM_DRIFT_CHAT_ID_KEY = "telegram.drift_chat_id"
+TELEGRAM_DRIFT_CHAT_TITLE_KEY = "telegram.drift_chat_title"
+TELEGRAM_DRIFT_ENABLED_KEY = "telegram.drift_alerts_enabled"
 
 
 # ─── schemas ────────────────────────────────────────────────────────────────
@@ -1270,3 +1279,333 @@ async def list_slack_channels(
         SlackChannelOut(id=c.id, name=c.name, is_private=c.is_private)
         for c in channels
     ]
+
+
+# ─── Telegram (per-BU bot token + chat) ────────────────────────────────────
+#
+# Structurally parallel to the Slack block above, with one difference forced
+# by the Bot API: a bot cannot enumerate the chats it belongs to, so there is
+# no `/channels` equivalent. The operator types the chat id and we verify it
+# with `getChat` at save time.
+
+
+class TelegramStatus(BaseModel):
+    """GET response: never returns the bot token. The UI sees a masked tail
+    plus the cached bot username and chat title so an admin can confirm
+    "this is the right bot, in the right chat"."""
+
+    configured: bool
+    token_tail: Optional[str] = None
+    bot_username: Optional[str] = None
+    chat_id: Optional[str] = None
+    chat_title: Optional[str] = None
+    # Drift-alert destination; None = same as chat_id.
+    drift_chat_id: Optional[str] = None
+    drift_chat_title: Optional[str] = None
+    drift_alerts_enabled: bool = True
+
+
+class TelegramDriftRouting(BaseModel):
+    """PUT /telegram/drift payload. An empty/omitted `drift_chat_id` resets
+    drift alerts to the main chat. No title field: it is read back from
+    `getChat`, since the id is typed by hand rather than picked from a list."""
+    drift_chat_id: Optional[str] = Field(default=None, max_length=64)
+    drift_alerts_enabled: bool = True
+
+
+class TelegramUpdate(BaseModel):
+    """PUT payload. `token` is required on first save; later saves may omit it
+    to keep the stored one and just change the chat."""
+
+    token: Optional[str] = Field(default=None, min_length=8)
+    chat_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class TelegramTestResult(BaseModel):
+    ok: bool
+    detail: Optional[str] = None
+    bot_username: Optional[str] = None
+    chat_title: Optional[str] = None
+
+
+async def _telegram_status(svc: ConfigService, slug: str) -> TelegramStatus:
+    token = await svc.get_for_bu(slug, TELEGRAM_BOT_TOKEN_KEY)
+    if not token:
+        return TelegramStatus(configured=False)
+    return TelegramStatus(
+        configured=True,
+        token_tail=_mask_tail(token),
+        bot_username=await svc.get_for_bu(slug, TELEGRAM_BOT_USERNAME_KEY),
+        chat_id=await svc.get_for_bu(slug, TELEGRAM_CHAT_ID_KEY),
+        chat_title=await svc.get_for_bu(slug, TELEGRAM_CHAT_TITLE_KEY),
+        drift_chat_id=await svc.get_for_bu(slug, TELEGRAM_DRIFT_CHAT_ID_KEY),
+        drift_chat_title=await svc.get_for_bu(slug, TELEGRAM_DRIFT_CHAT_TITLE_KEY),
+        drift_alerts_enabled=(await svc.get_for_bu(slug, TELEGRAM_DRIFT_ENABLED_KEY)) != "false",
+    )
+
+
+@router.get("/telegram", response_model=TelegramStatus)
+async def get_telegram_status(
+    current_user: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _telegram_status(_config_svc(db), _require_bu(bu))
+
+
+@router.put("/telegram", response_model=TelegramStatus)
+async def set_telegram_config(
+    body: TelegramUpdate,
+    current_user: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save Telegram config, verifying against the Bot API before persisting.
+
+    `getMe` proves the token works; `getChat` proves the bot can see the chat
+    (though not that it may post there — see the test-message endpoint).
+    Saving an unverified token would mean every later notification fails
+    silently inside the worker.
+    """
+    from app.services import telegram as tg_svc
+
+    slug = _require_bu(bu)
+    svc = _config_svc(db)
+
+    existing_token = await svc.get_for_bu(slug, TELEGRAM_BOT_TOKEN_KEY)
+    token = (body.token or "").strip() or existing_token
+    if not token:
+        raise HTTPException(
+            status_code=422, detail="Bot token is required on first save"
+        )
+
+    chat_id = (body.chat_id or "").strip() or None
+    if chat_id is not None and not tg_svc.CHAT_ID_RE.match(chat_id):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "chat_id must be numeric (e.g. -1001234567890) or a public "
+                "@username"
+            ),
+        )
+
+    try:
+        identity = await tg_svc.verify_token(token)
+    except tg_svc.TelegramError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Telegram rejected the token ({e.code}): {e.description}",
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Telegram unreachable: {e!s}")
+
+    chat_title: Optional[str] = None
+    if chat_id is not None:
+        try:
+            chat = await tg_svc.get_chat(token, chat_id)
+        except tg_svc.TelegramError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Telegram rejected the chat ({e.code}): {e.description}",
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Telegram unreachable: {e!s}")
+        chat_title = chat.title
+
+    await svc.set_for_bu(
+        slug, TELEGRAM_BOT_TOKEN_KEY, token,
+        is_secret=True,
+        description=f"Telegram bot token for BU '{slug}'.",
+        updated_by=current_user.id,
+    )
+    await svc.set_for_bu(
+        slug, TELEGRAM_BOT_USERNAME_KEY, identity.username,
+        is_secret=False,
+        description=f"Telegram bot username (cached) for BU '{slug}'.",
+        updated_by=current_user.id,
+    )
+    if chat_id is not None:
+        await svc.set_for_bu(
+            slug, TELEGRAM_CHAT_ID_KEY, chat_id,
+            is_secret=False,
+            description=f"Telegram chat id for BU '{slug}'.",
+            updated_by=current_user.id,
+        )
+        await svc.set_for_bu(
+            slug, TELEGRAM_CHAT_TITLE_KEY, chat_title or "",
+            is_secret=False,
+            description=f"Telegram chat title (cached) for BU '{slug}'.",
+            updated_by=current_user.id,
+        )
+    await db.commit()
+
+    return await _telegram_status(svc, slug)
+
+
+@router.put("/telegram/drift", response_model=TelegramStatus)
+async def set_telegram_drift_routing(
+    body: TelegramDriftRouting,
+    current_user: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Choose where drift alerts go: the main chat, another chat the bot can
+    see, or nowhere. Separate from PUT /telegram so changing the route doesn't
+    re-verify the bot token. Unlike Slack's route, a non-empty chat is checked
+    with `getChat`: it is typed by hand, and a wrong one would make drift
+    alerts vanish silently inside the worker."""
+    from app.services import telegram as tg_svc
+
+    slug = _require_bu(bu)
+    svc = _config_svc(db)
+    token = await svc.get_for_bu(slug, TELEGRAM_BOT_TOKEN_KEY)
+    if not token:
+        raise HTTPException(status_code=400, detail="No Telegram token configured")
+
+    chat_id = (body.drift_chat_id or "").strip()
+    if chat_id:
+        if not tg_svc.CHAT_ID_RE.match(chat_id):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "drift_chat_id must be numeric (e.g. -1001234567890) or a "
+                    "public @username"
+                ),
+            )
+        try:
+            chat = await tg_svc.get_chat(token, chat_id)
+        except tg_svc.TelegramError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Telegram rejected the chat ({e.code}): {e.description}",
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Telegram unreachable: {e!s}")
+        await svc.set_for_bu(
+            slug, TELEGRAM_DRIFT_CHAT_ID_KEY, chat_id,
+            is_secret=False,
+            description=f"Telegram chat id for drift alerts in BU '{slug}'.",
+            updated_by=current_user.id,
+        )
+        await svc.set_for_bu(
+            slug, TELEGRAM_DRIFT_CHAT_TITLE_KEY, chat.title or "",
+            is_secret=False,
+            description=f"Telegram chat title (cached) for drift alerts in BU '{slug}'.",
+            updated_by=current_user.id,
+        )
+    else:
+        await svc.delete_for_bu(slug, TELEGRAM_DRIFT_CHAT_ID_KEY)
+        await svc.delete_for_bu(slug, TELEGRAM_DRIFT_CHAT_TITLE_KEY)
+    await svc.set_for_bu(
+        slug, TELEGRAM_DRIFT_ENABLED_KEY, "true" if body.drift_alerts_enabled else "false",
+        is_secret=False,
+        description=f"Whether drift alerts post to Telegram in BU '{slug}'.",
+        updated_by=current_user.id,
+    )
+    await db.commit()
+
+    return await _telegram_status(svc, slug)
+
+
+@router.delete("/telegram", status_code=204)
+async def delete_telegram_config(
+    current_user: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    slug = _require_bu(bu)
+    svc = _config_svc(db)
+    for k in (
+        TELEGRAM_BOT_TOKEN_KEY,
+        TELEGRAM_BOT_USERNAME_KEY,
+        TELEGRAM_CHAT_ID_KEY,
+        TELEGRAM_CHAT_TITLE_KEY,
+        TELEGRAM_DRIFT_CHAT_ID_KEY,
+        TELEGRAM_DRIFT_CHAT_TITLE_KEY,
+        TELEGRAM_DRIFT_ENABLED_KEY,
+    ):
+        await svc.delete_for_bu(slug, k)
+    await db.commit()
+
+
+@router.post("/telegram/test", response_model=TelegramTestResult)
+async def test_telegram_token(
+    current_user: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-verify the saved token and re-read the chat. Catches a revoked token
+    or a bot removed from the group before someone wonders why notifications
+    stopped arriving."""
+    from app.services import telegram as tg_svc
+
+    slug = _require_bu(bu)
+    svc = _config_svc(db)
+    token = await svc.get_for_bu(slug, TELEGRAM_BOT_TOKEN_KEY)
+    if not token:
+        raise HTTPException(status_code=400, detail="No Telegram token configured")
+    try:
+        identity = await tg_svc.verify_token(token)
+    except tg_svc.TelegramError as e:
+        return TelegramTestResult(
+            ok=False, detail=f"Telegram error {e.code}: {e.description}"
+        )
+    except httpx.RequestError as e:
+        return TelegramTestResult(ok=False, detail=f"Network error: {e!s}")
+
+    chat_title = None
+    chat_id = await svc.get_for_bu(slug, TELEGRAM_CHAT_ID_KEY)
+    if chat_id:
+        try:
+            chat_title = (await tg_svc.get_chat(token, chat_id)).title
+        except (tg_svc.TelegramError, httpx.RequestError) as e:
+            return TelegramTestResult(
+                ok=False,
+                bot_username=identity.username,
+                detail=f"Token is valid but the chat is unreachable: {e!s}",
+            )
+    return TelegramTestResult(
+        ok=True, bot_username=identity.username, chat_title=chat_title
+    )
+
+
+@router.post("/telegram/test-message", response_model=TelegramTestResult)
+async def send_telegram_test_message(
+    current_user: User = Depends(require_role(Role.admin)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """Actually post to the configured chat.
+
+    `getChat` succeeding does not prove the bot may POST: in a channel the bot
+    must be an administrator, and `getChat` succeeds either way. Since there is
+    no channel picker to confirm the wiring, a real message is the only honest
+    confirmation an operator can get.
+    """
+    from app.services import telegram as tg_svc
+
+    slug = _require_bu(bu)
+    svc = _config_svc(db)
+    token = await svc.get_for_bu(slug, TELEGRAM_BOT_TOKEN_KEY)
+    chat_id = await svc.get_for_bu(slug, TELEGRAM_CHAT_ID_KEY)
+    if not token or not chat_id:
+        raise HTTPException(
+            status_code=400, detail="Telegram token and chat id must both be set"
+        )
+    try:
+        await tg_svc.send_message(
+            token,
+            chat_id,
+            "✅ <b>Terraducktel</b> is connected to this chat.",
+        )
+    except tg_svc.TelegramError as e:
+        return TelegramTestResult(
+            ok=False, detail=f"Telegram error {e.code}: {e.description}"
+        )
+    except httpx.RequestError as e:
+        return TelegramTestResult(ok=False, detail=f"Network error: {e!s}")
+    return TelegramTestResult(
+        ok=True,
+        chat_title=await svc.get_for_bu(slug, TELEGRAM_CHAT_TITLE_KEY),
+        detail="Message sent",
+    )

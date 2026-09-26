@@ -663,13 +663,15 @@ the plan succeeds with `Checkov` + `Cost` gates green AND
    `action="auto_apply_skipped"` and transitions
    `awaiting_approval → applying → applied` without spawning an executor.
 3. Otherwise enqueues an `apply` job exactly like a human approval would.
-4. Posts a Slack notification if the BU has Slack integration configured.
+4. Posts a Slack and/or Telegram notification, to whichever of the two the BU
+   has configured. Both fire independently; one channel's outage never
+   suppresses the other.
 
 The flag is silently ignored when `command="plan"` (no apply phase to
-approve). All four Slack notification kinds (auto-approved, awaiting
-approval, run failed, drift detected) require a configured Slack integration
-on the target workspace's BU — failures are best-effort and never roll back
-the run state machine.
+approve). All four bot notification kinds (auto-approved, awaiting
+approval, run failed, drift detected) require the target workspace's BU to
+have a Slack and/or Telegram integration configured — failures are
+best-effort and never roll back the run state machine.
 
 ---
 
@@ -700,9 +702,13 @@ drift-detector service.
 
 Reports are also accepted at the internal, state-token-authenticated path
 `POST /api/v1/internal/drift/{workspace_id}/report` (used by the real
-drift-detector service); that path alerts Slack only on a clean→drifted transition (see below).
-Either path additionally refreshes the cloud-asset Inventory when the report
-includes an `assets[]` payload.
+drift-detector service); that path fires the per-BU Slack **and** Telegram
+bot alerts, but only on a clean→drifted **transition** (see below). This
+user-facing endpoint instead fires the legacy global Slack *webhook* alert
+(`slack.webhook_url`) plus email on the same transition — an older mechanism
+that predates the bot integrations and was not extended to Telegram, so a
+manual/test report never reaches Telegram. Either path additionally refreshes
+the cloud-asset Inventory when the report includes an `assets[]` payload.
 
 **POST /drift/{workspace_id}/report** body (`DriftReportIn`):
 ```jsonc
@@ -911,6 +917,31 @@ Notifications post on:
 - **Run failed** (plan / checkov / apply terminal failure).
 - **Drift detected** (drift report transitioned a workspace to `drifted`).
 
+### Telegram (bot token + chat)
+
+Per-BU, admin-only, same storage and masking rules as Slack. The bot token is
+encrypted at rest and never returned.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/integrations/telegram` | `{configured, token_tail, bot_username, chat_id, chat_title, drift_chat_id, drift_chat_title, drift_alerts_enabled}` |
+| PUT | `/integrations/telegram` | Body: `{token?, chat_id?}`. Verifies the token via `getMe` before persisting; 422 if no token is saved yet and none is supplied, or if `chat_id` is neither numeric nor a public `@username`. When `chat_id` is given it is resolved with `getChat` and the title cached. |
+| PUT | `/integrations/telegram/drift` | Drift-alert destination. Body: `{drift_chat_id?, drift_alerts_enabled}`. Empty `drift_chat_id` = the main chat; `drift_alerts_enabled=false` = no drift alerts. Doesn't touch or re-verify the token; 400 if Telegram isn't configured. Unlike the Slack route (picked from a fetched channel list) the id is typed by hand, so a non-empty one is format-checked (422) and resolved with `getChat` — 400 if the bot can't see it, 502 if Telegram is unreachable — and its title cached as `drift_chat_title`. |
+| DELETE | `/integrations/telegram` | Remove the bot token, chat, and drift routing. |
+| POST | `/integrations/telegram/test` | Re-verify the saved token and re-read the chat. Returns `{ok, bot_username, chat_title, detail}`. |
+| POST | `/integrations/telegram/test-message` | Post a confirmation message to the configured chat. Returns `{ok, chat_title, detail}`. |
+
+There is no channel-listing endpoint: the Telegram Bot API gives a bot no way
+to enumerate the chats it belongs to. `getChat` proves the bot can see a chat
+but not that it may post there — in a channel the bot must be an administrator
+with the "Post messages" right — which is why `test-message` exists.
+
+Telegram carries the same four run-lifecycle notification kinds as the Slack
+bot path (auto-approve fired, run awaiting approval, run failed, drift
+detected) — see the list above. It parallels the Slack **bot** path only; the
+legacy `slack.webhook_url` mechanism used for the manual/test drift endpoint
+(see the Drift section) has no Telegram equivalent.
+
 ---
 
 ## Webhooks — `/api/v1/webhooks` (public; HMAC-authenticated)
@@ -938,7 +969,7 @@ the same private network as the API and authenticate with the
 | Method | Path | Description |
 |---|---|---|
 | GET | `/internal/workspaces` | List every workspace, cross-BU. |
-| POST | `/internal/drift/{workspace_id}/report` | Drift report submission (the collector's path). Same body as the user-facing `POST /drift/{workspace_id}/report` plus `drift_checked` (default true; false = scan couldn't look, so `drift_status` is left alone). Posts the bot-token Slack drift alert only on a clean→drifted **transition**, to the BU's drift channel (default channel if unset). Refreshes the Inventory. |
+| POST | `/internal/drift/{workspace_id}/report` | Drift report submission (the collector's path). Same body as the user-facing `POST /drift/{workspace_id}/report` plus `drift_checked` (default true; false = scan couldn't look, so `drift_status` is left alone). Posts the per-BU Slack **and** Telegram bot drift alerts (not the legacy Slack webhook) only on a clean→drifted **transition** — each to the BU's drift channel/chat (main one if unset), and skipped for a channel whose drift alerts are switched off. Refreshes the Inventory. |
 | GET | `/internal/workspaces/{workspace_id}/aws-credentials` | Decrypted AWS creds for a workspace: `{access_key_id, secret_access_key, account_id, region}`. Honors the `state_aws_account_id` override, falling back to `aws_account_id`. Empty strings if the account has no stored credentials. |
 | GET | `/internal/github-token` | Plaintext GitHub token for in-network crons that can't decrypt the config table themselves: `{token, source: "env"\|"config"\|"none"}`. |
 | POST | `/internal/workspaces/{workspace_id}/auto-delete` | Cleanup hook used by the liveness detector when a workspace's repo path disappears upstream. Body: `{reason}`. Deletes the workspace + its runs/drift reports/state locks and audits as `auto_delete_orphan`. Idempotent (204) on an already-missing workspace. |
@@ -1002,13 +1033,13 @@ front of it.
 
 - `200 / 201 / 204` — success.
 - `202` — accepted for async processing (webhooks, drift scan trigger).
-- `400` — bad input (e.g. invalid Slack token, channel id missing, BU scoped to "all" where a concrete BU is required).
+- `400` — bad input (e.g. invalid Slack token, invalid Telegram token or chat, channel id missing, BU scoped to "all" where a concrete BU is required).
 - `401` — JWT or API key missing/expired/revoked.
 - `403` — role or API-key capability insufficient, or an API key stepping outside its workspace allowlist, or an identity endpoint rejecting an API key outright.
 - `404` — resource not found (including cross-BU access, which 404s rather than 403s to avoid leaking another tenant's resource existence).
 - `409` — state-machine conflict (e.g. approving/cancelling a run in the wrong state, deleting a git-synced workspace, duplicate account/subscription/workspace identity tuple, regenerating a revoked/expired API key).
 - `422` — schema validation failed (including business-rule validation like an out-of-BU account reference).
-- `502` — upstream integration unreachable (GitHub, Slack, Infracost).
+- `502` — upstream integration unreachable (GitHub, Slack, Telegram, Infracost).
 - `503` — state backend (S3) unavailable.
 
 ## Audit actions you'll see
