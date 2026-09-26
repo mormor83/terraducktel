@@ -46,6 +46,7 @@ type Workspace = {
   kind?: string;
   azure_subscription_id?: string | null;
   gcp_project_id?: string | null;
+  proxmox_cluster_id?: string | null;
   cluster_id?: string | null;
 };
 

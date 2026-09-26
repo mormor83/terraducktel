@@ -1,4 +1,4 @@
-"""Canonical colour palette for cloud accounts (AWS / Azure / GCP / K8s).
+"""Canonical colour palette for cloud accounts (AWS / Azure / GCP / K8s / Proxmox).
 
 Why a fixed palette instead of a free-form hex picker:
 
@@ -118,8 +118,8 @@ def pick_next(taken: Iterable[Optional[str]]) -> str:
 async def used_colors_for_bu(session, business_unit_id: Optional[str]) -> list[str]:
     """Every colour already claimed by any cloud account in this BU.
 
-    Deliberately spans all four provider tables: the Runs page interleaves
-    Terraform (AWS/Azure/GCP) and Helm (K8s cluster) runs, so a colour reused
+    Deliberately spans every provider table (AWS / Azure / GCP / K8s / Proxmox): the Runs page interleaves
+    Terraform (AWS/Azure/GCP/Proxmox) and Helm (K8s cluster) runs, so a colour reused
     across providers is just as confusing as one reused within a provider.
 
     Imports are local to keep this module import-safe from the schema layer.
@@ -130,9 +130,10 @@ async def used_colors_for_bu(session, business_unit_id: Optional[str]) -> list[s
     from app.models.azure_subscription import AzureSubscription
     from app.models.gcp_project import GcpProject
     from app.models.k8s_cluster import K8sCluster
+    from app.models.proxmox_cluster import ProxmoxCluster
 
     out: list[str] = []
-    for model in (AwsAccount, AzureSubscription, GcpProject, K8sCluster):
+    for model in (AwsAccount, AzureSubscription, GcpProject, K8sCluster, ProxmoxCluster):
         stmt = select(model.color).where(model.color.is_not(None))
         if business_unit_id is not None:
             stmt = stmt.where(model.business_unit_id == business_unit_id)

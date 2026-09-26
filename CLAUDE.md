@@ -79,7 +79,8 @@ Login URL: http://localhost:3001  ·  API: http://localhost:8001  ·  Forgejo: h
   viewer). The legacy `users.role` column is still populated for one release
   as a fallback. See the Business Units section of `docs/ARCHITECTURE.md`.
 - **State backend:** pluggable per workspace via `workspaces.state_backend`
-  (`s3` default | `azureblob` | `gcs`), keyed by `{tf_working_dir}/terraform.tfstate`.
+  (`s3` default | `azureblob` | `gcs`), keyed by `{tf_working_dir}/terraform.tfstate`
+  (`proxmox/…` paths get a `bu-{business_unit_id}/` prefix — slugs are per-BU).
   The executor always talks Terraform's `backend "http"` to the API; the API is
   the only component that touches the object store, selecting the backend in
   `routers/state.py:_service_for` (S3/Azure Blob/GCS implement the `StateStore`
@@ -89,10 +90,12 @@ Login URL: http://localhost:3001  ·  API: http://localhost:8001  ·  Forgejo: h
   project's SA key against a bucket. Locking is DB-side (`pg_advisory_xact_lock`),
   backend-independent — not DynamoDB.
 - **Cloud providers:** AWS (`aws_accounts`), Azure (`azure_subscriptions`,
-  `azurerm` via `ARM_*`), and GCP (`gcp_projects`, `google` via a service-account
-  key → `GOOGLE_APPLICATION_CREDENTIALS`). Each is a per-BU-scoped vertical slice
-  (model/schema/service/router + a `CloudProviders` UI tab); a workspace links to
-  one via `aws_account_id` / `azure_subscription_id` / `gcp_project_id`.
+  `azurerm` via `ARM_*`), GCP (`gcp_projects`, `google` via a service-account
+  key → `GOOGLE_APPLICATION_CREDENTIALS`), and Proxmox VE (`proxmox_clusters`,
+  API token exported for both bpg/proxmox and Telmate/proxmox; no state backend).
+  Each is a per-BU-scoped vertical slice (model/schema/service/router +
+  a `CloudProviders` UI tab); a workspace links to one via `aws_account_id` /
+  `azure_subscription_id` / `gcp_project_id` / `proxmox_cluster_id`.
 - **No new sky-* colors.** Sky in Tailwind is aliased to brand teal; new code
   should write `brand-*` / `accent-*` directly.
 - **Migrations are forward-only.** Alembic; one revision per change; never edit

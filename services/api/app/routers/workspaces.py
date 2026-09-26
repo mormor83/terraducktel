@@ -38,6 +38,11 @@ _AZURE_SUB_RE = re.compile(r"^subscription-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-
 # so we derive + auto-link it on import instead of asking the user to pick one.
 _GCP_PROJECT_RE = re.compile(r"^project-([a-z][a-z0-9-]{4,28}[a-z0-9])$")
 
+# Proxmox leaves live under `proxmox/cluster-<slug>/<node>/<stack>`. The slug is
+# the operator-chosen key on proxmox_clusters (Proxmox has no global cluster
+# id), so we auto-link on import the same way Azure/GCP do.
+_PROXMOX_CLUSTER_RE = re.compile(r"^cluster-([a-z][a-z0-9-]{1,38}[a-z0-9])$")
+
 
 async def _commit_or_conflict(
     db: AsyncSession,
@@ -87,6 +92,16 @@ def _gcp_project_id_from_path(path: str) -> str | None:
     parts = [p for p in (path or "").split("/") if p]
     if len(parts) >= 2 and parts[0].lower() == "gcp":
         m = _GCP_PROJECT_RE.match(parts[1])
+        if m:
+            return m.group(1)
+    return None
+
+
+def _proxmox_slug_from_path(path: str) -> str | None:
+    """Extract the cluster slug from a `proxmox/cluster-<slug>/…` path."""
+    parts = [p for p in (path or "").split("/") if p]
+    if len(parts) >= 2 and parts[0].lower() == "proxmox":
+        m = _PROXMOX_CLUSTER_RE.match(parts[1])
         if m:
             return m.group(1)
     return None
@@ -387,6 +402,22 @@ async def create_workspace(
             )
         gcp_project_pk = proj.id
 
+    # Optional Proxmox cluster link: must belong to the same BU.
+    proxmox_cluster_pk: str | None = None
+    if body.proxmox_cluster_id:
+        from app.models.proxmox_cluster import ProxmoxCluster
+
+        pmx = await db.get(ProxmoxCluster, body.proxmox_cluster_id)
+        if pmx is None or pmx.business_unit_id != bu.bu_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Proxmox cluster {body.proxmox_cluster_id} is not configured "
+                    f"in this business unit"
+                ),
+            )
+        proxmox_cluster_pk = pmx.id
+
     # The chosen state backend must have its required cloud linkage + storage
     # target, or the executor's HTTP-state calls would 503 at run time.
     state_backend = body.state_backend or "s3"
@@ -414,6 +445,7 @@ async def create_workspace(
         cluster_id=body.cluster_id,
         azure_subscription_id=azure_sub_pk,
         gcp_project_id=gcp_project_pk,
+        proxmox_cluster_id=proxmox_cluster_pk,
         state_backend=state_backend,
         tags=create_tags or None,
     )
@@ -516,6 +548,23 @@ async def update_workspace(
             )
     elif gcp_override == "":
         update_data["gcp_project_id"] = None
+
+    # proxmox_cluster_id: same semantics — "" clears, a value must be in-BU.
+    pmx_override = update_data.get("proxmox_cluster_id")
+    if pmx_override:
+        from app.models.proxmox_cluster import ProxmoxCluster
+
+        pmx = await db.get(ProxmoxCluster, pmx_override)
+        if pmx is None or pmx.business_unit_id != ws.business_unit_id:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"proxmox_cluster_id '{pmx_override}' is not a registered "
+                    f"Proxmox cluster in this Business Unit."
+                ),
+            )
+    elif pmx_override == "":
+        update_data["proxmox_cluster_id"] = None
 
     # aws_account_id: create validates this against the BU, but update used to
     # blind-setattr it — letting an operator point their workspace at an account
@@ -721,6 +770,17 @@ async def bulk_import(
             )
         ).scalars().all()
     }
+    # Same for Proxmox clusters: leaves auto-link by the slug in their path.
+    from app.models.proxmox_cluster import ProxmoxCluster
+
+    pmx_by_slug = {
+        c.slug: c.id
+        for c in (
+            await db.execute(
+                select(ProxmoxCluster).where(ProxmoxCluster.business_unit_id == bu.bu_id)
+            )
+        ).scalars().all()
+    }
 
     created: list[Workspace] = []
     skipped: list[dict] = []
@@ -778,6 +838,10 @@ async def bulk_import(
         _gcp_pid = _gcp_project_id_from_path(entry.path)
         if _gcp_pid and _gcp_pid in gcp_by_project_id:
             ws.gcp_project_id = gcp_by_project_id[_gcp_pid]
+        # Proxmox leaves (proxmox/cluster-<slug>/…): same rule, state stays s3.
+        _pmx_slug = _proxmox_slug_from_path(entry.path)
+        if _pmx_slug and _pmx_slug in pmx_by_slug:
+            ws.proxmox_cluster_id = pmx_by_slug[_pmx_slug]
         db.add(ws)
         created.append(ws)
     if created:
