@@ -132,15 +132,15 @@ def test_managed_from_tfstate_skips_sentinel_none_id_defensively():
 
 
 def test_live_resources_no_creds():
-    assert detector._live_resources({}, "us-east-1") == []
+    assert detector._live_resources({}, "us-east-1") is None
 
 
 def test_live_resources_skips_non_regional():
     """Non-regional workspaces (region='global'/empty) must not attempt a
     tagging-API call — there's no `tagging.global.amazonaws.com` endpoint."""
     creds = {"access_key_id": "AKIA", "secret_access_key": "s"}
-    assert detector._live_resources(creds, "global") == []
-    assert detector._live_resources(creds, "") == []
+    assert detector._live_resources(creds, "global") is None
+    assert detector._live_resources(creds, "") is None
 
 
 def test_live_resources_enumerates_with_tags(monkeypatch):
@@ -167,7 +167,222 @@ def test_live_resources_degrades_on_error(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("no boto")
     monkeypatch.setitem(sys.modules, "boto3", type("B", (), {"client": staticmethod(boom)}))
-    assert detector._live_resources({"access_key_id": "k", "secret_access_key": "s"}, "us-east-1") == []
+    assert detector._live_resources({"access_key_id": "k", "secret_access_key": "s"}, "us-east-1") is None
+
+
+# ─── tag drift ───────────────────────────────────────────────────────────────
+
+
+_REPO_ARN = "arn:aws:ecr:us-east-1:123:repository/app"
+
+
+def _tagged_state(tags_attr: dict) -> dict:
+    return {"resources": [
+        {"mode": "managed", "type": "aws_ecr_repository", "name": "this", "module": "module.ecr",
+         "instances": [{"attributes": {"arn": _REPO_ARN, "id": "app", **tags_attr}}]},
+    ]}
+
+
+def test_state_tags_prefers_tags_all_and_skips_untaggable():
+    state = _tagged_state({"tags": {"A": "1"}, "tags_all": {"A": "1", "Owner": "devops"}})
+    state["resources"].append({"mode": "managed", "type": "aws_iam_role_policy_attachment", "name": "x",
+                               "instances": [{"attributes": {"id": "role/x", "arn": "arn:aws:iam::123:x"}}]})
+    assert detector._state_tags(state) == {
+        _REPO_ARN: ("module.ecr.aws_ecr_repository.this", "aws_ecr_repository", {"A": "1", "Owner": "devops"}),
+    }
+
+
+def test_state_tags_null_is_empty():
+    assert detector._state_tags(_tagged_state({"tags_all": None}))[_REPO_ARN][2] == {}
+
+
+def test_tag_diff_reports_keys_only_and_ignores_aws_prefix():
+    assert detector._tag_diff({"A": "1", "B": "2"}, {"A": "1", "B": "2", "aws:cloudformation:x": "y"}) == ""
+    diff = detector._tag_diff({"A": "1", "B": "2"}, {"A": "changed", "C": "secret-value"})
+    assert diff == "tags changed: +C ~A -B"
+    assert "secret-value" not in diff
+
+
+def test_analyze_flags_tag_drift_on_managed_resource():
+    state = _tagged_state({"tags_all": {"Owner": "devops"}})
+    live = [{"arn": _REPO_ARN, "tags": {"Owner": "devops", "tdt-drift-test": "1"}}]
+    out = detector._analyze_workspace({"name": "ecr", "region": "us-east-1"}, {"account_id": "123"}, state, live)
+    assert out["has_drift"] is True and out["drift_checked"] is True
+    assert out["modified_count"] == 1 and out["untracked_count"] == 0
+    assert out["resources"] == [{
+        "address": "module.ecr.aws_ecr_repository.this", "type": "aws_ecr_repository", "provider": "aws",
+        "drift_type": "modified", "summary": "tags changed: +tdt-drift-test",
+    }]
+    [asset] = out["assets"]
+    assert asset["iac_status"] == "drifted" and asset["drift_summary"] == "tags changed: +tdt-drift-test"
+    assert "module.ecr.aws_ecr_repository.this: tags changed: +tdt-drift-test" in out["summary"]
+
+
+def test_analyze_matching_tags_is_clean():
+    state = _tagged_state({"tags_all": {"Owner": "devops"}})
+    live = [{"arn": _REPO_ARN, "tags": {"Owner": "devops"}}]
+    out = detector._analyze_workspace({"name": "ecr"}, {"account_id": "123"}, state, live)
+    assert out["has_drift"] is False and out["modified_count"] == 0
+    assert out["assets"][0]["iac_status"] == "codified"
+
+
+def test_ec2_tag_keys_owned_by_another_workspace_are_not_drift():
+    """Prod case: the EKS workspace's `aws_ec2_tag` stamps kubernetes.io/* onto
+    the VPC workspace's subnets. Only the unowned key may count."""
+    subnet = "arn:aws:ec2:us-east-1:123:subnet/subnet-0abc"
+    vpc_state = {"resources": [
+        {"mode": "managed", "type": "aws_subnet", "name": "private",
+         "instances": [{"index_key": 0, "attributes": {"arn": subnet, "id": "subnet-0abc",
+                                                       "tags_all": {"Name": "private"}}}]}]}
+    eks_state = {"resources": [
+        {"mode": "managed", "type": "aws_ec2_tag", "name": "subnet",
+         "instances": [{"attributes": {"resource_id": "subnet-0abc", "key": "kubernetes.io/cluster/main"}}]}]}
+    owned = detector._ec2_tag_owned(eks_state)
+    assert owned == {"subnet-0abc": {"kubernetes.io/cluster/main"}}
+    live = [{"arn": subnet, "tags": {"Name": "private", "kubernetes.io/cluster/main": "shared"}}]
+    assert detector._analyze_workspace({"name": "vpc"}, {}, vpc_state, live, owned)["has_drift"] is False
+    live[0]["tags"]["rogue"] = "x"
+    out = detector._analyze_workspace({"name": "vpc"}, {}, vpc_state, live, owned)
+    assert out["resources"][0]["summary"] == "tags changed: +rogue"
+    assert out["resources"][0]["address"] == "aws_subnet.private[0]"
+
+
+def test_analyze_without_live_scan_is_unchecked():
+    """No live scan (None) must not read as "clean" — the API would flip the
+    badge and re-alert on the next successful scan."""
+    out = detector._analyze_workspace({"name": "ecr"}, {}, _tagged_state({"tags_all": {}}), None)
+    assert out["drift_checked"] is False and out["has_drift"] is False
+
+
+# ─── ghosts ──────────────────────────────────────────────────────────────────
+
+
+_LT_ARN = "arn:aws:ec2:us-east-1:123:launch-template/lt-gone"
+
+
+def _ghost_state() -> dict:
+    return {"resources": [
+        {"mode": "managed", "type": "aws_launch_template", "name": "this",
+         "instances": [{"attributes": {"arn": _LT_ARN, "id": "lt-gone", "tags_all": {"Name": "t"}}}]},
+        # untagged → the Tagging API wouldn't list it even if alive
+        {"mode": "managed", "type": "aws_sqs_queue", "name": "q",
+         "instances": [{"attributes": {"arn": "arn:aws:sqs:us-east-1:123:q", "tags_all": {}}}]},
+        # only aws:-reserved tags → same
+        {"mode": "managed", "type": "aws_sns_topic", "name": "t",
+         "instances": [{"attributes": {"arn": "arn:aws:sns:us-east-1:123:t",
+                                       "tags_all": {"aws:cloudformation:stack-name": "x"}}}]},
+        # global ARN → never in a regional scan
+        {"mode": "managed", "type": "aws_iam_role", "name": "r",
+         "instances": [{"attributes": {"arn": "arn:aws:iam::123:role/r", "tags_all": {"A": "1"}}}]},
+        # other region
+        {"mode": "managed", "type": "aws_s3_bucket", "name": "b",
+         "instances": [{"attributes": {"arn": "arn:aws:sqs:eu-west-1:123:far", "tags_all": {"A": "1"}}}]},
+    ]}
+
+
+def test_ghost_candidates_only_tagged_in_region_arns():
+    st = detector._state_tags(_ghost_state())
+    assert detector._ghost_candidates(st, set(), "us-east-1") == [_LT_ARN]
+    assert detector._ghost_candidates(st, {_LT_ARN}, "us-east-1") == []
+
+
+def test_analyze_reports_confirmed_ghost():
+    seen = []
+
+    def confirm(arns):
+        seen.append(list(arns))
+        return set(arns)
+
+    out = detector._analyze_workspace({"name": "cf", "region": "us-east-1"}, {"account_id": "123"},
+                                      _ghost_state(), [], confirm_ghosts=confirm)
+    assert seen == [[_LT_ARN]]
+    assert out["has_drift"] is True and out["deleted_count"] == 1 and out["modified_count"] == 0
+    assert out["resources"][0] == {
+        "address": "aws_launch_template.this", "type": "aws_launch_template", "provider": "aws",
+        "drift_type": "deleted", "summary": detector.GHOST_SUMMARY,
+    }
+    lt = next(a for a in out["assets"] if a["asset_id"] == _LT_ARN)
+    assert lt["iac_status"] == "ghost"
+    assert "1 deleted (ghost)" in out["summary"]
+
+
+def test_analyze_unconfirmed_ghost_is_not_reported():
+    """The first scan alone is never trusted: no confirmer, or a confirmer
+    that disagrees, means no ghost."""
+    kw = dict(workspace={"name": "cf", "region": "us-east-1"}, creds={}, state=_ghost_state(), live=[])
+    assert detector._analyze_workspace(**kw)["deleted_count"] == 0
+    assert detector._analyze_workspace(**kw, confirm_ghosts=lambda arns: set())["deleted_count"] == 0
+
+
+def test_analyze_no_ghosts_without_live_scan():
+    called = []
+    out = detector._analyze_workspace({"name": "cf", "region": "us-east-1"}, {}, _ghost_state(), None,
+                                      confirm_ghosts=lambda a: called.append(a) or set(a))
+    assert called == [] and out["deleted_count"] == 0 and out["drift_checked"] is False
+
+
+def _fake_tagging(monkeypatch, known=(), boom=False):
+    calls = []
+
+    class _C:
+        def get_resources(self, ResourceARNList):
+            if boom:
+                raise RuntimeError("throttled")
+            calls.append(len(ResourceARNList))
+            return {"ResourceTagMappingList": [{"ResourceARN": a} for a in ResourceARNList if a in known]}
+
+    monkeypatch.setitem(sys.modules, "boto3", type("B", (), {"client": staticmethod(lambda *a, **k: _C())}))
+    return calls
+
+
+def test_still_live_batches_by_100(monkeypatch):
+    arns = [f"arn:aws:sqs:us-east-1:123:q{i}" for i in range(150)]
+    calls = _fake_tagging(monkeypatch, known={arns[3], arns[120]})
+    assert detector._still_live({}, "us-east-1", arns) == {arns[3], arns[120]}
+    assert calls == [100, 50]
+
+
+def test_still_live_failure_confirms_nothing(monkeypatch):
+    _fake_tagging(monkeypatch, boom=True)
+    assert detector._still_live({}, "us-east-1", [_LT_ARN]) is None
+
+
+def _ghost_scan(monkeypatch, second_state, known=()):
+    """Scan one workspace whose live scan misses the launch template, with the
+    state backend returning `second_state` on the re-read."""
+    ws = _Resp(200, json_data=[{"id": "w1", "name": "cf", "region": "us-east-1"}])
+    states = iter([_Resp(200, json_data=_ghost_state(), content=b"{}"), second_state])
+
+    class _C(_Client):
+        def get(self, url, headers=None, params=None):
+            if "/state/" in url:
+                return next(states)
+            return super().get(url, headers, params)
+
+    client = _C({"aws-credentials": _Resp(200, json_data={"access_key_id": "k", "secret_access_key": "s",
+                                                          "account_id": "123"})}, ws)
+    _patch_client(monkeypatch, client)
+    monkeypatch.setattr(detector, "_live_resources", lambda creds, region: [])
+    _fake_tagging(monkeypatch, known=known)
+    detector._scan_once("http://api", "internal-tok", "state-tok")
+    return client.posts[0]
+
+
+def test_scan_confirms_ghost_via_recheck_and_fresh_state(monkeypatch):
+    body = _ghost_scan(monkeypatch, _Resp(200, json_data=_ghost_state(), content=b"{}"))
+    assert body["deleted_count"] == 1 and body["has_drift"] is True
+
+
+def test_scan_drops_ghost_destroyed_by_concurrent_apply(monkeypatch):
+    """Resource left state between pass 1 and the re-read → it was destroyed
+    on purpose, not a ghost."""
+    body = _ghost_scan(monkeypatch, _Resp(200, json_data={"resources": []}, content=b"{}"))
+    assert body["deleted_count"] == 0 and body["has_drift"] is False
+
+
+def test_scan_drops_ghost_the_recheck_finds(monkeypatch):
+    body = _ghost_scan(monkeypatch, _Resp(200, json_data=_ghost_state(), content=b"{}"), known={_LT_ARN})
+    assert body["deleted_count"] == 0
 
 
 # ─── _service_owner ────────────────────────────────────────────────────────--
@@ -344,7 +559,8 @@ def test_scan_reports_codified_and_unmanaged(monkeypatch):
     body = client.posts[0]
     assert body["workspace_id"] == "w1"
     assert body["has_drift"] is False
-    assert [a["iac_status"] for a in body["assets"]] == ["codified"]  # empty creds → no live scan
+    assert body["drift_checked"] is False  # empty creds → no live scan → drift unknown
+    assert [a["iac_status"] for a in body["assets"]] == ["codified"]
 
 
 def test_scan_skips_workspaces_without_id(monkeypatch):
@@ -376,6 +592,22 @@ def test_fetch_state_200_and_404(monkeypatch):
     assert detector._fetch_state(client, "http://api", {}, "w1") == {"resources": []}
     empty = _Client({}, _Resp(200))
     assert detector._fetch_state(empty, "http://api", {}, "missing") == {}
+
+
+def test_fetch_state_error_is_none_not_empty():
+    """A backend error must not look like "no state" — that would read as no
+    drift and flip a drifted workspace back to clean."""
+    client = _Client({"/state/": _Resp(502)}, _Resp(200))
+    assert detector._fetch_state(client, "http://api", {}, "w1") is None
+
+
+def test_scan_state_error_marks_drift_unchecked(monkeypatch):
+    ws = _Resp(200, json_data=[{"id": "w1", "name": "vpc", "region": "us-east-1"}])
+    routes = {"aws-credentials": _Resp(200, json_data={}), "/state/": _Resp(502)}
+    client = _Client(routes, ws)
+    _patch_client(monkeypatch, client)
+    detector._scan_once("http://api", "internal-tok", "state-tok")
+    assert client.posts[0]["drift_checked"] is False
 
 
 # ─── main ────────────────────────────────────────────────────────────────────

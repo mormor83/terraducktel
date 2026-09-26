@@ -14,10 +14,14 @@ reuses what the API already holds:
 
 This avoids GitHub access, `terraform init`/backend wiring, and provider
 `profile=` handling entirely — the API + the stored account config are the only
-inputs. Attribute-level drift (codified-but-changed) needs a real plan and is
-out of scope here; this collector populates the codification / unmanaged
-inventory. Unmanaged detection covers only *taggable* resources the Tagging API
-returns (AWS Config is a fuller-coverage future enhancement).
+inputs. Full attribute-level drift needs a real plan and is out of scope here;
+the one attribute the collector *can* check for free is tags — the Tagging API
+already hands back each live ARN's tags, so a managed resource whose live tags
+differ from its tfstate `tags_all` is reported `modified` (tag drift), and a
+tagged, in-region managed resource the Tagging API no longer returns (confirmed
+by a targeted re-check) is reported `deleted` (a ghost).
+Unmanaged detection covers only *taggable* resources the Tagging API returns
+(AWS Config is a fuller-coverage future enhancement).
 """
 from __future__ import annotations
 
@@ -152,6 +156,101 @@ def _managed_from_tfstate(state: dict, region: str, account_id: str) -> tuple[li
     return assets, managed_ids, arnless_ids
 
 
+def _state_tags(state: dict) -> dict[str, tuple[str, str, dict]]:
+    """Map each managed ARN to (address, type, tags) from tfstate.
+
+    `tags_all` is what Terraform actually applied (resource tags merged with
+    provider `default_tags`); `tags` is the fallback for providers/resources
+    predating `tags_all`. Instances with neither key aren't taggable in
+    Terraform and are left out — there's nothing to compare. A null value
+    (taggable, but no tags set) counts as `{}`.
+    """
+    out: dict[str, tuple[str, str, dict]] = {}
+    for res in state.get("resources", []) or []:
+        if res.get("mode") != "managed":
+            continue
+        rtype = res.get("type", "")
+        module = res.get("module", "")
+        for inst in res.get("instances", []) or []:
+            attrs = inst.get("attributes") or {}
+            arn = attrs.get("arn")
+            if not arn or ("tags_all" not in attrs and "tags" not in attrs):
+                continue
+            tags = attrs.get("tags_all") if "tags_all" in attrs else attrs.get("tags")
+            address = ".".join(p for p in [module, f"{rtype}.{res.get('name', '')}"] if p)
+            idx = inst.get("index_key")
+            if idx is not None:
+                address += f'["{idx}"]' if isinstance(idx, str) else f"[{idx}]"
+            out[arn] = (address, rtype, dict(tags or {}))
+    return out
+
+
+def _ec2_tag_owned(state: dict) -> dict[str, set[str]]:
+    """{resource_id: {tag keys}} set by `aws_ec2_tag` resources in this state.
+
+    `aws_ec2_tag` lets one workspace tag a resource another workspace owns —
+    the EKS workspace stamping `kubernetes.io/*` onto the VPC workspace's
+    subnets is the case seen in prod. Those keys are managed by Terraform, just
+    not by the owning resource's `tags_all`, so they must not read as drift.
+    """
+    out: dict[str, set[str]] = {}
+    for res in state.get("resources", []) or []:
+        if res.get("mode") != "managed" or res.get("type") != "aws_ec2_tag":
+            continue
+        for inst in res.get("instances", []) or []:
+            attrs = inst.get("attributes") or {}
+            rid, key = attrs.get("resource_id"), attrs.get("key")
+            if rid and key:
+                out.setdefault(rid, set()).add(key)
+    return out
+
+
+def _tag_diff(state_tags: dict, live_tags: dict, ignore: set[str] = frozenset()) -> str:
+    """Summarise how live tags differ from state, by KEY only ("" = no drift).
+
+    `aws:`-prefixed keys are reserved for AWS, can never be set by Terraform,
+    and so never count; nor do `ignore` keys (owned by an `aws_ec2_tag`
+    elsewhere). Values stay out of the summary on purpose — tags do sometimes
+    carry things nobody wants pasted into Slack.
+    """
+    def keep(k: str) -> bool:
+        return not k.startswith("aws:") and k not in ignore
+
+    want = {k: v for k, v in state_tags.items() if keep(k)}
+    have = {k: v for k, v in live_tags.items() if keep(k)}
+    added = sorted(have.keys() - want.keys())
+    removed = sorted(want.keys() - have.keys())
+    changed = sorted(k for k in want.keys() & have.keys() if want[k] != have[k])
+    parts = [f"+{k}" for k in added] + [f"~{k}" for k in changed] + [f"-{k}" for k in removed]
+    return f"tags changed: {' '.join(parts)}" if parts else ""
+
+
+GHOST_SUMMARY = "in state but not found in AWS"
+
+
+def _ghost_candidates(state_tags: dict, live_arns: set[str], region: str) -> list[str]:
+    """Managed ARNs that should be in the live scan but aren't.
+
+    Absence from the Tagging API only means "deleted" when the resource would
+    be listed if it existed, so a candidate must (a) carry at least one
+    non-`aws:` tag in state — the API lists tagged resources — and (b) have
+    an ARN in the scanned region; global ARNs (IAM, CloudFront, Route 53:
+    empty region field) are never in a regional scan. With these rules plus
+    the two confirmations in `_scan_once`, a dry run over several hundred
+    eligible resources produced no false positives.
+    """
+    out = []
+    for arn, (_addr, _rtype, tags) in state_tags.items():
+        parts = arn.split(":")
+        if len(parts) < 6 or parts[3] != region:
+            continue
+        if not any(not k.startswith("aws:") for k in tags):
+            continue
+        if arn not in live_arns:
+            out.append(arn)
+    return out
+
+
 # ─── AWS live scan ───────────────────────────────────────────────────────────
 
 
@@ -194,23 +293,25 @@ def _service_owner(tags: dict) -> str | None:
     return None
 
 
-def _live_resources(creds: dict, region: str) -> list:
+def _live_resources(creds: dict, region: str) -> list | None:
     """Enumerate live taggable resources (ARN + tags) for an account/region.
 
-    Returns [{"arn": str, "tags": {k: v}}]. Degrades to [] on any failure
-    (missing creds, boto3 absent, API error) — logged, never fatal.
+    Returns [{"arn": str, "tags": {k: v}}], or None when no scan happened
+    (missing creds, non-regional workspace, boto3 absent, API error) — logged,
+    never fatal. None and [] must stay distinct: [] means "scanned, nothing
+    live", None means "don't know", and only the former may clear drift.
     """
     access_key = (creds or {}).get("access_key_id") or ""
     secret_key = (creds or {}).get("secret_access_key") or ""
     if not access_key or not secret_key:
         logger.info("live scan skipped — no AWS credentials")
-        return []
+        return None
     # Non-regional workspaces (cloudflare / azure / helm charts carry
     # region="global" or none) have no AWS regional tagging endpoint — boto3
     # would build `tagging.global.amazonaws.com`, which doesn't resolve. Skip.
     if not region or region == "global":
         logger.info("live scan skipped — non-regional workspace (region=%r)", region)
-        return []
+        return None
     try:
         import boto3  # lazy: keeps the import optional for unit tests
 
@@ -230,27 +331,75 @@ def _live_resources(creds: dict, region: str) -> list:
         return out
     except Exception:  # noqa: BLE001 — graceful degrade
         logger.exception("live scan failed")
-        return []
+        return None
+
+
+def _still_live(creds: dict, region: str, arns: list[str]) -> set[str] | None:
+    """Re-ask the Tagging API about specific ARNs; return the ones it knows.
+
+    A full paginated scan can come back short (throttling, eventual
+    consistency), so a ghost is only declared when a targeted lookup agrees.
+    None = the re-check itself failed, which must not confirm anything.
+    """
+    try:
+        import boto3
+
+        client = boto3.client(
+            "resourcegroupstaggingapi",
+            region_name=region,
+            aws_access_key_id=creds.get("access_key_id"),
+            aws_secret_access_key=creds.get("secret_access_key"),
+        )
+        found: set[str] = set()
+        for i in range(0, len(arns), 100):  # ResourceARNList max is 100
+            page = client.get_resources(ResourceARNList=arns[i:i + 100])
+            found |= {m["ResourceARN"] for m in page.get("ResourceTagMappingList", []) or []}
+        return found
+    except Exception:  # noqa: BLE001
+        logger.exception("ghost re-check failed")
+        return None
 
 
 # ─── analysis ────────────────────────────────────────────────────────────────
 
 
-def _analyze_workspace(workspace: dict, creds: dict, state: dict, live: list) -> dict:
+def _analyze_workspace(
+    workspace: dict,
+    creds: dict,
+    state: dict,
+    live: list | None,
+    ec2_tag_owned: dict[str, set[str]] | None = None,
+    confirm_ghosts=None,
+) -> dict:
     """Classify one workspace's assets → report payload fields.
 
     codified = managed resources in tfstate; the live resources (ARN+tags) not
     in state are split into `service_managed` (an ownership tag identifies an
     AWS service like EKS/CloudFormation) vs genuine `unmanaged`. The API de-dups
-    these across sibling workspaces in the same account.
+    these across sibling workspaces in the same account. A managed resource
+    whose live tags differ from state is `drifted` (drift_type `modified`).
+
+    `live=None` (no scan happened) yields `drift_checked: False` so the API
+    keeps the workspace's previous drift status instead of flapping to clean.
+    `ec2_tag_owned` is the scan-wide `_ec2_tag_owned` union — the tagging
+    workspace is usually not this one.
+
+    `confirm_ghosts(arns) -> set` narrows `_ghost_candidates` to the ones a
+    second look agrees are gone (see `_scan_once`). Without it no ghost is
+    ever reported — the first scan alone isn't trusted.
     """
+    drift_checked = live is not None
+    live = live or []
     ws_name = workspace.get("name", workspace.get("id"))
     region = workspace.get("region", "us-east-1")
     account_id = (creds or {}).get("account_id", "") or workspace.get("aws_account_id", "")
 
     managed_assets, managed_ids, arnless_ids = _managed_from_tfstate(state, region, account_id)
+    state_tags = _state_tags(state)
 
     unmanaged_resources: list[dict] = []
+    modified_resources: list[dict] = []
+    drift_by_arn: dict[str, str] = {}
     extra_assets: list[dict] = []
     unmanaged = service_managed = 0
     for item in live:
@@ -261,6 +410,19 @@ def _analyze_workspace(workspace: dict, creds: dict, state: dict, live: list) ->
         # provider gives no `arn` (NAT gateways, VPC peering connections, …),
         # whose state entry is a bare id and so can never match an ARN.
         if arn in managed_ids or (arnless_ids and arnless_ids & _arn_id_candidates(arn)):
+            if arn in state_tags and isinstance(item, dict):
+                address, rtype, want = state_tags[arn]
+                ignore: set[str] = set()
+                if ec2_tag_owned:
+                    for rid in _arn_id_candidates(arn):
+                        ignore |= ec2_tag_owned.get(rid, set())
+                diff = _tag_diff(want, item.get("tags") or {}, ignore)
+                if diff:
+                    drift_by_arn[arn] = diff
+                    modified_resources.append({
+                        "address": address, "type": rtype, "provider": "aws",
+                        "drift_type": "modified", "summary": diff,
+                    })
             continue
         owner = _service_owner(item.get("tags", {})) if isinstance(item, dict) else None
         if owner:
@@ -284,20 +446,52 @@ def _analyze_workspace(workspace: dict, creds: dict, state: dict, live: list) ->
             "drift_summary": summary,
         })
 
+    ghosts: set[str] = set()
+    if drift_checked and confirm_ghosts:
+        live_arns = {i.get("arn") if isinstance(i, dict) else i for i in live}
+        candidates = _ghost_candidates(state_tags, live_arns, region)
+        if candidates:
+            ghosts = set(confirm_ghosts(candidates)) & set(candidates)
+    deleted_resources = [
+        {"address": state_tags[a][0], "type": state_tags[a][1], "provider": "aws",
+         "drift_type": "deleted", "summary": GHOST_SUMMARY}
+        for a in sorted(ghosts)
+    ]
+
+    for asset in managed_assets:
+        diff = drift_by_arn.get(asset["asset_id"])
+        if asset["asset_id"] in ghosts:
+            asset["iac_status"] = "ghost"
+            asset["drift_summary"] = GHOST_SUMMARY
+        elif diff:
+            asset["iac_status"] = "drifted"
+            asset["drift_summary"] = diff
+
     codified = len(managed_assets)
+    modified = len(modified_resources)
+    deleted = len(deleted_resources)
     summary = f"{ws_name}: {codified} codified, {unmanaged} unmanaged, {service_managed} service-managed"
+    if modified:
+        summary += f", {modified} modified (tags)"
+    if deleted:
+        summary += f", {deleted} deleted (ghost)"
+    if modified or deleted:
+        summary += "\n" + "\n".join(
+            f"{r['address']}: {r['summary']}" for r in modified_resources + deleted_resources
+        )
 
     return {
-        # has_drift stays False — this collector does inventory, not plan-based
-        # drift, so it must not flip the workspace's drift_status badge.
-        "has_drift": False,
+        # Tag drift (`modified`) and ghosts (`deleted`) flip drift_status —
+        # unmanaged resources are inventory, not drift of this workspace.
+        "has_drift": modified + deleted > 0,
+        "drift_checked": drift_checked,
         "summary": summary,
         "plan_output": "",
-        "modified_count": 0,
+        "modified_count": modified,
         "untracked_count": unmanaged,
-        "deleted_count": 0,
+        "deleted_count": deleted,
         "mismatch_count": 0,
-        "resources": unmanaged_resources,
+        "resources": modified_resources + deleted_resources + unmanaged_resources,
         "assets": managed_assets + extra_assets,
     }
 
@@ -319,20 +513,22 @@ def _fetch_credentials(client: httpx.Client, base: str, headers: dict, wid: str)
     return {}
 
 
-def _fetch_state(client: httpx.Client, base: str, headers: dict, wid: str) -> dict:
+def _fetch_state(client: httpx.Client, base: str, headers: dict, wid: str) -> dict | None:
     """Fetch a workspace's raw Terraform state from the HTTP state backend.
 
-    {} if the workspace has no state yet (never applied) or on error.
+    {} if the workspace has no state yet (never applied); None on error, so a
+    backend hiccup isn't mistaken for "no tagged resources → no drift".
     """
     try:
         r = client.get(f"{base}/api/v1/state/{wid}", headers=headers)
         if r.status_code == 200 and r.content:
             return r.json()
-        if r.status_code not in (200, 204, 404):
-            logger.warning("state fetch for %s returned %s", wid, r.status_code)
+        if r.status_code in (200, 204, 404):
+            return {}
+        logger.warning("state fetch for %s returned %s", wid, r.status_code)
     except Exception:  # noqa: BLE001
         logger.exception("state fetch failed for %s", wid)
-    return {}
+    return None
 
 
 def _scan_once(api_url: str, internal_token: str, state_token: str) -> None:
@@ -358,13 +554,21 @@ def _scan_once(api_url: str, internal_token: str, state_token: str) -> None:
 
         # Cache the live tagging scan per (account, region) — it's account-wide,
         # so re-scanning for every workspace in the same account is wasteful.
-        live_cache: dict[tuple, list] = {}
+        live_cache: dict[tuple, list | None] = {}
+
+        # Pass 1: every state up front, because an `aws_ec2_tag` in one
+        # workspace (EKS) legitimately tags a resource in another (VPC), and
+        # tag drift can only be judged with that scan-wide picture.
+        workspaces = [ws for ws in workspaces if ws.get("id")]
+        states = {ws["id"]: _fetch_state(client, base, state_headers, ws["id"]) for ws in workspaces}
+        ec2_tag_owned: dict[str, set[str]] = {}
+        for st in states.values():
+            for rid, keys in _ec2_tag_owned(st or {}).items():
+                ec2_tag_owned.setdefault(rid, set()).update(keys)
 
         for ws in workspaces:
-            wid = ws.get("id")
+            wid = ws["id"]
             ws_name = ws.get("name", wid)
-            if not wid:
-                continue
 
             logger.info("scanning workspace %s (%s)", ws_name, wid)
             try:
@@ -374,12 +578,32 @@ def _scan_once(api_url: str, internal_token: str, state_token: str) -> None:
                 cache_key = (account_id, region)
                 if cache_key not in live_cache:
                     live_cache[cache_key] = _live_resources(creds, region)
-                state = _fetch_state(client, base, state_headers, wid)
-                report_fields = _analyze_workspace(ws, creds, state, live_cache[cache_key])
+                state = states[wid]
+
+                def confirm_ghosts(arns, creds=creds, region=region, wid=wid):
+                    # Two independent second looks: the Tagging API asked about
+                    # just these ARNs, and a fresh state read — an apply that
+                    # destroyed the resource after pass 1 fetched this state
+                    # would otherwise read as a ghost for one cycle.
+                    alive = _still_live(creds, region, arns)
+                    if alive is None:
+                        return set()
+                    fresh = _fetch_state(client, base, state_headers, wid)
+                    if not fresh:
+                        return set()
+                    return (set(arns) - alive) & set(_state_tags(fresh))
+
+                report_fields = _analyze_workspace(
+                    ws, creds, state or {}, live_cache[cache_key], ec2_tag_owned,
+                    confirm_ghosts=confirm_ghosts,
+                )
+                if state is None:
+                    report_fields["drift_checked"] = False
             except Exception:
                 logger.exception("inventory scan failed for %s", ws_name)
                 report_fields = {
-                    "has_drift": False, "summary": "collector error", "plan_output": "",
+                    "has_drift": False, "drift_checked": False,
+                    "summary": "collector error", "plan_output": "",
                     "modified_count": 0, "untracked_count": 0, "deleted_count": 0,
                     "mismatch_count": 0, "resources": [], "assets": [],
                 }

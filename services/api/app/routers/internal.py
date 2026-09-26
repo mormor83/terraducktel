@@ -73,8 +73,10 @@ async def submit_drift_report_internal(
         resources=[r.model_dump() for r in body.resources],
     )
     db.add(report)
-    ws.drift_status = "drifted" if body.has_drift else "clean"
-    db.add(ws)
+    prev_status = ws.drift_status
+    if body.drift_checked:
+        ws.drift_status = "drifted" if body.has_drift else "clean"
+        db.add(ws)
     await db.commit()
     await db.refresh(report)
 
@@ -94,10 +96,11 @@ async def submit_drift_report_internal(
                 workspace_id, exc_info=True,
             )
 
-    # Slack notification on transition into drifted state. Best-effort —
-    # the report has already been committed so a Slack outage cannot lose
-    # the drift record.
-    if body.has_drift:
+    # Slack notification on transition into drifted state only — the collector
+    # re-reports every cycle (30 min in prod), and a still-drifted workspace
+    # must not re-page the channel each time. Best-effort — the report has
+    # already been committed so a Slack outage cannot lose the drift record.
+    if body.drift_checked and body.has_drift and prev_status != "drifted":
         try:
             from app.services.notification_service import send_slack_drift_detected
 

@@ -80,9 +80,16 @@ export GIT_TERMINAL_PROMPT="0"
 # ---------------------------------------------------------------------------
 # report_status: PATCH the run-level status (running/planned/applied/failed).
 # ---------------------------------------------------------------------------
+# Flipped to 1 by report_status() once the run reaches a terminal state, so
+# the EXIT trap can tell "finished and said so" from "died silently".
+TERMINAL_STATUS_REPORTED=0
+
 report_status() {
   local status="$1"
   local output="${2:-}"
+  case "${status}" in
+    planned|awaiting_approval|applied|failed|cancelled) TERMINAL_STATUS_REPORTED=1 ;;
+  esac
   # Build the body via a file so neither $output nor the full body bloats the
   # command line past ARG_MAX (terraform apply on a real stack can produce
   # several MB of output).
@@ -127,18 +134,36 @@ step() {
   local sid
   sid=$(step_id_for "$name")
   if [[ -z "$sid" ]]; then return 0; fi
-  local body
+  # Build the body through FILES, never argv — same reason report_status() and
+  # the run-level PATCH below do. execve caps a *single* argument at
+  # MAX_ARG_STRLEN (128 KB on Linux) no matter how large ARG_MAX is, so
+  # `jq --arg o "$output"` dies with "Argument list too long" the moment a
+  # plan/apply log crosses 128 KB — which any real stack does.
+  #
+  # That failure is worse than a lost timeline row: it happens INSIDE this
+  # function, and bash does not run the ERR trap for failures inside functions
+  # unless errtrace (`set -E`) is on — it isn't. So `set -e` killed the
+  # executor at exit 126 with on_unexpected_err never firing: nothing was
+  # reported, the run sat in `running`, and the API reaper failed it
+  # `worker.stale_after_seconds` later with a generic "executor died before
+  # reporting any step status". Raising that dial only delays the reap.
+  printf '%s' "${output}" > /tmp/_step_out.txt
   if [[ -n "$summary" ]]; then
-    body=$(jq -n --arg s "$status" --arg o "$output" --arg j "$summary" \
-      '{status:$s, output:(if $o=="" then null else $o end), summary_json:(if $j=="" then null else $j end)}')
+    printf '%s' "${summary}" > /tmp/_step_summary.json
+    jq -n --arg s "$status" \
+      --rawfile o /tmp/_step_out.txt \
+      --rawfile j /tmp/_step_summary.json \
+      '{status:$s, output:(if $o=="" then null else $o end), summary_json:(if $j=="" then null else $j end)}' \
+      > /tmp/_step_body.json
   else
-    body=$(jq -n --arg s "$status" --arg o "$output" \
-      '{status:$s, output:(if $o=="" then null else $o end)}')
+    jq -n --arg s "$status" --rawfile o /tmp/_step_out.txt \
+      '{status:$s, output:(if $o=="" then null else $o end)}' \
+      > /tmp/_step_body.json
   fi
   curl -sf -X PATCH "${API_URL}/api/v1/runs/${RUN_ID}/steps/${sid}" \
     -H "Authorization: Bearer ${API_TOKEN}" \
     -H "Content-Type: application/json" \
-    -d "${body}" > /dev/null || echo "WARNING: step '$name' → '$status' patch failed" >&2
+    --data-binary @/tmp/_step_body.json > /dev/null || echo "WARNING: step '$name' → '$status' patch failed" >&2
 }
 
 # Wrap a phase: marks running before, success/failed after; captures stdout into
@@ -176,12 +201,19 @@ stream_step_output() {
       local current
       current=$(tail -c "$tail_size" "$log_file" 2>/dev/null || true)
       if [[ -n "$current" ]]; then
-        local body
-        body=$(jq -n --arg s "running" --arg o "$current" '{status:$s, output:$o}')
+        # Files, not argv — see step(). The tail cap above keeps us under
+        # MAX_ARG_STRLEN today, but this way raising tail_size can never
+        # reintroduce the crash. $BASHPID (not $$) so this background
+        # subshell never shares a temp file with the foreground step().
+        local out_file="/tmp/_stream_out.${BASHPID}.txt"
+        local body_file="/tmp/_stream_body.${BASHPID}.json"
+        printf '%s' "$current" > "$out_file"
+        jq -n --arg s "running" --rawfile o "$out_file" \
+          '{status:$s, output:$o}' > "$body_file"
         curl -sf -X PATCH "${API_URL}/api/v1/runs/${RUN_ID}/steps/${sid}" \
           -H "Authorization: Bearer ${API_TOKEN}" \
           -H "Content-Type: application/json" \
-          -d "$body" > /dev/null 2>&1 || true
+          --data-binary @"$body_file" > /dev/null 2>&1 || true
       fi
     fi
     sleep 1.5
@@ -363,12 +395,18 @@ run_opa_policy_check() {
   fi
 
   # Structured summary for the timeline badge + RunDetail Policies tab.
+  # $failures / $warnings are whole JSON arrays of findings — on a large plan
+  # they too can exceed MAX_ARG_STRLEN, so they go through files (--slurpfile
+  # wraps each file's value in an array, hence the [0]). See step().
   local summary
+  printf '%s' "$failures" > /tmp/_opa_failures.json
+  printf '%s' "$warnings" > /tmp/_opa_warnings.json
   summary=$(jq -n \
     --arg mode "$mode" --arg status "$status" \
-    --argjson failures "$failures" --argjson warnings "$warnings" \
+    --slurpfile failures /tmp/_opa_failures.json \
+    --slurpfile warnings /tmp/_opa_warnings.json \
     --argjson fc "$fail_count" --argjson wc "$warn_count" --argjson bc "$block_count" \
-    '{mode:$mode, status:$status, violations:$failures, warnings:$warnings,
+    '{mode:$mode, status:$status, violations:$failures[0], warnings:$warnings[0],
       counts:{failures:$fc, warnings:$wc, blocking:$bc}}')
 
   # Human-readable output.
@@ -391,6 +429,83 @@ run_opa_policy_check() {
     exit 1
   fi
   step "OPA Policy Check" success "$human" "$summary"
+  return 0
+}
+
+# Cost Estimation. Best-effort: never fails the run, only marks the step
+# `skipped` with a reason.
+#
+# We use `infracost diff`, NOT `breakdown`. breakdown prices the resource set
+# the plan would leave behind — i.e. the whole workspace's monthly bill — which
+# is not the question an approver is asking. Worse, a destroy plan's post-state
+# is empty, so breakdown reported ~$0/mo and the approval screen read "this
+# change is free" when the truth was "this frees up $X/mo". diff reads the
+# before/after values already present in plan.json and reports past, planned
+# and delta, so plan / apply / destroy all surface a signed number.
+cost_estimate() {
+  step "Cost Estimation" running ""
+
+  if ! command -v infracost >/dev/null 2>&1; then
+    step "Cost Estimation" skipped "infracost CLI not installed in executor image"
+    return 0
+  fi
+  if [[ -z "${INFRACOST_API_KEY:-}" ]]; then
+    step "Cost Estimation" skipped "infracost not configured (set INFRACOST_API_KEY to enable)"
+    return 0
+  fi
+
+  export INFRACOST_API_KEY
+  export INFRACOST_CURRENCY="${INFRACOST_CURRENCY:-USD}"
+
+  # plan.json carries each change's before/after, which is all diff needs — no
+  # --compare-to baseline and no second plan run. Falling back to `.` re-parses
+  # the HCL, which loses the prior state, so the delta there is whole-workspace.
+  local cost_out cost_txt
+  if [[ -s /tmp/plan.json ]]; then
+    cost_out=$(infracost diff --path /tmp/plan.json --format json 2>/tmp/infracost.err) || {
+      step "Cost Estimation" skipped "infracost failed: $(tail -c 600 /tmp/infracost.err)"
+      return 0
+    }
+  else
+    cost_out=$(infracost diff --path . --format json 2>/tmp/infracost.err) || {
+      step "Cost Estimation" skipped "infracost failed: $(tail -c 600 /tmp/infracost.err)"
+      return 0
+    }
+  fi
+
+  # Render past → planned → delta into `output` for the timeline panel; keep the
+  # raw JSON in summary_json for the UI cards and cost trending later on.
+  cost_txt=$(printf '%s' "$cost_out" | jq -r --arg cur "${INFRACOST_CURRENCY}" '
+    def num: if . == null or . == "" then 0 else tonumber end;
+    # Fixed 2dp. jq has no printf, so carry cents as an int and pad by hand —
+    # tostring alone renders 412.50 as "412.5", which reads wrong for money.
+    def money:
+      (if . < 0 then -. else . end) * 100 | round
+      | "$\(. / 100 | floor).\(. % 100 | if . < 10 then "0\(.)" else "\(.)" end)";
+    def signed: if . > 0 then "+" + money elif . < 0 then "-" + money else money end;
+
+    (.pastTotalMonthlyCost | num) as $past
+    | (.totalMonthlyCost   | num) as $new
+    | (.diffTotalMonthlyCost | num) as $delta
+    | (
+        "Monthly cost (\($cur))\n"
+        + "  before:  \($past | money)\n"
+        + "  after:   \($new  | money)\n"
+        + "  change:  \($delta | signed)"
+        + (if $delta == 0 then "  (no change)" else "" end)
+        + "\n"
+      )
+    + (
+        [ .projects[]?.diff.resources[]?
+          | select((.monthlyCost | num) != 0)
+          | "  • \(.name)  →  \(.monthlyCost | num | signed)/mo"
+        ]
+        | if length == 0 then "" else "\nPer-resource change:\n" + join("\n") end
+      )
+  ' 2>/dev/null) || cost_txt="infracost ran"
+  [[ -z "$cost_txt" ]] && cost_txt="infracost ran (no resources priced)"
+
+  step "Cost Estimation" success "$cost_txt" "$cost_out"
   return 0
 }
 
@@ -526,8 +641,50 @@ heartbeat_loop() {
 }
 heartbeat_loop &
 HEARTBEAT_PID=$!
-# shellcheck disable=SC2064
-trap "kill ${HEARTBEAT_PID} 2>/dev/null || true" EXIT
+
+# Backstop for a silent death. `set -e` firing inside a shell function does NOT
+# run the ERR trap (errtrace is off), so on_unexpected_err can be skipped
+# entirely — that is exactly how an argv-too-long jq call used to kill this
+# script with nothing reported, leaving the run in `running` until the API
+# reaper failed it minutes later with a generic message. If we are exiting
+# nonzero and have not reported a terminal status, say so ourselves.
+on_exit() {
+  local rc=$?
+  # Nothing below may abort this trap — it is the last thing that can tell
+  # the API anything, so it runs without errexit/ERR.
+  set +e
+  trap - ERR
+  kill "${HEARTBEAT_PID:-}" 2>/dev/null || true
+
+  # Clean exit, or we already said something terminal → nothing to add.
+  [[ "${rc}" -eq 0 ]] && return 0
+  [[ "${TERMINAL_STATUS_REPORTED}" == "1" ]] && return 0
+  # 130/143 = SIGINT/SIGTERM, i.e. `POST /runs/{id}/cancel` stopping the
+  # container. That run is already `cancelled`; don't relabel it failed.
+  { [[ "${rc}" -eq 130 ]] || [[ "${rc}" -eq 143 ]]; } && return 0
+
+  # Authoritative guard for the terminal PATCHes that bypass report_status
+  # (the plan phase writes `planned` / `awaiting_approval` with its own curl,
+  # because those bodies carry plan_json + the tfplan blob). Never relabel a
+  # run the API already considers finished or paused for approval.
+  local current
+  current=$(curl -sf -H "Authorization: Bearer ${API_TOKEN}" \
+    "${API_URL}/api/v1/runs/${RUN_ID}" 2>/dev/null | jq -r '.status' 2>/dev/null)
+  case "${current}" in
+    planned|awaiting_approval|applied|failed|cancelled) return 0 ;;
+  esac
+
+  local f log="" tail_out=""
+  for f in /tmp/apply.log /tmp/plan.log /tmp/init.log /tmp/checkov.log; do
+    if [[ -s "$f" ]]; then log="$f"; break; fi
+  done
+  if [[ -n "$log" ]]; then
+    tail_out=$'\n--- '"$log"$' (last 40 lines) ---\n'"$(tail -n 40 "$log")"
+  fi
+  report_status "failed" \
+    "Executor exited unexpectedly (exit=${rc}) without reporting a terminal status.${tail_out}"
+}
+trap on_exit EXIT
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Helm pipeline (WORKSPACE_KIND=helm). Reuses the same run_step()/stream_run()/
@@ -1185,40 +1342,10 @@ case "${TF_COMMAND}" in
       sleep $((i * 2))
     done
 
-    # Cost Estimation runs after plan but before pausing for approval.
-    # We feed infracost the plan.json we already produced — that's exact (uses
-    # the resource set Terraform actually planned) and avoids re-running plan.
-    step "Cost Estimation" running ""
-    if ! command -v infracost >/dev/null 2>&1; then
-      step "Cost Estimation" skipped "infracost CLI not installed in executor image"
-    elif [[ -z "${INFRACOST_API_KEY:-}" ]]; then
-      step "Cost Estimation" skipped "infracost not configured (set INFRACOST_API_KEY to enable)"
-    else
-      export INFRACOST_API_KEY
-      export INFRACOST_CURRENCY="${INFRACOST_CURRENCY:-USD}"
-      if [[ -s /tmp/plan.json ]]; then
-        COST_OUT=$(infracost breakdown --path /tmp/plan.json --format json 2>/tmp/infracost.err) && COST_OK=1 || COST_OK=0
-      else
-        COST_OUT=$(infracost breakdown --path . --format json 2>/tmp/infracost.err) && COST_OK=1 || COST_OK=0
-      fi
-      if [[ "$COST_OK" == "1" ]]; then
-        # Render a human-readable summary into `output` (totals + per-resource
-        # diff) so the timeline panel surfaces actual numbers; keep the full
-        # JSON in summary_json for downstream tools / future UI cards.
-        COST_TXT=$(printf '%s' "$COST_OUT" | jq -r --arg cur "${INFRACOST_CURRENCY}" '
-          def fmt: if . == null then "0.00" else (tonumber|. * 100|round/100|tostring) end;
-          ( .totalMonthlyCost // "0" | fmt ) as $tot
-          | ( .totalHourlyCost  // "0" | fmt ) as $hr
-          | "Estimated cost (\($cur)):  $\($tot)/month   (~$\($hr)/hour)\n\n"
-          + ( [ .projects[]?.breakdown.resources[]? |
-                "  • \(.name)  →  $\((.monthlyCost // "0") | fmt)/mo" ] | join("\n") )
-        ' 2>/dev/null) || COST_TXT="infracost ran"
-        [[ -z "$COST_TXT" ]] && COST_TXT="infracost ran (no resources priced)"
-        step "Cost Estimation" success "$COST_TXT" "$COST_OUT"
-      else
-        step "Cost Estimation" skipped "infracost failed: $(tail -c 600 /tmp/infracost.err)"
-      fi
-    fi
+    # Cost Estimation runs after plan but before pausing for approval, so the
+    # approver sees the cost delta next to the plan they are approving. Fed from
+    # the plan.json we already produced — no second plan run.
+    cost_estimate
 
     # Mark "Awaiting Approval" running so the timeline shows the pause clearly.
     step "Awaiting Approval" running "Plan complete — waiting for an approver. Use the ✓ Approve / ✗ Reject buttons on the run row (4-eyes: a different user must approve)."
@@ -1237,31 +1364,5 @@ case "${TF_COMMAND}" in
 esac
 
 # 11. Cost Estimation (best-effort; skipped without an Infracost token).
-step "Cost Estimation" running ""
-if ! command -v infracost >/dev/null 2>&1; then
-  step "Cost Estimation" skipped "infracost CLI not installed in executor image"
-elif [[ -z "${INFRACOST_API_KEY:-}" ]]; then
-  step "Cost Estimation" skipped "infracost not configured (set INFRACOST_API_KEY to enable)"
-else
-  export INFRACOST_API_KEY
-  export INFRACOST_CURRENCY="${INFRACOST_CURRENCY:-USD}"
-  if [[ -s /tmp/plan.json ]]; then
-    COST_OUT=$(infracost breakdown --path /tmp/plan.json --format json 2>/tmp/infracost.err) && COST_OK=1 || COST_OK=0
-  else
-    COST_OUT=$(infracost breakdown --path . --format json 2>/tmp/infracost.err) && COST_OK=1 || COST_OK=0
-  fi
-  if [[ "$COST_OK" == "1" ]]; then
-    COST_TXT=$(printf '%s' "$COST_OUT" | jq -r --arg cur "${INFRACOST_CURRENCY}" '
-      def fmt: if . == null then "0.00" else (tonumber|. * 100|round/100|tostring) end;
-      ( .totalMonthlyCost // "0" | fmt ) as $tot
-      | ( .totalHourlyCost  // "0" | fmt ) as $hr
-      | "Estimated cost (\($cur)):  $\($tot)/month   (~$\($hr)/hour)\n\n"
-      + ( [ .projects[]?.breakdown.resources[]? |
-            "  • \(.name)  →  $\((.monthlyCost // "0") | fmt)/mo" ] | join("\n") )
-    ' 2>/dev/null) || COST_TXT="infracost ran"
-    [[ -z "$COST_TXT" ]] && COST_TXT="infracost ran (no resources priced)"
-    step "Cost Estimation" success "$COST_TXT" "$COST_OUT"
-  else
-    step "Cost Estimation" skipped "infracost failed: $(tail -c 600 /tmp/infracost.err)"
-  fi
-fi
+#     See cost_estimate() — reports the before/after/delta, not a bare total.
+cost_estimate

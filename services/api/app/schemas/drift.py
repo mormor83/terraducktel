@@ -30,6 +30,11 @@ class DriftReportIn(BaseModel):
     # Full classified asset list for the Firefly-style inventory. Optional so
     # older detectors posting only drift counts still work.
     assets: list[AssetIn] = []
+    # False when the collector couldn't actually look (live scan or state fetch
+    # failed). The report is still stored for the inventory, but the
+    # workspace's drift_status is left alone — flipping it to clean would
+    # re-alert on the next good scan. Defaults True for older detectors.
+    drift_checked: bool = True
 
 
 class DriftReportOut(BaseModel):

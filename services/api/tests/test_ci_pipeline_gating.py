@@ -16,6 +16,7 @@ with only its test/release half. The deploy-specific assertions below skip when
 there is no deploy job, which keeps this one file valid in both repos rather
 than forking it — a forked guard is a guard that drifts.
 """
+import re
 from pathlib import Path
 
 import pytest
@@ -72,11 +73,25 @@ def test_build_also_waits_for_the_tests(wf):
     assert TEST_JOBS <= _ancestors(wf, "build")
 
 
-def test_deploy_only_runs_on_a_push_to_dev(wf):
+def test_deploy_is_pinned_to_dev(wf):
     _require_deploy_half(wf)
     cond = " ".join(str(wf["jobs"]["meta"].get("if", "")).split())
-    assert "github.event_name == 'push'" in cond
     assert "github.ref == 'refs/heads/dev'" in cond
+
+
+def test_deploy_is_reachable_only_from_a_merge_or_a_manual_dispatch(wf):
+    """`push` is a merge into dev; `workflow_dispatch` is a deliberate
+    re-deploy (the terraform stack lives in another repo, so an infra-only
+    change has no commit here to push). Anything else — above all
+    `pull_request`, which runs untrusted branch code — must not reach the
+    deploy half. Widening this set is the regression this guards."""
+    _require_deploy_half(wf)
+    cond = " ".join(str(wf["jobs"]["meta"].get("if", "")).split())
+    events = set(re.findall(r"github\.event_name\s*==\s*'([a-z_]+)'", cond))
+    assert events, f"meta no longer restricts github.event_name (if: {cond!r})"
+    assert events <= {"push", "workflow_dispatch"}, (
+        f"deploy reachable from {sorted(events - {'push', 'workflow_dispatch'})}"
+    )
 
 
 def test_pull_requests_into_dev_are_checked(wf):

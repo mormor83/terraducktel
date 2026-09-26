@@ -740,7 +740,7 @@ drift-detector service.
 
 Reports are also accepted at the internal, state-token-authenticated path
 `POST /api/v1/internal/drift/{workspace_id}/report` (used by the real
-drift-detector service) and trigger a Slack alert whenever `has_drift=true`.
+drift-detector service); that path alerts Slack only on a clean→drifted transition (see below).
 Either path additionally refreshes the cloud-asset Inventory when the report
 includes an `assets[]` payload.
 
@@ -933,9 +933,10 @@ have `source="manual"` and `ref=null`.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/integrations/slack` | `{configured, token_tail, team_name, channel_id, channel_name}` |
+| GET | `/integrations/slack` | `{configured, token_tail, team_name, channel_id, channel_name, drift_channel_id, drift_channel_name, drift_alerts_enabled}` |
 | PUT | `/integrations/slack` | Body: `{token?, channel_id?, channel_name?}`. Verifies the token via Slack `auth.test` before persisting; 422 if no token is saved yet and none is supplied. |
-| DELETE | `/integrations/slack` | Remove the bot token + channel. |
+| PUT | `/integrations/slack/drift` | Drift-alert destination. Body: `{drift_channel_id?, drift_channel_name?, drift_alerts_enabled}`. Empty `drift_channel_id` = the default channel; `drift_alerts_enabled=false` = no drift alerts. Doesn't touch or re-verify the token; 400 if Slack isn't configured. |
+| DELETE | `/integrations/slack` | Remove the bot token + channel (and drift routing). |
 | POST | `/integrations/slack/test` | Re-verify the saved bot token. Returns `{ok, team, bot_user_id, url}`. |
 | GET | `/integrations/slack/channels` | List the channels the bot can see (`conversations.list`). Each row has an `is_private` flag so the Settings UI can render a lock badge. |
 
@@ -977,7 +978,7 @@ the same private network as the API and authenticate with the
 | Method | Path | Description |
 |---|---|---|
 | GET | `/internal/workspaces` | List every workspace, cross-BU. |
-| POST | `/internal/drift/{workspace_id}/report` | Drift report submission — identical body/behavior to the user-facing `POST /drift/{workspace_id}/report`, including the Slack drift alert and Inventory refresh. |
+| POST | `/internal/drift/{workspace_id}/report` | Drift report submission (the collector's path). Same body as the user-facing `POST /drift/{workspace_id}/report` plus `drift_checked` (default true; false = scan couldn't look, so `drift_status` is left alone). Posts the bot-token Slack drift alert only on a clean→drifted **transition**, to the BU's drift channel (default channel if unset). Refreshes the Inventory. |
 | GET | `/internal/workspaces/{workspace_id}/aws-credentials` | Decrypted AWS creds for a workspace: `{access_key_id, secret_access_key, account_id, region}`. Honors the `state_aws_account_id` override, falling back to `aws_account_id`. Empty strings if the account has no stored credentials. |
 | GET | `/internal/github-token` | Plaintext GitHub token for in-network crons that can't decrypt the config table themselves: `{token, source: "env"\|"config"\|"none"}`. |
 | POST | `/internal/workspaces/{workspace_id}/auto-delete` | Cleanup hook used by the liveness detector when a workspace's repo path disappears upstream. Body: `{reason}`. Deletes the workspace + its runs/drift reports/state locks and audits as `auto_delete_orphan`. Idempotent (204) on an already-missing workspace. |

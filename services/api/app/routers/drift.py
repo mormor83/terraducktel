@@ -2,8 +2,9 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.auth.bu_context import BUScope, current_bu
 from app.db import get_db
@@ -25,22 +26,46 @@ router = APIRouter(prefix="/api/v1/drift", tags=["drift"])
 
 
 async def _latest_reports_by_workspace(
-    db: AsyncSession, workspace_ids: list[str]
+    db: AsyncSession, workspace_ids: list[str], *, with_resources: bool = True
 ) -> dict[str, DriftReport]:
     """Return the most-recent drift report for each of the given workspaces.
 
-    One query, ordered newest-first; we keep the first row seen per workspace.
+    Bounded: fetches exactly one row per workspace via a max(detected_at)
+    subquery joined back, so the result size is O(workspaces) regardless of
+    how much history the table holds. The previous shape loaded EVERY report
+    for the given workspaces (no LIMIT) and picked the newest in Python —
+    O(history), ~5,400 rows x 111 kB per workspace in prod by 2026-09-15.
+    Served by ix_drift_reports_workspace_detected_at (migration 044).
+
+    `with_resources=False` defers the per-resource JSON blob (the bulk of each
+    row) for callers that only need counts/status — the summary endpoint.
+    Portable across PostgreSQL and the SQLite test dialect (no DISTINCT ON).
     Workspaces with no reports are simply absent from the dict.
     """
     if not workspace_ids:
         return {}
-    rows = (
-        await db.execute(
-            select(DriftReport)
-            .where(DriftReport.workspace_id.in_(workspace_ids))
-            .order_by(DriftReport.detected_at.desc())
+    newest = (
+        select(
+            DriftReport.workspace_id.label("workspace_id"),
+            func.max(DriftReport.detected_at).label("detected_at"),
         )
-    ).scalars().all()
+        .where(DriftReport.workspace_id.in_(workspace_ids))
+        .group_by(DriftReport.workspace_id)
+        .subquery("newest")
+    )
+    stmt = (
+        select(DriftReport)
+        .join(
+            newest,
+            (DriftReport.workspace_id == newest.c.workspace_id)
+            & (DriftReport.detected_at == newest.c.detected_at),
+        )
+        # Two reports can share a timestamp; make the tie deterministic.
+        .order_by(DriftReport.workspace_id, DriftReport.id.desc())
+    )
+    if not with_resources:
+        stmt = stmt.options(defer(DriftReport.resources))
+    rows = (await db.execute(stmt)).scalars().all()
     latest: dict[str, DriftReport] = {}
     for r in rows:
         latest.setdefault(r.workspace_id, r)
@@ -63,7 +88,9 @@ async def drift_summary(
         stmt = stmt.where(Workspace.business_unit_id == bu.bu_id)
     workspaces = (await db.execute(stmt)).scalars().all()
 
-    latest = await _latest_reports_by_workspace(db, [w.id for w in workspaces])
+    latest = await _latest_reports_by_workspace(
+        db, [w.id for w in workspaces], with_resources=False
+    )
 
     out = DriftSummaryOut(workspaces_total=len(workspaces))
     for ws in workspaces:

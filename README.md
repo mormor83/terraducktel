@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="services/api/tests"><img src="https://img.shields.io/badge/tests-461%20passing-brightgreen.svg" alt="tests"></a>
+  <a href="services/api/tests"><img src="https://img.shields.io/badge/tests-663%20passing-brightgreen.svg" alt="tests"></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license"></a>
   <a href="services/api/pyproject.toml"><img src="https://img.shields.io/badge/python-3.12-blue.svg" alt="python"></a>
   <a href="services/executor/Dockerfile"><img src="https://img.shields.io/badge/terraform-1.10-7B42BC.svg" alt="terraform"></a>
@@ -44,15 +44,21 @@ credentials.
 
 ### Dashboard
 
-Every workspace, grouped by AWS account and region, with live drift and approval status.
+Every workspace, grouped by cloud account and region, with live drift and approval
+status on each row. The tiles across the top are the only three numbers most
+operators check: how many stacks exist, how many have drifted away from code, and
+how many applies are waiting on a human.
 
-![Terraducktel dashboard showing a workspace tree grouped by AWS account, with drift and approval KPIs](docs/branding/screenshots/dashboard.png)
+![Terraducktel dashboard: a workspace tree grouped by cloud account and region, with workspace, drift and awaiting-approval tiles above it](docs/branding/screenshots/dashboard.png)
 
 ### Run detail
 
-The full `git clone → checkov → plan → policy → cost` pipeline, step by step, with live output streaming.
+The full `git clone → checkov → plan → policy → cost` pipeline, step by step, with
+live output streaming. Each step carries its own duration and summary — the plan's
+resource counts, Checkov's pass/fail tally, the cost delta — so a reviewer can see
+what changed without opening the raw log.
 
-![Run detail page showing a green step-by-step Terraform pipeline timeline](docs/branding/screenshots/run-detail.png)
+![Run detail: a step-by-step Terraform pipeline timeline, each step green with its duration, paused on Awaiting Approval](docs/branding/screenshots/run-detail.png)
 
 ### Gated approval
 
@@ -60,7 +66,7 @@ Every `apply` pauses until an operator reviews the *exact* plan and clicks Appro
 Any operator, including the run's own triggering user (4-eyes was tried and retired
 — see [`CLAUDE.md`](CLAUDE.md)).
 
-![Approvals queue showing a production apply awaiting operator approval](docs/branding/screenshots/approvals.png)
+![Runs queue filtered to awaiting approval: two production applies, each with Approve and Reject beside the plan output](docs/branding/screenshots/approvals.png)
 
 ## What it does
 
@@ -263,11 +269,11 @@ Per-account, mirroring the git path:
 s3://<aws_account.state_bucket>/<workspace.tf_working_dir>/terraform.tfstate
 ```
 
-So a stack imported from `account-111111111111/eu-central-1/region-shared-resources`
+So a stack imported from `account-111111111111/eu-central-1/shared-networking`
 ends up at:
 
 ```
-s3://<account-111's bucket>/account-111111111111/eu-central-1/region-shared-resources/terraform.tfstate
+s3://<account-111's bucket>/account-111111111111/eu-central-1/shared-networking/terraform.tfstate
 ```
 
 — exactly mirroring the repo layout. If your `.tf` already declares its own

@@ -207,3 +207,55 @@ async def test_internal_endpoint_rejects_state_token(auth_client, workspace_id):
         headers={"X-Terraducktel-State-Token": "test-state-token-do-not-use-in-prod"},
     )
     assert r2.status_code == 401
+
+
+_INTERNAL = {"X-Terraducktel-Internal-Token": "test-internal-token-do-not-use-in-prod"}
+
+
+async def _internal_report(auth_client, workspace_id, **fields):
+    r = await auth_client.post(
+        f"/api/v1/internal/drift/{workspace_id}/report",
+        json={"workspace_id": workspace_id, "summary": "s", **fields},
+        headers=_INTERNAL,
+    )
+    assert r.status_code == 200
+    return r
+
+
+async def _drift_status(auth_client, admin_token, workspace_id):
+    r = await auth_client.get(
+        f"/api/v1/workspaces/{workspace_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    return r.json()["drift_status"]
+
+
+async def test_internal_report_alerts_only_on_transition(auth_client, admin_token, workspace_id):
+    """The collector re-reports every cycle; a still-drifted workspace must
+    alert once, not every 30 minutes. Clearing and re-drifting alerts again."""
+    with patch(
+        "app.services.notification_service.send_slack_drift_detected",
+        new_callable=AsyncMock,
+    ) as mock_alert:
+        await _internal_report(auth_client, workspace_id, has_drift=True, modified_count=1)
+        await _internal_report(auth_client, workspace_id, has_drift=True, modified_count=1)
+        assert mock_alert.call_count == 1
+        await _internal_report(auth_client, workspace_id, has_drift=False)
+        await _internal_report(auth_client, workspace_id, has_drift=True, modified_count=1)
+        assert mock_alert.call_count == 2
+
+
+async def test_internal_unchecked_report_keeps_status_and_never_alerts(
+    auth_client, admin_token, workspace_id
+):
+    """A failed scan (drift_checked=false) must not flip drifted → clean,
+    otherwise the next good scan would count as a new transition and re-alert."""
+    with patch(
+        "app.services.notification_service.send_slack_drift_detected",
+        new_callable=AsyncMock,
+    ) as mock_alert:
+        await _internal_report(auth_client, workspace_id, has_drift=True, modified_count=1)
+        await _internal_report(auth_client, workspace_id, has_drift=False, drift_checked=False)
+        assert await _drift_status(auth_client, admin_token, workspace_id) == "drifted"
+        await _internal_report(auth_client, workspace_id, has_drift=True, modified_count=1)
+        assert mock_alert.call_count == 1
