@@ -22,7 +22,7 @@ import java.util.concurrent.Executors
 /**
  * Application service owning the one [ApprovalWatcher] the IDE runs. Wires it to [TdtSession] (who
  * am I / which client is signed in), [Store] (workspace names for the balloon title, and a poke to
- * refresh after a batch of notices so the Runs tab's `Runs · N` badge picks up the new arrival
+ * refresh after a batch of notices so the Runs section's count pill picks up the new arrival
  * without waiting for its own poll), [ApprovalNotifier] (the actual balloon) and [TdtSettings] (the
  * poll interval + the persisted 24h dedupe set in [TdtSettings.State.notifiedRuns]).
  *

@@ -40,7 +40,7 @@ class ApprovalWatcher(
     private val notify: (ApprovalNotice) -> Unit,
     // Called once per poll, after every fresh run in the batch has been offered to [notify] — never
     // once per notice. A caller that pokes some other refresh (e.g. ApprovalService re-pulling the
-    // Runs tab's badge count) only needs to know "did this poll find anything new", not be re-run
+    // Runs section's count pill) only needs to know "did this poll find anything new", not be re-run
     // once per run in a batch of several.
     private val onBatchNotified: () -> Unit = {},
     private val seen: SeenStore,

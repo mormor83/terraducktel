@@ -8,7 +8,7 @@ import com.terraducktel.jetbrains.toolwindow.nodes.MessageNode
 import com.terraducktel.jetbrains.toolwindow.nodes.RunNode
 import com.terraducktel.jetbrains.toolwindow.nodes.TdtNode
 
-/** The "Runs" tab: every run in the current BU, flat (no workspace grouping), most-actionable
+/** The "Runs" section: every run in the current BU, flat (no workspace grouping), most-actionable
  *  first. See [TreePanel] for the shared tree plumbing. */
 class RunsPanel(project: Project, parentDisposable: Disposable) : TreePanel(project, parentDisposable) {
 
@@ -26,7 +26,7 @@ class RunsPanel(project: Project, parentDisposable: Disposable) : TreePanel(proj
         }
     }
 
-    /** Count of runs awaiting approval — used for the "Runs · N" tool window tab title. */
+    /** Count of runs awaiting approval — shown as the Runs section header's count pill. */
     fun pendingApprovals(): Int = Store.getInstance().runs.count { it.status == "awaiting_approval" }
 
     private fun sortedRuns(): List<Run> =

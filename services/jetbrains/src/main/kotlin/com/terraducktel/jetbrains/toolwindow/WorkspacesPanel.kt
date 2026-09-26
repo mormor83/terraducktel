@@ -8,7 +8,7 @@ import com.terraducktel.jetbrains.toolwindow.nodes.CloudGroupNode
 import com.terraducktel.jetbrains.toolwindow.nodes.MessageNode
 import com.terraducktel.jetbrains.toolwindow.nodes.TdtNode
 
-/** The "Workspaces" tab: cloud → region → folder → workspace → run, built from [Store] via
+/** The "Workspaces" section: cloud → region → folder → workspace → run, built from [Store] via
  *  [Grouping]. See [TreePanel] for the shared tree plumbing. */
 class WorkspacesPanel(project: Project, parentDisposable: Disposable) : TreePanel(project, parentDisposable) {
 

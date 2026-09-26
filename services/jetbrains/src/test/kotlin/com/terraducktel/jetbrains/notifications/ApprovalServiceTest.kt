@@ -131,8 +131,9 @@ class ApprovalServiceTest : BasePlatformTestCase() {
             assertEquals(1, posted.size)
             val n = posted[0]
             assertEquals("Terraducktel approvals", n.groupId)
-            assertTrue(n.title, n.title.contains("awaits approval"))
-            assertTrue(n.title, n.title.contains("apply"))
+            assertEquals("Terraducktel approvals", n.title)
+            assertTrue(n.content, n.content.contains("awaits approval"))
+            assertTrue(n.content, n.content.contains("apply"))
             assertEquals(3, n.actions.size)
             // The counts-only-when-known rule (see ApprovalNotifier): a regression that defaulted
             // to GraphSummary()'s all-zero counts instead of the real graph would still pass every
@@ -163,10 +164,9 @@ class ApprovalServiceTest : BasePlatformTestCase() {
 
             val posted = approvalNotifications()
             assertEquals("a failed graph fetch must not lose the notice entirely", 1, posted.size)
-            assertEquals(
-                "unknown counts must show as no counts, never a misleading all-zero summary",
-                "",
-                posted[0].content,
+            assertFalse(
+                "unknown counts must show as no counts, never a misleading all-zero summary: ${posted[0].content}",
+                posted[0].content.contains("to add"),
             )
         }
     }

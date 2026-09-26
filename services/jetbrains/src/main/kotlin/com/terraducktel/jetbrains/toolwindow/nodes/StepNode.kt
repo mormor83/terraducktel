@@ -19,7 +19,8 @@ class StepNode(
 
     override fun update(presentation: PresentationData) {
         presentation.addText(step.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-        presentation.addText(" ${step.status}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        NodeText.stepDescription(step).takeIf { it.isNotEmpty() }?.let { presentation.addText("  $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
         presentation.setIcon(TreeIcons.stepStatusIcon(step.status))
+        presentation.tooltip = "${step.name} · ${step.status}"
     }
 }

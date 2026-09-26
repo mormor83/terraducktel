@@ -18,6 +18,9 @@
     <backgroundPostStartupActivity implementation="com.terraducktel.jetbrains.editor.EditorStatusStarter"/>
     <toolWindow id="Terraducktel" anchor="left" icon="/icons/tdt.svg"
                 factoryClass="com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory"/>
+    <toolWindow id="Terraducktel Run" anchor="bottom" icon="/icons/tdt.svg" canCloseContents="true"
+                factoryClass="com.terraducktel.jetbrains.toolwindow.TdtRunToolWindowFactory"/>
+    <colorSettingsPage implementation="com.terraducktel.jetbrains.ui.TdtColorSettingsPage"/>
     <statusBarWidgetFactory id="Terraducktel.Profile" implementation="com.terraducktel.jetbrains.editor.ProfileStatusBarWidgetFactory"
                              order="before Terraducktel.CurrentFile"/>
     <statusBarWidgetFactory id="Terraducktel.CurrentFile" implementation="com.terraducktel.jetbrains.editor.TdtStatusBarWidgetFactory"

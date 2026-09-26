@@ -31,9 +31,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Project service that opens/reveals one console tab per run being followed, inside the
- * "Terraducktel" tool window, and runs [RunTail.tail] in a cancellable background task feeding
- * it. A port of `services/vscode/src/output/runOutput.ts`'s `RunOutputManager`, with a JetBrains
+ * Project service that opens/reveals one console tab per run being followed, inside the bottom
+ * "Terraducktel Run" tool window ([TOOL_WINDOW_ID]), and runs [RunTail.tail] in a cancellable
+ * background task feeding it. A port of `services/vscode/src/output/runOutput.ts`'s `RunOutputManager`, with a JetBrains
  * `ConsoleView` + `Content` standing in for a VS Code `OutputChannel`.
  */
 @Service(Service.Level.PROJECT)
@@ -47,6 +47,9 @@ class RunConsoles(private val project: Project) : Disposable {
     private val entries = ConcurrentHashMap<String, Entry>()
     private val listenerRegistered = AtomicBoolean(false)
 
+    /** Test seam: when set, [watch] calls this with the run id instead of starting a real tail. */
+    internal var tailStarterForTest: ((String) -> Unit)? = null
+
     /** Every EDT hop below (console printing, `onLanded`) uses [ModalityState.any] plus this
      *  "expired" condition: without it, output queued via the default NON_MODAL state freezes
      *  behind any modal dialog — including this plugin's own Apply/Destroy/Approve prompts — and
@@ -54,14 +57,14 @@ class RunConsoles(private val project: Project) : Disposable {
     private fun expired() = project.isDisposed
 
     /** Opens (or reveals) a console tab for [runId] and starts following it, unless a follow for
-     *  this run is already active — in which case the existing tab is just revealed. Must be
-     *  called on the EDT. */
+     *  this run is already active — in which case the existing tab is just revealed. Either way
+     *  the Terraducktel Run window is opened and activated. Must be called on the EDT. */
     fun watch(runId: String, title: String, onLanded: ((Run) -> Unit)? = null) {
         ThreadingAssertions.assertEventDispatchThread()
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel")
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)
         if (toolWindow == null) {
-            TdtLog.LOG.warn("Terraducktel: tool window unavailable — cannot watch run $runId")
-            ActionUtil.notify(project, "TDT: the Terraducktel tool window is unavailable — cannot follow this run.", NotificationType.ERROR)
+            TdtLog.LOG.warn("Terraducktel: $TOOL_WINDOW_ID tool window unavailable — cannot watch run $runId")
+            ActionUtil.notify(project, "TDT: the $TOOL_WINDOW_ID tool window is unavailable — cannot follow this run.", NotificationType.ERROR)
             return
         }
         ensureContentListener(toolWindow)
@@ -69,7 +72,7 @@ class RunConsoles(private val project: Project) : Disposable {
         val existing = entries[runId]
         if (existing != null) {
             toolWindow.contentManager.setSelectedContent(existing.content)
-            toolWindow.show()
+            toolWindow.activate(null)
             if (existing.active.get()) return
             // Re-attaching to a run we already followed (after a cancel, say): keep what was
             // printed — it is the only record of the first half of the run — and mark where
@@ -91,11 +94,12 @@ class RunConsoles(private val project: Project) : Disposable {
         entries[runId] = entry
         toolWindow.contentManager.addContent(content)
         toolWindow.contentManager.setSelectedContent(content)
-        toolWindow.show()
+        toolWindow.activate(null)
         startTail(runId, title, entry, onLanded)
     }
 
     private fun startTail(runId: String, title: String, entry: Entry, onLanded: ((Run) -> Unit)?) {
+        tailStarterForTest?.let { it(runId); return }
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "TDT: watching $title — cancel to stop following", true) {
             override fun run(indicator: ProgressIndicator) {
                 // Same flag either way: an explicit dispose()/content-close (entry.cancelled) and
@@ -107,8 +111,7 @@ class RunConsoles(private val project: Project) : Disposable {
                     // fire after the project is gone.
                     ApplicationManager.getApplication().invokeLater(
                         {
-                            val type = if (line.startsWith("✕")) ConsoleViewContentType.ERROR_OUTPUT else ConsoleViewContentType.NORMAL_OUTPUT
-                            entry.console.print("$line\n", type)
+                            entry.console.print("$line\n", RunOutputStyle.contentTypeFor(line))
                         },
                         ModalityState.any(),
                     ) { expired() }
@@ -164,7 +167,7 @@ class RunConsoles(private val project: Project) : Disposable {
     override fun dispose() {
         for (entry in entries.values) entry.cancelled.set(true)
         if (!project.isDisposed) {
-            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel")
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)
             if (toolWindow != null) {
                 for (entry in entries.values.toList()) {
                     toolWindow.contentManager.removeContent(entry.content, true)
@@ -175,6 +178,9 @@ class RunConsoles(private val project: Project) : Disposable {
     }
 
     companion object {
+        /** The bottom tool window that holds run consoles (registered in plugin.xml). */
+        const val TOOL_WINDOW_ID = "Terraducktel Run"
+
         fun getInstance(project: Project): RunConsoles = project.service()
     }
 }

@@ -8,6 +8,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
+import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.tree.AsyncTreeModel
@@ -26,6 +27,7 @@ import com.terraducktel.jetbrains.toolwindow.nodes.TdtNode
 import com.terraducktel.jetbrains.toolwindow.nodes.WorkspaceNode
 import org.jetbrains.concurrency.Promise
 import java.util.concurrent.ConcurrentHashMap
+import javax.swing.JComponent
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeExpansionListener
 import javax.swing.tree.TreePath
@@ -81,6 +83,8 @@ abstract class TreePanel(
         val asyncModel = AsyncTreeModel(structureModel, this)
         tree = Tree(asyncModel)
         tree.isRootVisible = false
+        // In-flight rows use AnimatedIcon.Default; let the tree repaint it from its cell renderer.
+        tree.putClientProperty(AnimatedIcon.ANIMATION_IN_RENDERER_ALLOWED, true)
         TreeUtil.installActions(tree)
         PopupHandler.installPopupMenu(tree, popupGroupId(), "TerraducktelTree")
         setContent(JBScrollPane(tree))
@@ -184,6 +188,12 @@ abstract class TreePanel(
             if (changed) scheduleInvalidate()
         }
     }
+
+    /** The tree itself — [TdtStackedPanel] tracks which tree was focused last. */
+    internal val treeComponent: JComponent get() = tree
+
+    /** Collapses every expanded node (the Workspaces section header's "Collapse All"). */
+    fun collapseAll() { TreeUtil.collapseAll(tree, 0) }
 
     /** Test seam: synchronously rebuilds the root's children (no async tree machinery), so a test
      *  can assert on the resulting [TdtNode]s directly. */

@@ -6,7 +6,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.terraducktel.jetbrains.editor.EditorStatus
 import com.terraducktel.jetbrains.toolwindow.TdtToolWindowFactory
 
-/** Reveals the active file's mapped workspace in the Workspaces tab. Port of VS Code's
+/** Reveals the active file's mapped workspace in the Workspaces section. Port of VS Code's
  *  `terraducktel.revealCurrentWorkspace`. */
 class RevealCurrentWorkspaceAction : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT

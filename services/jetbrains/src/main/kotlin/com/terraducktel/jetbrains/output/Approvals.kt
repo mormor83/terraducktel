@@ -3,7 +3,6 @@ package com.terraducktel.jetbrains.output
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.api.ApiError
@@ -24,24 +23,41 @@ object Approvals {
     /** Test seam: overridden by `ApprovalsTest` to swap in a fixed [Messages.YES]/[Messages.NO]/
      *  [Messages.CANCEL] answer, so the gate itself — nothing is POSTed to `/approve` without an
      *  explicit Approve — can be asserted deterministically against a stub server. Driving this
-     *  through [Messages.setTestDialog] instead was considered and rejected: that hook is
-     *  documented against `Messages.showYesNoDialog`'s two-way `TestDialog`, and was not verified
-     *  to intercept [MessageDialogBuilder.YesNoCancel]'s three-way result in the 2026.1 platform,
-     *  so this explicit seam is the deterministic choice instead of relying on unverified
-     *  behaviour. */
+     *  through [Messages.setTestDialog] instead was considered and rejected: that hook was not
+     *  verified to intercept a three-button [Messages.showDialog] in the 2026.1 platform, so this
+     *  explicit seam is the deterministic choice instead of relying on unverified behaviour. */
     internal var confirm: (Project, Run, GraphSummary) -> Int = { project, run, summary -> defaultConfirm(project, run, summary) }
 
+    internal val DIALOG_BUTTONS = arrayOf("Approve", "Show plan", "Cancel")
+
+    /** `+2 to add, ~1 to change, -2 to destroy[, ±1 to replace]` — replace only when non-zero. */
+    fun summaryText(summary: GraphSummary): String = buildList {
+        add("+${summary.add} to add")
+        add("~${summary.change} to change")
+        add("-${summary.destroy} to destroy")
+        if (summary.replace > 0) add("±${summary.replace} to replace")
+    }.joinToString(", ")
+
+    internal fun dialogTitle(run: Run, wsName: String): String = "Approve ${run.command} on $wsName?"
+
+    internal fun dialogMessage(summary: GraphSummary): String =
+        "${summaryText(summary)}\n\nNothing is applied until you click Approve."
+
+    /** [Messages.showDialog]'s button index → the [confirm] seam's YES (Approve) / NO (Show plan) /
+     *  CANCEL (Cancel, Esc or the window's close button, which report -1). */
+    internal fun choiceFor(index: Int): Int = when (index) {
+        0 -> Messages.YES
+        1 -> Messages.NO
+        else -> Messages.CANCEL
+    }
+
     private fun defaultConfirm(project: Project, run: Run, summary: GraphSummary): Int =
-        MessageDialogBuilder.yesNoCancel(
-            "Approve ${run.command} on ${RunActions.wsName(run)}?",
-            "+${summary.add} to add, ~${summary.change} to change, -${summary.destroy} to destroy, " +
-                "±${summary.replace} to replace.",
+        choiceFor(
+            Messages.showDialog(
+                project, dialogMessage(summary), dialogTitle(run, RunActions.wsName(run)),
+                DIALOG_BUTTONS, 0, Messages.getQuestionIcon(),
+            ),
         )
-            .yesText("Approve")
-            .noText("Show plan")
-            .cancelText("Cancel")
-            .asWarning()
-            .show(project)
 
     /** Loads the plan's add/change/destroy/replace summary (best-effort — a failed fetch shows the
      *  dialog with all-zero counts rather than blocking the approval) then, on the EDT, asks

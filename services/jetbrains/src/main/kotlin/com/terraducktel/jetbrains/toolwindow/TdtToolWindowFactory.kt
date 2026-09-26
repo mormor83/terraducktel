@@ -1,5 +1,6 @@
 package com.terraducktel.jetbrains.toolwindow
 
+import com.intellij.execution.runners.ExecutionUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
@@ -8,7 +9,6 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ProjectManagerListener
-import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
@@ -20,50 +20,35 @@ import com.terraducktel.jetbrains.session.TdtSessionListener
 import com.terraducktel.jetbrains.state.Store
 import org.jetbrains.concurrency.Promise
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.swing.JComponent
 import javax.swing.tree.TreePath
 
-/** The "Terraducktel" tool window: a Workspaces tab and a Runs tab, each a [TreePanel] wrapped in
- *  its own toolbar-carrying [SimpleToolWindowPanel] (the shared `Terraducktel.Toolbar` action
- *  group, plus this task's [com.terraducktel.jetbrains.actions.RefreshAction]). */
+/** The "Terraducktel" tool window: one [TdtStackedPanel] (Workspaces over Runs, each a collapsible
+ *  section) under the shared `Terraducktel.Toolbar` action group. Run consoles live in the separate
+ *  bottom "Terraducktel Run" window ([TdtRunToolWindowFactory]). */
 class TdtToolWindowFactory : ToolWindowFactory, DumbAware {
-
-    /** One named tab: [component] is what gets wrapped into a [com.intellij.ui.content.Content];
-     *  [panel] is the concrete [TreePanel] it wraps, kept alongside (rather than requiring the
-     *  caller to cast [component] back down) so production code and tests alike can reach
-     *  panel-specific members (e.g. [RunsPanel.pendingApprovals]) directly. */
-    internal data class ToolWindowContent(val name: String, val component: JComponent, val panel: TreePanel)
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         ensureProjectCloseListenerRegistered()
 
         val disposable = toolWindow.disposable
-        val contents = buildContents(project, disposable)
-        val contentManager = toolWindow.contentManager
-        val createdContents = contents.map { c ->
-            ContentFactory.getInstance().createContent(c.component, c.name, false).also { contentManager.addContent(it) }
-        }
+        val panel = buildPanel(project, disposable)
+        val group = ActionManager.getInstance().getAction("Terraducktel.Toolbar") as ActionGroup
+        val toolbar = ActionManager.getInstance().createActionToolbar("TerraducktelToolWindow", group, true)
+        toolbar.targetComponent = panel
+        panel.toolbar = toolbar.component
+        toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(panel, null, false))
 
-        val runsContent = createdContents[1]
-        val runsPanel = contents[1].panel as RunsPanel
-
-        fun updateRunsTitle() {
+        // The stripe icon carries the platform's "live" dot while any run waits at the gate.
+        fun updateIcon() {
             ApplicationManager.getApplication().invokeLater {
                 @Suppress("DEPRECATION") // Disposer.isDisposed(Disposable) has no non-deprecated replacement yet.
                 if (Disposer.isDisposed(disposable)) return@invokeLater
-                val pending = runsPanel.pendingApprovals()
-                val title = if (pending > 0) "Runs · $pending" else "Runs"
-                if (runsContent.displayName != title) runsContent.displayName = title
+                val awaiting = panel.runs.pendingApprovals() > 0
+                toolWindow.setIcon(if (awaiting) ExecutionUtil.getLiveIndicator(TreeIcons.TOOL_WINDOW) else TreeIcons.TOOL_WINDOW)
             }
         }
-        updateRunsTitle()
-        Store.getInstance().addListener(disposable) { updateRunsTitle() }
-        ApplicationManager.getApplication().messageBus.connect(disposable).subscribe(
-            TdtSessionListener.TOPIC,
-            object : TdtSessionListener {
-                override fun sessionChanged() { updateRunsTitle() }
-            },
-        )
+        updateIcon()
+        Store.getInstance().addListener(disposable) { updateIcon() }
 
         toolWindow.setAvailable(true)
 
@@ -76,35 +61,37 @@ class TdtToolWindowFactory : ToolWindowFactory, DumbAware {
         recomputeActive()
     }
 
-    /** Builds the two tab contents (panel + toolbar wrapper), without registering them with a
-     *  [ToolWindow] — split out so a headless test can exercise it without needing to register a
-     *  real tool window. */
-    internal fun buildContents(project: Project, disposable: Disposable): List<ToolWindowContent> {
-        val workspaces = WorkspacesPanel(project, disposable)
-        val runs = RunsPanel(project, disposable)
-        return listOf(
-            ToolWindowContent("Workspaces", wrapWithToolbar(workspaces), workspaces),
-            ToolWindowContent("Runs", wrapWithToolbar(runs), runs),
+    /** Builds the stacked panel and keeps its Runs pill in sync with the store — without
+     *  registering it with a [ToolWindow], so a headless test can exercise it directly. */
+    internal fun buildPanel(project: Project, disposable: Disposable): TdtStackedPanel {
+        val panel = TdtStackedPanel(project, disposable)
+        fun updateBadge() {
+            ApplicationManager.getApplication().invokeLater {
+                @Suppress("DEPRECATION")
+                if (Disposer.isDisposed(disposable)) return@invokeLater
+                panel.runsSection.badge = panel.runs.pendingApprovals().takeIf { it > 0 }?.toString()
+            }
+        }
+        updateBadge()
+        Store.getInstance().addListener(disposable) { updateBadge() }
+        ApplicationManager.getApplication().messageBus.connect(disposable).subscribe(
+            TdtSessionListener.TOPIC,
+            object : TdtSessionListener {
+                override fun sessionChanged() { updateBadge() }
+            },
         )
-    }
-
-    private fun wrapWithToolbar(inner: TreePanel): JComponent {
-        val outer = SimpleToolWindowPanel(true, true)
-        val group = ActionManager.getInstance().getAction("Terraducktel.Toolbar") as ActionGroup
-        val toolbar = ActionManager.getInstance().createActionToolbar("TerraducktelToolWindow", group, true)
-        toolbar.targetComponent = inner
-        outer.toolbar = toolbar.component
-        outer.setContent(inner)
-        return outer
+        return panel
     }
 
     companion object {
-        /** Activates the tool window, selects the Workspaces tab, and reveals [wsId] in it — the
-         *  editor status bar's "Reveal in tool window" action and its "Reveal Workspace" menu
+        const val TOOL_WINDOW_ID = "Terraducktel"
+
+        /** Activates the tool window, expands its Workspaces section, and reveals [wsId] in it —
+         *  the editor status bar's "Reveal in tool window" action and its "Reveal Workspace" menu
          *  counterpart both go through here. No-op if the tool window isn't registered (shouldn't
          *  happen) or [wsId] isn't currently in the Workspaces tree (see [TreePanel.revealWorkspace]) —
-         *  each of those (and the two casts below) logs a warning explaining which step failed,
-         *  rather than bailing out silently. */
+         *  each of those logs a warning explaining which step failed, rather than bailing out
+         *  silently. */
         fun revealWorkspace(project: Project, wsId: String) {
             revealWorkspaceForTest(project, wsId)
         }
@@ -113,32 +100,20 @@ class TdtToolWindowFactory : ToolWindowFactory, DumbAware {
          *  out before reaching [TreePanel.revealWorkspace]) so a test can wait on the actual
          *  selection instead of racing [ToolWindow.activate]'s async callback. */
         internal fun revealWorkspaceForTest(project: Project, wsId: String): Promise<TreePath>? {
-            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terraducktel")
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)
             if (toolWindow == null) {
                 TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — the Terraducktel tool window isn't registered for this project")
                 return null
             }
             var promise: Promise<TreePath>? = null
             toolWindow.activate {
-                // Matched by the content's wrapped panel TYPE, not its display name — robust to a
-                // title change (e.g. the Runs tab's own "Runs · N" badge) and to tab reordering.
-                val content = toolWindow.contentManager.contents.firstOrNull { (it.component as? SimpleToolWindowPanel)?.content is WorkspacesPanel }
-                if (content == null) {
-                    TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — no tool window content wraps a WorkspacesPanel")
-                    return@activate
-                }
-                toolWindow.contentManager.setSelectedContent(content)
-                val panel = content.component as? SimpleToolWindowPanel
+                val panel = toolWindow.contentManager.contents.firstNotNullOfOrNull { it.component as? TdtStackedPanel }
                 if (panel == null) {
-                    TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — the matched content's component wasn't a SimpleToolWindowPanel")
+                    TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — no tool window content is the stacked Workspaces/Runs panel")
                     return@activate
                 }
-                val workspacesPanel = panel.content as? WorkspacesPanel
-                if (workspacesPanel == null) {
-                    TdtLog.LOG.warn("Terraducktel: revealWorkspace($wsId) — the matched content's wrapped panel wasn't a WorkspacesPanel")
-                    return@activate
-                }
-                promise = workspacesPanel.revealWorkspace(wsId)
+                panel.workspacesSection.setCollapsed(false)
+                promise = panel.workspaces.revealWorkspace(wsId)
             }
             return promise
         }
@@ -147,7 +122,7 @@ class TdtToolWindowFactory : ToolWindowFactory, DumbAware {
          *  visibility — simpler and can't drift out of sync with reality. */
         private fun recomputeActive() {
             val anyVisible = ProjectManager.getInstance().openProjects.any {
-                ToolWindowManager.getInstance(it).getToolWindow("Terraducktel")?.isVisible == true
+                ToolWindowManager.getInstance(it).getToolWindow(TOOL_WINDOW_ID)?.isVisible == true
             }
             Store.getInstance().setActive(anyVisible)
         }

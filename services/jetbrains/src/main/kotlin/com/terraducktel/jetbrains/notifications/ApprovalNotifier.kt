@@ -7,6 +7,7 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.text.StringUtil
 import com.terraducktel.jetbrains.actions.ActionUtil
 import com.terraducktel.jetbrains.actions.run.RejectAction
 import com.terraducktel.jetbrains.output.Approvals
@@ -25,6 +26,17 @@ import com.terraducktel.jetbrains.session.TdtSession
  */
 object ApprovalNotifier {
     private const val GROUP_ID = "Terraducktel approvals"
+    const val TITLE = "Terraducktel approvals"
+
+    /** Balloon body: the sentence, a line break, then the verbose summary. HTML so the balloon wraps
+     *  it (never `nowrap`). [ApprovalNotice.summary] null is the ONLY "unknown" signal —
+     *  [com.terraducktel.jetbrains.api.RunGraph.summary] is non-nullable (an all-zero default) — so
+     *  then show no counts at all rather than a misleading "+0 to add, ~0 to change, -0 to destroy". */
+    internal fun body(n: ApprovalNotice): String {
+        val sentence = "TDT: ${StringUtil.escapeXmlEntities(n.workspaceName)} ${StringUtil.escapeXmlEntities(n.run.command)} awaits approval"
+        val counts = n.summary?.let { "<br>${Approvals.summaryText(it)}" } ?: ""
+        return "<html>$sentence$counts</html>"
+    }
 
     /** The project to act against for a balloon action click — resolved lazily AT CLICK TIME, not
      *  when the balloon was shown: the balloon (an app-level notification) can easily outlive the
@@ -41,23 +53,9 @@ object ApprovalNotifier {
      *  [project], so they still work if [project] was null (or has since closed) but some project
      *  is open by the time the user clicks. */
     fun show(project: Project?, n: ApprovalNotice) {
-        val summary = n.summary
-        // RunGraph.summary is non-nullable (an all-zero default) — a null ApprovalNotice.summary
-        // is the ONLY "unknown" signal, so show no counts at all rather than a misleading
-        // "+0 to add, ~0 to change, -0 to destroy, ±0 to replace".
-        val content = if (summary != null) {
-            "+${summary.add} to add, ~${summary.change} to change, -${summary.destroy} to destroy, " +
-                "±${summary.replace} to replace."
-        } else {
-            ""
-        }
         val notification = NotificationGroupManager.getInstance()
             .getNotificationGroup(GROUP_ID)
-            .createNotification(
-                "TDT: ${n.workspaceName} ${n.run.command} awaits approval",
-                content,
-                NotificationType.INFORMATION,
-            )
+            .createNotification(TITLE, body(n), NotificationType.INFORMATION)
         notification.setImportant(true)
         notification.addAction(
             NotificationAction.createSimpleExpiring("Approve…") {

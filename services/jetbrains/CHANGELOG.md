@@ -2,6 +2,35 @@
 
 All notable changes to the Terraducktel JetBrains plugin are documented here.
 
+## Unreleased
+
+Brand redesign. Every action, gate and API call is unchanged; only how things
+look and where run output opens.
+
+- **Stacked sections**: the Terraducktel tool window shows Workspaces and Runs
+  as two stacked, collapsible sections (like the VS Code sidebar) instead of
+  tabs. Collapsed state is remembered per project; the Runs header shows the
+  awaiting-approval count as a pill and the stripe icon gets a live indicator
+  while any run awaits approval.
+- **Terraducktel Run** tool window (bottom): run consoles moved here, one
+  closeable `Run <id8> · <workspace>` tab per watched run; Plan / Apply /
+  Destroy / Watch Run open and activate it.
+- Brand status icons (light/dark SVGs) in both trees, the platform's animated
+  spinner for in-flight runs, and provider glyphs in the brand accent. Row text
+  now matches VS Code (`<leaf>  <status> · <branch>[ · drift]`, run
+  `status · branch · id8 · local time`, step durations).
+- All brand colours live in `TdtColors`; the plan document and console header
+  colours are colour-scheme keys, editable under Settings → Editor → Color
+  Scheme → Terraducktel.
+- The plan document uses brand diff colours with a separate colour for
+  replaced (`-/+`) lines, plus a 2px gutter bar.
+- Console `── step [status]` headers are bold and tinted by status.
+- **Approve…** dialog: `Approve <command> on <workspace>?`, the verbose summary
+  (replace omitted when 0), then "Nothing is applied until you click
+  Approve.", with Approve / Show plan / Cancel.
+- Approval balloons are titled **Terraducktel approvals** and use an HTML body
+  (sentence, line break, summary) so they wrap.
+
 ## 0.1.0
 
 - **Sign-in**: email + password, a long-lived API key (`tdt_…`), or SSO via a

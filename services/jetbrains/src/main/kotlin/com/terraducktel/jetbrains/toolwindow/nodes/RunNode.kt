@@ -82,9 +82,8 @@ class RunNode(
 
     override fun update(presentation: PresentationData) {
         val wsName = Store.getInstance().workspace(run.workspace_id)?.name ?: run.workspace_id.take(8)
-        presentation.addText("$wsName · ${run.command}", SimpleTextAttributes.REGULAR_ATTRIBUTES)
-        val secondary = listOfNotNull(run.status, run.id.take(8), run.created_at).joinToString(" · ")
-        presentation.addText(" · $secondary", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        presentation.addText(NodeText.runLabel(run, wsName, underWorkspace = parent is WorkspaceNode), SimpleTextAttributes.REGULAR_ATTRIBUTES)
+        presentation.addText("  ${NodeText.runDescription(run)}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
         presentation.setIcon(TreeIcons.runStatusIcon(run.status))
         presentation.tooltip = "${run.command} · ${run.status}\n${run.id}\ncreated ${run.created_at ?: "-"}"
     }

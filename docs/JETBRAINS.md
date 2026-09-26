@@ -72,20 +72,36 @@ Credentials live in the IDE's PasswordSafe, never in the settings XML or in
 
 ## The tool window
 
-Open the **Terraducktel** tool window (left-hand tool window bar) for two
-tabs:
+Open the **Terraducktel** tool window (left-hand tool window bar). It shows
+two stacked, collapsible sections, the same layout as the VS Code sidebar:
 
-- **Workspaces** — grouped like the web UI: provider (AWS account / Azure
-  subscription / GCP project / other) → region → folders → workspace, each
-  row showing drift and last-run status; expand a workspace to see its
-  recent runs as child rows.
-- **Runs** — every run in the current business unit, flat, most-actionable
-  first: `awaiting_approval` on top, then in-flight (`pending` / `running` /
-  `planning` / `applying`), then landed (`planned` / `applied` / `failed` /
-  `cancelled`). The tab title becomes **Runs · N** while N runs are awaiting
-  approval.
+- **Workspaces** (top) — grouped like the web UI: provider (AWS account /
+  Azure subscription / GCP project / other) → region → folders → workspace.
+  A workspace row shows its leaf folder name, then `<last status | no runs> ·
+  <branch>[ · drift]`; expand it to see its recent runs as child rows
+  (labelled by command). Hovering the section header shows **Refresh** and
+  **Collapse All**.
+- **Runs** (bottom) — every run in the current business unit, flat,
+  most-actionable first: `awaiting_approval` on top, then in-flight
+  (`pending` / `running` / `planning` / `applying`), then landed (`planned` /
+  `applied` / `failed` / `cancelled`). Each row reads `<workspace> ·
+  <command>`, then `status · branch · short id · local time`; expand a run for
+  its steps (with durations). While runs are awaiting approval the section
+  header shows their count in a pill and the tool-window stripe icon carries
+  a live indicator dot.
 
-The toolbar (shared across both tabs) has Sign In…, Sign Out, Switch
+Click a section header to collapse it: it shrinks to the header and the
+other section takes the free space. Which sections are collapsed is
+remembered per project.
+
+Status icons come from the Terraducktel icon set, coloured per status and per
+light/dark theme: applied/success ✓ green, planned ✓ cyan, awaiting approval
+⏸ amber, failed ✕ red, cancelled/skipped ■ and pending ◷ muted, a workspace
+with no runs gets the workspace glyph. Runs and steps still in flight show
+the platform's animated spinner. Provider rows use the provider's glyph in
+the brand accent colour.
+
+The toolbar above both sections has Sign In…, Sign Out, Switch
 Profile…, Switch Business Unit…, Refresh, and Watch Run…. Right-click a
 workspace row for its context menu (Plan / Apply… / Destroy… / Set Tracked
 Branch… / Sync From Repo / Open in Browser / Copy Id); right-click a run row
@@ -94,7 +110,8 @@ in Browser / Copy Id).
 
 ## Triggering runs
 
-- **Plan** — triggers a plan immediately and opens a console tab for it.
+- **Plan** — triggers a plan immediately and opens a console tab for it in
+  the **Terraducktel Run** tool window.
 - **Apply…** — asks for confirmation ("The plan will pause for approval
   before anything changes.") before triggering.
 - **Destroy…** — asks you to type the workspace's exact name before
@@ -104,8 +121,13 @@ in Browser / Copy Id).
   different branch pins the workspace's `repo_ref` before the next run.
 - **Sync From Repo** — re-syncs the workspace against its source repo.
 
-Every trigger opens (or reveals) a console tab in the tool window titled
-`Run <short id> · <workspace>` and streams its steps live. Closing that tab
+Every trigger (and **Watch Run…**) opens and activates the bottom
+**Terraducktel Run** tool window, with one console tab per watched run titled
+`Run <short id> · <workspace>`, streaming its steps live. `── step [status]`
+and `── run <status>` header lines are bold and tinted by status (green for
+success/applied/planned, lime for running/pending, amber for awaiting approval,
+red for failed/cancelled, muted for skipped); `✕` lines are error output.
+Closing that tab
 stops following the run (the request already sent to the server is
 unaffected); reopening **Watch Run…** on the same run resumes tailing from
 where it left off, marked with a `re-attached` separator. When a run you're
@@ -116,12 +138,20 @@ one offers **Show plan** and **Approve…** directly from the balloon.
 ## Reviewing and approving
 
 - **Show Plan** opens the run's `terraform plan` output as a read-only
-  document with diff colouring: added lines highlighted as insertions,
-  removed lines as deletions, changed/replaced lines as modifications.
-- **Approve…** loads the plan's graph summary and shows `+N to add, ~N to
-  change, -N to destroy, ±N to replace` in a three-way dialog: **Approve**
-  applies, **Show plan** opens the plan document instead, **Cancel** does
-  nothing. Nothing is ever applied without an explicit **Approve** click.
+  document with brand diff colours: added, changed, destroyed and replaced
+  (`-/+`) lines each get their own text and background colour, and replaced
+  lines also get a 2px bar in the gutter.
+- **Approve…** loads the plan's graph summary into a three-way dialog titled
+  `Approve <command> on <workspace>?`. The body is `+N to add, ~N to change,
+  -N to destroy, ±N to replace` (replace left out when it is 0), then
+  "Nothing is applied until you click Approve." **Approve** applies, **Show
+  plan** opens the plan document instead, **Cancel** does nothing. Nothing is
+  ever applied without an explicit **Approve** click.
+
+The plan and console colours are colour-scheme keys: change them under
+**Settings → Editor → Color Scheme → Terraducktel** (Plan: added / changed /
+destroyed / replaced line; Run console: step succeeded / running / awaiting
+approval / failed / skipped).
 - **Reject…** prompts for an optional reason, then rejects.
 - **Cancel Run** requests cancellation of a run that is still cancellable
   (queued or in-flight).
@@ -192,9 +222,11 @@ the active business unit every **Approval poll seconds** (Settings → Tools
 window is open, and stops while signed out.
 
 Each run newly seen awaiting approval raises a sticky balloon (notification
-group **Terraducktel approvals**): `TDT: <workspace> <command> awaits
-approval`, with `+N to add, ~N to change, -N to destroy, ±N to replace`
-when the graph summary is known, and **Approve…**, **Reject…**, **Open**
+group **Terraducktel approvals**) titled **Terraducktel approvals**. Its body
+is `TDT: <workspace> <command> awaits approval` and, on the next line when the
+graph summary is known, `+N to add, ~N to change, -N to destroy, ±N to
+replace` (the body is HTML, so long names wrap instead of overflowing), with
+**Approve…**, **Reject…**, **Open**
 actions — each delegates to the same gated flow the Runs tree's context
 menu uses (Approve still goes through the confirmation modal; nothing is
 applied from the balloon click alone). A run is announced at most once per
@@ -208,8 +240,8 @@ never raises a second notification for it.
 
 On sign-in (or a profile/business-unit switch) nothing fires for runs
 already awaiting approval at that moment — they're recorded as seen
-immediately so you aren't sprayed with a backlog; the Runs tab's `Runs · N`
-badge still reflects them. Only runs that newly enter `awaiting_approval`
+immediately so you aren't sprayed with a backlog; the Runs section's count
+pill still reflects them. Only runs that newly enter `awaiting_approval`
 afterwards produce a notification.
 
 ## Troubleshooting
@@ -296,10 +328,10 @@ IntelliJ Platform rather than an oversight:
    application-level services shared by every open project, so the BU lives
    with the profile instead. Switching business unit switches it for every
    open project at once.
-3. **Run output is a console tab in the Terraducktel tool window**, not a
-   separate output panel — the IntelliJ Platform's console view
-   (`ConsoleView`) is the idiomatic equivalent of VS Code's `OutputChannel`,
-   and reusing the tool window keeps everything in one place.
+3. **Run output is a console tab in the bottom Terraducktel Run tool
+   window**, not an output-panel channel — the IntelliJ Platform's console
+   view (`ConsoleView`) is the idiomatic equivalent of VS Code's
+   `OutputChannel`.
 4. **Network requests go through `HttpURLConnection`, not a shared HTTP
    client.** This lets each request's TLS trust be configured independently
    per connection, which is what makes the per-profile **Insecure TLS**

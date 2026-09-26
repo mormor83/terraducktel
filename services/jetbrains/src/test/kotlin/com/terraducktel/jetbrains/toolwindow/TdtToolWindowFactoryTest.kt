@@ -1,30 +1,31 @@
 package com.terraducktel.jetbrains.toolwindow
 
+import com.intellij.ide.DataManager
+import com.intellij.ide.impl.HeadlessDataManager
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.wm.RegisterToolWindowTask
+import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.content.ContentFactory
+import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.TdtClient
 import com.terraducktel.jetbrains.api.Workspace
+import com.terraducktel.jetbrains.output.RunConsoles
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.state.Store
+import java.awt.event.FocusEvent
 import java.util.concurrent.TimeUnit
 
 /**
- * Two different levels of the same tool window. The first test below exercises
- * [TdtToolWindowFactory.buildContents] directly — the internal seam the brief calls out for
- * exactly this situation — rather than registering a real [com.intellij.openapi.wm.ToolWindow],
- * since that pulls in window-manager machinery not worth fighting just to prove two named
- * components come out of `buildContents` correctly. It covers everything
- * [TdtToolWindowFactory.createToolWindowContent] does before registering with a real
- * [com.intellij.ui.content.ContentManager]: two named components, each a real [WorkspacesPanel] /
- * [RunsPanel] wrapped in a toolbar-carrying panel.
- *
- * [TdtToolWindowFactory.revealWorkspace], covered by the second test, is different: it starts by
- * looking the tool window up via `ToolWindowManager.getToolWindow`, so there is no exercising it
- * without a real (headless) one registered — that test does exactly that.
+ * The "Terraducktel" tool window body (one [TdtStackedPanel]: Workspaces over Runs, each a
+ * collapsible section) and the bottom "Terraducktel Run" window that holds run consoles.
+ * [TdtToolWindowFactory.buildPanel] is exercised directly rather than through a registered tool
+ * window; [TdtToolWindowFactory.revealWorkspace] and [RunConsoles.watch] look their window up via
+ * `ToolWindowManager`, so those tests register a real (headless) one.
  */
 class TdtToolWindowFactoryTest : BasePlatformTestCase() {
 
@@ -46,11 +47,16 @@ class TdtToolWindowFactoryTest : BasePlatformTestCase() {
         originalClientProvider = Store.getInstance().clientProvider
         Store.getInstance().clientProvider = { null }
         Store.getInstance().stop()
+        for (key in listOf(TdtStackedPanel.WORKSPACES_COLLAPSED_KEY, TdtStackedPanel.RUNS_COLLAPSED_KEY)) {
+            PropertiesComponent.getInstance(project).unsetValue(key)
+        }
     }
 
     override fun tearDown() {
         try {
             Store.getInstance().clientProvider = originalClientProvider
+            Store.getInstance().setSnapshotForTest(emptyList(), emptyList())
+            RunConsoles.getInstance(project).tailStarterForTest = null
         } finally {
             super.tearDown()
         }
@@ -59,32 +65,56 @@ class TdtToolWindowFactoryTest : BasePlatformTestCase() {
     private fun <T> offEdt(block: () -> T): T =
         ApplicationManager.getApplication().executeOnPooledThread<T> { block() }.get(10, TimeUnit.SECONDS)
 
-    fun `test buildContents produces a Workspaces and a Runs component`() {
-        val factory = TdtToolWindowFactory()
-        val contents = factory.buildContents(project, testRootDisposable)
+    private fun awaiting(id: String) = Run(id = id, workspace_id = "w1", command = "apply", status = "awaiting_approval")
 
-        assertEquals(listOf("Workspaces", "Runs"), contents.map { it.name })
-        assertTrue(contents[0].panel is WorkspacesPanel)
-        assertTrue(contents[1].panel is RunsPanel)
+    fun `test buildPanel stacks a Workspaces section over a Runs section`() {
+        val panel = TdtToolWindowFactory().buildPanel(project, testRootDisposable)
+
+        assertEquals("Workspaces", panel.workspacesSection.title)
+        assertEquals("Runs", panel.runsSection.title)
+        assertTrue(panel.workspacesSection.body is WorkspacesPanel)
+        assertTrue(panel.runsSection.body is RunsPanel)
+        assertFalse(panel.workspacesSection.isCollapsed)
+        assertFalse(panel.runsSection.isCollapsed)
     }
 
-    // --- revealWorkspace(): the four-bail-out-deep glue between the factory and TreePanel --------
-    // This DOES register a real ToolWindow (unlike buildContents' own test above) — revealWorkspace
-    // is exactly the code that looks one up via ToolWindowManager, so there is no exercising it
-    // without one.
+    fun `test collapsing a section hides its body and is remembered per project`() {
+        val panel = TdtToolWindowFactory().buildPanel(project, testRootDisposable)
+        panel.runsSection.setCollapsed(true)
 
-    fun `test revealWorkspace selects a known workspace in the Workspaces tree, and an unknown id is a harmless logged no-op`() {
+        assertTrue(panel.runsSection.isCollapsed)
+        assertFalse(panel.runsSection.body.isVisible)
+        assertTrue(PropertiesComponent.getInstance(project).getBoolean(TdtStackedPanel.RUNS_COLLAPSED_KEY))
+
+        val reopened = TdtToolWindowFactory().buildPanel(project, testRootDisposable)
+        assertTrue(reopened.runsSection.isCollapsed)
+        assertFalse(reopened.workspacesSection.isCollapsed)
+    }
+
+    fun `test the Runs header shows a pill with the awaiting-approval count`() {
+        val panel = TdtToolWindowFactory().buildPanel(project, testRootDisposable)
+
+        Store.getInstance().setSnapshotForTest(emptyList(), listOf(awaiting("r1"), awaiting("r2")))
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals("2", panel.runsSection.badge)
+
+        Store.getInstance().setSnapshotForTest(emptyList(), emptyList())
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertNull(panel.runsSection.badge)
+        assertNull(panel.workspacesSection.badge)
+    }
+
+    // --- revealWorkspace(): the glue between the factory and TreePanel -------------------------
+
+    fun `test revealWorkspace expands a collapsed Workspaces section and selects the workspace, and an unknown id is a harmless no-op`() {
         val toolWindowManager = ToolWindowManager.getInstance(project)
-        val toolWindow = toolWindowManager.registerToolWindow("Terraducktel") {}
-        Disposer.register(testRootDisposable) { toolWindowManager.unregisterToolWindow("Terraducktel") }
+        val toolWindow = toolWindowManager.registerToolWindow(TdtToolWindowFactory.TOOL_WINDOW_ID) {}
+        Disposer.register(testRootDisposable) { toolWindowManager.unregisterToolWindow(TdtToolWindowFactory.TOOL_WINDOW_ID) }
 
-        val factory = TdtToolWindowFactory()
-        val contents = factory.buildContents(project, testRootDisposable)
-        for (c in contents) {
-            toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(c.component, c.name, false))
-        }
-        val workspacesPanel = contents[0].panel as WorkspacesPanel
-        workspacesPanel.signedInProvider = { true } // skip the "sign in first" placeholder message
+        val panel = TdtToolWindowFactory().buildPanel(project, testRootDisposable)
+        toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(panel, null, false))
+        panel.workspaces.signedInProvider = { true } // skip the "sign in first" placeholder message
+        panel.workspacesSection.setCollapsed(true)
 
         Store.getInstance().setSnapshotForTest(
             listOf(Workspace(id = "w1", name = "prod", tf_working_dir = "envs/prod")),
@@ -96,17 +126,65 @@ class TdtToolWindowFactoryTest : BasePlatformTestCase() {
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
 
         val promise = TdtToolWindowFactory.revealWorkspaceForTest(project, "w1")
-        assertNotNull("expected a promise once a Workspaces content was found", promise)
-        val selectedPath = PlatformTestUtil.waitForPromise(promise!!)
-        assertNotNull("expected the workspace node to be found and selected", selectedPath)
-        assertEquals("Workspaces", toolWindow.contentManager.selectedContent?.displayName)
+        assertNotNull("expected a promise once the stacked panel was found", promise)
+        assertNotNull("expected the workspace node to be found and selected", PlatformTestUtil.waitForPromise(promise!!))
+        assertFalse("revealing must expand the Workspaces section", panel.workspacesSection.isCollapsed)
 
-        // Unknown id: TreePanel.revealWorkspace's own TreeVisitor never matches anything, so the
-        // promise settles without a selection — but revealWorkspaceForTest itself must still reach
-        // and return it (the tool window / Workspaces content / panel casts all still succeed),
-        // rather than throwing or silently vanishing.
         val unknownPromise = TdtToolWindowFactory.revealWorkspaceForTest(project, "does-not-exist")
         assertNotNull("expected a promise even for an id that isn't in the tree", unknownPromise)
         PlatformTestUtil.waitForPromise(unknownPromise!!, 5_000)
+    }
+
+    fun `test toolbar actions see the selection of the tree that was focused last`() {
+        // The headless DataManager ignores components unless told to use the production lookup.
+        HeadlessDataManager.fallbackToProductionDataManager(testRootDisposable)
+        val toolWindowManager = ToolWindowManager.getInstance(project)
+        val toolWindow = toolWindowManager.registerToolWindow(TdtToolWindowFactory.TOOL_WINDOW_ID) {}
+        Disposer.register(testRootDisposable) { toolWindowManager.unregisterToolWindow(TdtToolWindowFactory.TOOL_WINDOW_ID) }
+        val panel = TdtToolWindowFactory().buildPanel(project, testRootDisposable)
+        toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(panel, null, false))
+        panel.workspaces.signedInProvider = { true }
+        Store.getInstance().setSnapshotForTest(listOf(Workspace(id = "w1", name = "prod", tf_working_dir = "envs/prod")), emptyList())
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        PlatformTestUtil.waitForPromise(TdtToolWindowFactory.revealWorkspaceForTest(project, "w1")!!)
+
+        fun focus(tree: TreePanel) = tree.treeComponent.focusListeners.forEach { it.focusGained(FocusEvent(tree.treeComponent, FocusEvent.FOCUS_GAINED)) }
+        fun selectedWorkspace() = DataManager.getInstance().getDataContext(panel).getData(TdtDataKeys.WORKSPACE)
+
+        focus(panel.runs)
+        assertNull("the Runs tree has no selection, so nothing may leak from the Workspaces tree", selectedWorkspace())
+        focus(panel.workspaces)
+        assertEquals("w1", selectedWorkspace()?.id)
+    }
+
+    // --- Terraducktel Run: the bottom tool window for run consoles ------------------------------
+
+    fun `test watching a run opens one closeable console tab in Terraducktel Run, reused on a second watch`() {
+        val toolWindowManager = ToolWindowManager.getInstance(project)
+        val runWindow = toolWindowManager.registerToolWindow(
+            RegisterToolWindowTask(id = RunConsoles.TOOL_WINDOW_ID, anchor = ToolWindowAnchor.BOTTOM, canCloseContent = true),
+        )
+        Disposer.register(testRootDisposable) { toolWindowManager.unregisterToolWindow(RunConsoles.TOOL_WINDOW_ID) }
+        val started = mutableListOf<String>()
+        val consoles = RunConsoles.getInstance(project)
+        consoles.tailStarterForTest = { runId -> started += runId }
+
+        consoles.watch("abcdef1234", "vpc")
+        consoles.watch("abcdef1234", "vpc") // still following: just reveals the existing tab
+
+        val contents = runWindow.contentManager.contents
+        assertEquals(1, contents.size)
+        assertEquals("Run abcdef12 · vpc", contents[0].displayName)
+        assertTrue(contents[0].isCloseable)
+        assertEquals(listOf("abcdef1234"), started)
+        assertEquals("Terraducktel Run", RunConsoles.TOOL_WINDOW_ID)
+    }
+
+    fun `test plugin xml registers Terraducktel Run as a bottom tool window`() {
+        val xml = javaClass.getResource("/META-INF/plugin.xml")!!.readText()
+        val tag = Regex("""<toolWindow id="Terraducktel Run"[^>]*/>""").find(xml)?.value
+        assertNotNull("no Terraducktel Run toolWindow in plugin.xml", tag)
+        assertTrue(tag!!, tag.contains("""anchor="bottom""""))
+        assertTrue(tag, tag.contains("""canCloseContents="true""""))
     }
 }

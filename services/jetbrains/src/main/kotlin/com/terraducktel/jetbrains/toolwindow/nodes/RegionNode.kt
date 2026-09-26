@@ -24,7 +24,7 @@ class RegionNode(
 
     override fun update(presentation: PresentationData) {
         presentation.addText(region.region, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-        presentation.addText(" (${region.count})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        presentation.addText("  ${region.count}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
         presentation.setIcon(AllIcons.General.Locate)
     }
 }
