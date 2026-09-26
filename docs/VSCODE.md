@@ -85,19 +85,48 @@ Nothing secret is written to settings or logs.
 - **Workspaces** view: provider → account → region → folders → workspace, each
   with drift and last-run status; expand a workspace for its recent runs.
   Right-click for Plan / Apply… / Destroy… / Set tracked branch / Sync from
-  repo / Open in browser / Copy id.
-- **Runs** view: newest first, awaiting-approval on top (badge = count).
+  repo / Open in browser / Copy id. The view's badge (and so the activity-bar
+  icon) counts runs awaiting approval.
+- **Runs** view: awaiting-approval on top, then in-flight, then landed; newest
+  first within a status.
   Click a run to watch its steps in an output channel, or expand it to see its
   steps with status icons and durations. Inline icons: watch, plan output and
   (for a run awaiting approval) Approve…; **Reject…** and **Cancel run** are on
   the right-click menu.
-- **Approve…** shows `+add ~change -destroy ±replace` from the plan graph and
-  needs an explicit click; **Destroy…** asks you to type the workspace name.
+- **Approve…** asks `Approve <command> on <workspace>?` in a modal dialog whose
+  detail is the plan graph summary — `+2 to add, ~1 to change, -2 to destroy,
+  ±1 to replace` (the replace count is left out when it is 0) — with
+  **Approve**, **Show plan** and Cancel. Nothing is applied without an
+  explicit **Approve** click; **Destroy…** asks you to type the workspace name.
 - Title-bar buttons: switch profile (only shown once at least one profile
   exists), refresh, switch business unit.
 
 Settings: `refreshIntervalSeconds` (default 30), `runsLimit` (200), `trace`
 (request metadata to the *Terraducktel* output channel; never credentials).
+
+### Look and colours
+
+- **Status icons** in both trees come from the Terraducktel icon set, coloured
+  per status and per light/dark theme (`media/status/<status>-{light,dark}.svg`):
+  applied/success ✓ green, planned ✓ cyan, awaiting approval ⏸ amber, failed ✕
+  red, cancelled/skipped ■ and pending ◷ muted, a workspace with no runs gets
+  the workspace glyph. Runs and steps still in flight show a spinning sync
+  icon in the `terraducktel.run` colour. Cloud-group rows are tinted with
+  `terraducktel.accent`.
+- **Plan document** lines are painted with brand diff colours — added,
+  changed, destroyed and replaced (`-/+`, plus a 2px left bar) — as whole-line
+  background, text colour and an overview-ruler mark.
+- **Run output**: the output channel uses the `terraducktel-output` language,
+  whose grammar gives `── step [status]` / `── run <status>` header lines
+  theme scopes by status (`markup.inserted` for success/applied/planned,
+  `markup.deleted` for failed/cancelled, `markup.changed` for awaiting
+  approval, `comment` for skipped, all under `markup.heading`), and `✕` error
+  lines `markup.deleted`. Your colour theme decides the exact tint and whether
+  headers are bold; the text itself is unchanged.
+- Every colour is a `terraducktel.*` theme colour (`add`, `change`, `destroy`,
+  `replace`, the matching `*Background`s, `run`, `accent`). Override any of
+  them under `workbench.colorCustomizations`, e.g.
+  `"workbench.colorCustomizations": { "terraducktel.addBackground": "#00ff0022" }`.
 
 ## Approval notifications
 

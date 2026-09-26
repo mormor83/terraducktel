@@ -15,6 +15,20 @@ export function planLineKinds(text: string): LineKind[] {
   });
 }
 
+type PlanKind = Exclude<LineKind, "other">;
+
+/** Whole-line brand decoration for one plan line kind (colours: `contributes.colors` in package.json). */
+export function planDecorationOptions(kind: PlanKind): vscode.DecorationRenderOptions {
+  const ink = new vscode.ThemeColor(`terraducktel.${kind}`);
+  return {
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor(`terraducktel.${kind}Background`),
+    color: ink,
+    overviewRulerColor: ink,
+    ...(kind === "replace" ? { border: "0 0 0 2px solid", borderColor: ink } : {}),
+  };
+}
+
 export function planUri(runId: string, label: string) {
   return vscode.Uri.parse(`${PLAN_SCHEME}:${encodeURIComponent(label)}.tfplan.txt?run=${runId}`);
 }
@@ -23,11 +37,11 @@ export class PlanDocumentProvider implements vscode.TextDocumentContentProvider,
   private cache = new Map<string, string>();
   private changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
-  private decos: Record<Exclude<LineKind, "other">, vscode.TextEditorDecorationType> = {
-    add: vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor("diffEditor.insertedLineBackground") }),
-    destroy: vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor("diffEditor.removedLineBackground") }),
-    change: vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor("editor.wordHighlightBackground") }),
-    replace: vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor("editorWarning.background"), border: "0 0 0 2px solid", borderColor: new vscode.ThemeColor("editorWarning.foreground") }),
+  private decos: Record<PlanKind, vscode.TextEditorDecorationType> = {
+    add: vscode.window.createTextEditorDecorationType(planDecorationOptions("add")),
+    destroy: vscode.window.createTextEditorDecorationType(planDecorationOptions("destroy")),
+    change: vscode.window.createTextEditorDecorationType(planDecorationOptions("change")),
+    replace: vscode.window.createTextEditorDecorationType(planDecorationOptions("replace")),
   };
   private subs: vscode.Disposable[] = [];
 

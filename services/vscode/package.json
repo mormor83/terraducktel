@@ -31,6 +31,24 @@
         { "id": "terraducktel.runs", "name": "Runs" }
       ]
     },
+    "colors": [
+      { "id": "terraducktel.add", "description": "Terraducktel: plan lines that add a resource.", "defaults": { "dark": "#7ed078", "light": "#2f9b56", "highContrast": "#7ed078", "highContrastLight": "#2f9b56" } },
+      { "id": "terraducktel.change", "description": "Terraducktel: plan lines that change a resource in place.", "defaults": { "dark": "#e0a93b", "light": "#c98a14", "highContrast": "#e0a93b", "highContrastLight": "#c98a14" } },
+      { "id": "terraducktel.destroy", "description": "Terraducktel: plan lines that destroy a resource.", "defaults": { "dark": "#e05c45", "light": "#c4452f", "highContrast": "#e05c45", "highContrastLight": "#c4452f" } },
+      { "id": "terraducktel.replace", "description": "Terraducktel: plan lines that replace a resource (-/+).", "defaults": { "dark": "#e0a93b", "light": "#c98a14", "highContrast": "#e0a93b", "highContrastLight": "#c98a14" } },
+      { "id": "terraducktel.run", "description": "Terraducktel: in-flight run / step icons.", "defaults": { "dark": "#b6ff4b", "light": "#5c7a12", "highContrast": "#b6ff4b", "highContrastLight": "#5c7a12" } },
+      { "id": "terraducktel.accent", "description": "Terraducktel: brand accent for cloud-group icons.", "defaults": { "dark": "#b6ff4b", "light": "#1f6f6c", "highContrast": "#b6ff4b", "highContrastLight": "#1f6f6c" } },
+      { "id": "terraducktel.addBackground", "description": "Terraducktel: background of plan lines that add a resource.", "defaults": { "dark": "#7ed0781f", "light": "#e6f5ec", "highContrast": "#7ed0781f", "highContrastLight": "#e6f5ec" } },
+      { "id": "terraducktel.changeBackground", "description": "Terraducktel: background of plan lines that change a resource in place.", "defaults": { "dark": "#e0a93b21", "light": "#fbf2dc", "highContrast": "#e0a93b21", "highContrastLight": "#fbf2dc" } },
+      { "id": "terraducktel.destroyBackground", "description": "Terraducktel: background of plan lines that destroy a resource.", "defaults": { "dark": "#e05c4521", "light": "#fbe7e2", "highContrast": "#e05c4521", "highContrastLight": "#fbe7e2" } },
+      { "id": "terraducktel.replaceBackground", "description": "Terraducktel: background of plan lines that replace a resource (-/+).", "defaults": { "dark": "#e0a93b2e", "light": "#fbf2dc", "highContrast": "#e0a93b2e", "highContrastLight": "#fbf2dc" } }
+    ],
+    "languages": [
+      { "id": "terraducktel-output", "aliases": ["Terraducktel run output"] }
+    ],
+    "grammars": [
+      { "language": "terraducktel-output", "scopeName": "source.terraducktel-output", "path": "./syntaxes/terraducktel-output.tmLanguage.json" }
+    ],
     "viewsWelcome": [
       {
         "view": "terraducktel.workspaces",

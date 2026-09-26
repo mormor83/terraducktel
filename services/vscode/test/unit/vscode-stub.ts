@@ -18,13 +18,17 @@ export class TreeItem {
   constructor(label: string, public collapsibleState: TreeItemCollapsibleState = TreeItemCollapsibleState.None) { this.label = label; }
 }
 export class MarkdownString { value = ""; constructor(v = "") { this.value = v; } appendMarkdown(s: string) { this.value += s; return this; } }
+type StubUri = { toString(): string; scheme: string; path: string; fsPath?: string; query: string };
 export const Uri = {
-  parse: (s: string) => {
+  parse: (s: string): StubUri => {
     const [head, ...rest] = s.split("?");
     return { toString: () => s, scheme: head.split(":")[0], path: head.split(":").slice(1).join(":"), query: rest.join("?") };
   },
+  file: (p: string): StubUri => ({ toString: () => `file://${p}`, scheme: "file", path: p, fsPath: p, query: "" }),
+  joinPath: (base: StubUri, ...segments: string[]): StubUri => Uri.file([base.path, ...segments].join("/")),
 };
 export enum StatusBarAlignment { Left = 1, Right = 2 }
+export enum ProgressLocation { SourceControl = 1, Window = 10, Notification = 15 }
 
 /** Every item `createStatusBarItem` has handed out, most recent last — lets a test reach the live
  *  item (text/tooltip/backgroundColor) without EditorStatus needing to expose its private field. */

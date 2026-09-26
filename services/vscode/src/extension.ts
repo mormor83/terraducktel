@@ -8,9 +8,10 @@ import { createRearm } from "./notifications/rearm";
 import { RunOutputManager } from "./output/runOutput";
 import { PlanDocumentProvider } from "./output/planDocument";
 import { Session } from "./session";
+import { initBrandIcons } from "./views/brand";
 import { RunNode } from "./views/nodes";
 import { ProfileStatus } from "./views/profileStatus";
-import { RunsTree } from "./views/runsTree";
+import { RunsTree, awaitingBadge } from "./views/runsTree";
 import { WorkspacesTree } from "./views/workspacesTree";
 import { VIEW_RUNS, VIEW_WORKSPACES } from "./ids";
 
@@ -29,6 +30,7 @@ export interface TestSurface {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<TestSurface> {
+  initBrandIcons(context.extensionUri);
   const session = new Session(context);
   context.subscriptions.push(session);
   const wsTree = new WorkspacesTree(session), runsTree = new RunsTree(session);
@@ -45,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
   };
   session.store.setActive(wsView.visible || runsView.visible);
   context.subscriptions.push(wsView.onDidChangeVisibility(onVis), runsView.onDidChangeVisibility(onVis));
-  session.store.onDidChange(() => { const n = session.store.runs.filter((r) => r.status === "awaiting_approval").length; runsView.badge = n ? { value: n, tooltip: `${n} run(s) awaiting approval` } : undefined; });
+  session.store.onDidChange(() => { wsView.badge = awaitingBadge(session.store.runs); });
   registerAuthCommands(context, session);
   const out = new RunOutputManager(); const plans = new PlanDocumentProvider(() => session.client);
   context.subscriptions.push(out, plans);

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { TdtClient } from "../api/client";
 import { PLAN_LANDED_STATUSES, type Run, type RunStep } from "../api/types";
+import { OUTPUT_LANGUAGE } from "../ids";
 
 export interface LineSink { appendLine(line: string): void }
 export interface TailOptions { pollMs?: number; isCancelled?: () => boolean; timeoutMs?: number }
@@ -76,7 +77,7 @@ export class RunOutputManager implements vscode.Disposable {
   watch(client: TdtClient, runId: string, title: string, onLanded?: (run: Run) => void): void {
     const existing = this.channels.get(runId);
     if (existing) { existing.ch.show(true); if (existing.active) return; }
-    const ch = existing?.ch ?? vscode.window.createOutputChannel(`TDT run ${runId.slice(0, 8)} — ${title}`);
+    const ch = existing?.ch ?? vscode.window.createOutputChannel(`TDT run ${runId.slice(0, 8)} — ${title}`, OUTPUT_LANGUAGE);
     let cancelled = false;
     const entry = { ch, active: true, cancel: () => { cancelled = true; } };
     this.channels.set(runId, entry);

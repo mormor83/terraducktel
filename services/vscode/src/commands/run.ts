@@ -1,10 +1,17 @@
 import * as vscode from "vscode";
 import type { Session } from "../session";
-import type { Run } from "../api/types";
+import type { GraphSummary, Run } from "../api/types";
 import type { RunOutputManager } from "../output/runOutput";
 import type { PlanDocumentProvider } from "../output/planDocument";
 import { RunNode, WorkspaceNode } from "../views/nodes";
 import { wrap } from "./auth";
+
+/** `+2 to add, ~1 to change, -2 to destroy[, ±1 to replace]` — replace only when non-zero. */
+export function planSummaryText(sm: GraphSummary): string {
+  const parts = [`+${sm.add ?? 0} to add`, `~${sm.change ?? 0} to change`, `-${sm.destroy ?? 0} to destroy`];
+  if (sm.replace) parts.push(`±${sm.replace} to replace`);
+  return parts.join(", ");
+}
 
 async function pickRun(s: Session, filter?: (r: Run) => boolean): Promise<Run | undefined> {
   const runs = s.store.runs.filter(filter ?? (() => true));
@@ -57,8 +64,7 @@ export function registerRunCommands(ctx: vscode.ExtensionContext, s: Session, ou
         if (!r) return;
         const g = await c.getGraph(r.id).catch(() => undefined);
         const sm = g?.summary ?? {};
-        const msg = `Approve ${r.command} on ${wsName(s, r)}?\n\n+${sm.add ?? 0} to add, ~${sm.change ?? 0} to change, -${sm.destroy ?? 0} to destroy, ±${sm.replace ?? 0} to replace.`;
-        const a = await vscode.window.showWarningMessage(msg, { modal: true }, "Approve", "Show plan");
+        const a = await vscode.window.showInformationMessage(`Approve ${r.command} on ${wsName(s, r)}?`, { modal: true, detail: planSummaryText(sm) }, "Approve", "Show plan");
         if (a === "Show plan") { await plans.open(r.id, wsName(s, r)); return; }
         if (a !== "Approve") return;
         await c.approve(r.id);

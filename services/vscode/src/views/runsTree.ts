@@ -8,6 +8,12 @@ const ORDER = ["awaiting_approval", "applying", "running", "planning", "pending"
 /** Unknown / future statuses sort after every known one instead of ahead of them (`indexOf` → -1). */
 const rank = (status: string) => { const i = ORDER.indexOf(status); return i === -1 ? ORDER.length : i; };
 
+/** Badge for the Workspaces view (and so the activity-bar icon): runs waiting at the gate. */
+export function awaitingBadge(runs: Run[]): vscode.ViewBadge | undefined {
+  const n = runs.filter((r) => r.status === "awaiting_approval").length;
+  return n ? { value: n, tooltip: `${n} awaiting approval` } : undefined;
+}
+
 export class RunsTree implements vscode.TreeDataProvider<Node> {
   private changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;

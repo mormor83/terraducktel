@@ -2,6 +2,28 @@
 
 All notable changes to the Terraducktel VS Code extension are documented here.
 
+## Unreleased
+
+Brand redesign. Every command, gate and API call is unchanged; only how things look.
+
+- Status icons in the Workspaces and Runs trees use the Terraducktel icon set
+  in brand colours (light/dark SVGs under `media/status/`); in-flight runs and
+  steps spin in the new `terraducktel.run` colour, and cloud-group icons are
+  tinted `terraducktel.accent`.
+- New theme colours `terraducktel.add`, `.change`, `.destroy`, `.replace`,
+  their `*Background`s, `.run` and `.accent` — overridable via
+  `workbench.colorCustomizations`.
+- The plan document paints `+ ~ - -/+` lines with the brand diff colours
+  (background, text and overview-ruler mark; replace lines get a 2px left bar).
+- Run output channels use the new `terraducktel-output` language: its grammar
+  gives `── step [status]` headers theme scopes by status, so they are tinted
+  by your theme.
+- **Approve…** is now a modal information dialog: `Approve <command> on
+  <workspace>?` with the full `+N to add, ~N to change, -N to destroy, ±N to
+  replace` summary as its detail (replace omitted when 0).
+- The awaiting-approval badge moved from the Runs view to the Workspaces view
+  (`N awaiting approval`).
+
 ## 0.3.1
 
 - Profiles are now editable natively in the Settings UI: `terraducktel.profiles`

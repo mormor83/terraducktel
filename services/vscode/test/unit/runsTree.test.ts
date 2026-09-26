@@ -3,7 +3,7 @@ import { FakeServer } from "../fake-server";
 import { TdtClient } from "../../src/api/client";
 import type { Run, Workspace } from "../../src/api/types";
 import type { Session } from "../../src/session";
-import { RunsTree } from "../../src/views/runsTree";
+import { RunsTree, awaitingBadge } from "../../src/views/runsTree";
 import { MessageNode, RunNode, StepNode } from "../../src/views/nodes";
 
 const tokens = { getAccessToken: async () => "t", refreshAccessToken: async () => "t", hasCredential: () => true, signOut: async () => {} };
@@ -72,5 +72,12 @@ describe("RunsTree", () => {
     const kids = await tree.getChildren(node);
     expect(kids[0]).toBeInstanceOf(MessageNode);
     expect((kids[0] as MessageNode).label).toMatch(/Steps unavailable/);
+  });
+});
+
+describe("awaitingBadge", () => {
+  it("counts runs awaiting approval, and clears when there are none", () => {
+    expect(awaitingBadge([run({ status: "awaiting_approval" }), run({ status: "awaiting_approval" }), run({ status: "failed" })])).toEqual({ value: 2, tooltip: "2 awaiting approval" });
+    expect(awaitingBadge([run({ status: "applied" })])).toBeUndefined();
   });
 });
