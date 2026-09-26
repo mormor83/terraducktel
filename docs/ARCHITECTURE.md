@@ -396,7 +396,10 @@ behind the API.
   `GcsStateService` (reuses the linked GCP SA key). The HTTP interface, the
   404-vs-503 error mapping, and locking are identical across all three.
 - **S3 persistence**: bytes live in S3 — LocalStack in dev, real AWS S3 in
-  production. **Per-account bucket isolation**: each onboarded `AwsAccount`
+  production, or any S3-compatible store (Garage, MinIO) for the fallback
+  bucket via S3_ENDPOINT_URL + S3_STATE_ACCESS_KEY_ID/S3_STATE_SECRET_ACCESS_KEY
+  (routers/state.py::_fallback_s3_store; custom endpoints always use
+  path-style addressing). **Per-account bucket isolation**: each onboarded `AwsAccount`
   owns its own dedicated `state_bucket`, so one account's state is never
   physically co-located with another's. Non-`s3` workspaces resolve to the
   linked Azure subscription's container / GCP project's bucket instead. (The
@@ -594,6 +597,14 @@ GitHub, and `local` auth mode needs zero configuration. `make seed-db`
 inserts three dev users (`admin@test.com` / `operator@test.com` /
 `viewer@test.com`, all password `password123`). See the `Makefile` for the
 full command list.
+
+### External database + object store (compose)
+
+`deploy/docker-compose.external-db.yml` runs the same compose stack against an
+external Postgres and an external S3-compatible state store (see
+`docs/ONBOARDING.md`). It is what the home-lab Proxmox deployment uses
+(Postgres 16 and Garage on their own VMs, built by Packer and declared in the
+operator's infra repo).
 
 ### AWS ECS production path (optional)
 

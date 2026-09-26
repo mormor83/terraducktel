@@ -19,6 +19,7 @@ def _reset_module(monkeypatch):
     """seed_dev_users builds DEV_USERS at import time from the env var, so
     each test needs a fresh import after setting/clearing it."""
     monkeypatch.delenv("SEED_RANDOM_PASSWORDS", raising=False)
+    monkeypatch.delenv("SEED_PASSWORD", raising=False)
     sys.modules.pop("scripts.seed_dev_users", None)
     yield
     sys.modules.pop("scripts.seed_dev_users", None)
@@ -46,3 +47,22 @@ def test_random_passwords_enabled_generates_distinct_non_default_passwords(monke
     assert len(set(passwords)) == 3, "each user must get its own random password"
     assert "password123" not in passwords
     assert all(len(p) >= 16 for p in passwords)
+
+
+def test_seed_password_overrides_default(monkeypatch):
+    monkeypatch.setenv("SEED_PASSWORD", "from-terraform-42")
+    mod = _import_fresh()
+    assert {pw for _e, pw, _r in mod.DEV_USERS} == {"from-terraform-42"}
+
+
+def test_seed_password_wins_over_random(monkeypatch):
+    monkeypatch.setenv("SEED_RANDOM_PASSWORDS", "true")
+    monkeypatch.setenv("SEED_PASSWORD", "from-terraform-42")
+    mod = _import_fresh()
+    assert {pw for _e, pw, _r in mod.DEV_USERS} == {"from-terraform-42"}
+
+
+def test_blank_seed_password_is_ignored(monkeypatch):
+    monkeypatch.setenv("SEED_PASSWORD", "   ")
+    mod = _import_fresh()
+    assert {pw for _e, pw, _r in mod.DEV_USERS} == {"password123"}
