@@ -4,15 +4,15 @@ Proxmox VE as a first-class provider, mirroring gcp_projects (038) and the
 workspace FK from 039. One revision because the FK is meaningless without
 the table and vice versa.
 
-Revision ID: 044_proxmox_clusters
-Revises: 043_workspace_tags
+Revision ID: 045_proxmox_clusters
+Revises: 044_drift_reports_index
 Create Date: 2026-09-12
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "044_proxmox_clusters"
-down_revision = "043_workspace_tags"
+revision = "045_proxmox_clusters"
+down_revision = "044_drift_reports_index"
 branch_labels = None
 depends_on = None
 
