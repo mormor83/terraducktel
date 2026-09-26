@@ -22,3 +22,9 @@ services/cli/.venv/
 htmlcov/
 # MkDocs build output (see mkdocs.yml)
 site/
+
+# VS Code extension (services/vscode)
+*.vsix
+.vscode-test/
+out-test/
+/docs/design_handoff_ide_plugins/
