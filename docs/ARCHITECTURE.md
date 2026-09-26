@@ -566,6 +566,15 @@ all BUs by repo-URL substring.
   `POST /drift/{workspace_id}/report` endpoint still only alerts via that
   webhook + email; only the internal drift-detector-facing endpoint drives
   the Slack-bot-and-Telegram pair.
+- **Drift-alert routing** — drift alerts fire only on a clean→drifted
+  transition, and each bot channel can send them somewhere other than its
+  main destination or switch them off (Settings → Slack / Telegram → *Drift
+  alerts*; `PUT /integrations/{slack,telegram}/drift`). Keys:
+  `slack.drift_channel_id` / `telegram.drift_chat_id` (unset = main
+  channel/chat) and `slack.drift_alerts_enabled` /
+  `telegram.drift_alerts_enabled` (unset = on). Run notifications always use
+  the main destination. The Telegram drift chat is checked with `getChat` on
+  save because, unlike a Slack channel, it can't be picked from a list.
 - **SMTP** — best-effort email via `smtplib`, configured through
   `smtp.host`/`smtp.port`/`smtp.from`/`smtp.to` (+ optional
   `smtp.username`/`smtp.password`) in the `config` table. Silently skipped

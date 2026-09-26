@@ -12,6 +12,9 @@ from app.routers.integrations import (
     TELEGRAM_BOT_USERNAME_KEY,
     TELEGRAM_CHAT_ID_KEY,
     TELEGRAM_CHAT_TITLE_KEY,
+    TELEGRAM_DRIFT_CHAT_ID_KEY,
+    TELEGRAM_DRIFT_CHAT_TITLE_KEY,
+    TELEGRAM_DRIFT_ENABLED_KEY,
 )
 from app.services import telegram as tg
 from app.services.config_service import ConfigService
@@ -59,6 +62,7 @@ async def test_viewer_and_operator_are_forbidden(
     calls = [
         ("get", BASE, None),
         ("put", BASE, {}),
+        ("put", f"{BASE}/drift", {}),
         ("delete", BASE, None),
         ("post", f"{BASE}/test", None),
         ("post", f"{BASE}/test-message", None),
@@ -289,13 +293,17 @@ async def test_delete_removes_every_key(
         BASE, json={"token": "777:secret1234", "chat_id": "-1001"},
         headers=_h(admin_token),
     )
+    await auth_client.put(
+        f"{BASE}/drift", json={"drift_chat_id": "-1002", "drift_alerts_enabled": False},
+        headers=_h(admin_token),
+    )
     d = await auth_client.delete(BASE, headers=_h(admin_token))
     assert d.status_code == 204
 
     # Go straight to the config store rather than through GET: _telegram_status
     # short-circuits to configured=False (chat_id defaulting to None) the
-    # moment the bot-token key is gone, without ever reading the other three
-    # keys — so a GET-only check can't tell "all four keys deleted" from
+    # moment the bot-token key is gone, without ever reading the other
+    # keys — so a GET-only check can't tell "every key deleted" from
     # "only the token was deleted". Assert each key directly instead.
     async with _setup_db() as s:
         svc = ConfigService(s, get_credential_encryption_key())
@@ -304,6 +312,9 @@ async def test_delete_removes_every_key(
             TELEGRAM_BOT_USERNAME_KEY,
             TELEGRAM_CHAT_ID_KEY,
             TELEGRAM_CHAT_TITLE_KEY,
+            TELEGRAM_DRIFT_CHAT_ID_KEY,
+            TELEGRAM_DRIFT_CHAT_TITLE_KEY,
+            TELEGRAM_DRIFT_ENABLED_KEY,
         ):
             assert await svc.get_for_bu("default", key) is None, key
 

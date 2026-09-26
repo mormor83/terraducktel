@@ -684,6 +684,7 @@ async def send_telegram_bot_notification(
     bu_slug: str,
     text: str,
     buttons: list[tuple[str, str]] | None = None,
+    chat_id: str | None = None,
 ) -> None:
     """Post to the BU's configured Telegram chat.
 
@@ -693,10 +694,13 @@ async def send_telegram_bot_notification(
     message sent alongside it.
 
     `text` is already-assembled HTML; callers escape their own values.
+    `chat_id` overrides the BU's main chat (drift alerts can be routed
+    elsewhere).
     """
     from app.services import telegram as tg_svc
 
-    token, chat_id = await _telegram_bot_creds(session, bu_slug)
+    token, default_chat_id = await _telegram_bot_creds(session, bu_slug)
+    chat_id = chat_id or default_chat_id
     if not token or not chat_id:
         return
     try:
@@ -855,6 +859,24 @@ async def send_telegram_run_failed(
     )
 
 
+async def _telegram_drift_chat(
+    session: AsyncSession, bu_slug: str
+) -> tuple[bool, str | None]:
+    """(enabled, chat override) from Settings → Telegram → Drift alerts.
+
+    Telegram twin of `_drift_channel`: override None = the BU's main chat,
+    and an unset `enabled` counts as on.
+    """
+    from app.routers.integrations import (
+        TELEGRAM_DRIFT_CHAT_ID_KEY,
+        TELEGRAM_DRIFT_ENABLED_KEY,
+    )
+
+    svc = _config_svc(session)
+    enabled = (await svc.get_for_bu(bu_slug, TELEGRAM_DRIFT_ENABLED_KEY)) != "false"
+    return enabled, (await svc.get_for_bu(bu_slug, TELEGRAM_DRIFT_CHAT_ID_KEY)) or None
+
+
 async def send_telegram_drift_detected(
     session: AsyncSession,
     *,
@@ -869,6 +891,9 @@ async def send_telegram_drift_detected(
 
     bu_slug = await _resolve_bu_slug_for_workspace(session, workspace_id)
     if not bu_slug:
+        return
+    enabled, chat_id = await _telegram_drift_chat(session, bu_slug)
+    if not enabled:
         return
     link = _workspace_link(workspace_id)
     leaf = _leaf_path(working_dir, region)
@@ -891,7 +916,8 @@ async def send_telegram_drift_detected(
         text += f"\n\n<pre>{_esc(excerpt)}</pre>"
     text += f'\n\n<a href="{_esc(link)}">View workspace</a>'
     await send_telegram_bot_notification(
-        session, bu_slug=bu_slug, text=text, buttons=[("View workspace", link)]
+        session, bu_slug=bu_slug, text=text, buttons=[("View workspace", link)],
+        chat_id=chat_id,
     )
 
 

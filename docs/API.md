@@ -924,9 +924,10 @@ encrypted at rest and never returned.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/integrations/telegram` | `{configured, token_tail, bot_username, chat_id, chat_title}` |
+| GET | `/integrations/telegram` | `{configured, token_tail, bot_username, chat_id, chat_title, drift_chat_id, drift_chat_title, drift_alerts_enabled}` |
 | PUT | `/integrations/telegram` | Body: `{token?, chat_id?}`. Verifies the token via `getMe` before persisting; 422 if no token is saved yet and none is supplied, or if `chat_id` is neither numeric nor a public `@username`. When `chat_id` is given it is resolved with `getChat` and the title cached. |
-| DELETE | `/integrations/telegram` | Remove the bot token + chat. |
+| PUT | `/integrations/telegram/drift` | Drift-alert destination. Body: `{drift_chat_id?, drift_alerts_enabled}`. Empty `drift_chat_id` = the main chat; `drift_alerts_enabled=false` = no drift alerts. Doesn't touch or re-verify the token; 400 if Telegram isn't configured. Unlike the Slack route (picked from a fetched channel list) the id is typed by hand, so a non-empty one is format-checked (422) and resolved with `getChat` — 400 if the bot can't see it, 502 if Telegram is unreachable — and its title cached as `drift_chat_title`. |
+| DELETE | `/integrations/telegram` | Remove the bot token, chat, and drift routing. |
 | POST | `/integrations/telegram/test` | Re-verify the saved token and re-read the chat. Returns `{ok, bot_username, chat_title, detail}`. |
 | POST | `/integrations/telegram/test-message` | Post a confirmation message to the configured chat. Returns `{ok, chat_title, detail}`. |
 
@@ -968,7 +969,7 @@ the same private network as the API and authenticate with the
 | Method | Path | Description |
 |---|---|---|
 | GET | `/internal/workspaces` | List every workspace, cross-BU. |
-| POST | `/internal/drift/{workspace_id}/report` | Drift report submission (the collector's path). Same body as the user-facing `POST /drift/{workspace_id}/report` plus `drift_checked` (default true; false = scan couldn't look, so `drift_status` is left alone). Posts the per-BU Slack **and** Telegram bot drift alerts (not the legacy Slack webhook) only on a clean→drifted **transition** — Slack to the BU's drift channel (default channel if unset), Telegram to the BU's configured chat. Refreshes the Inventory. |
+| POST | `/internal/drift/{workspace_id}/report` | Drift report submission (the collector's path). Same body as the user-facing `POST /drift/{workspace_id}/report` plus `drift_checked` (default true; false = scan couldn't look, so `drift_status` is left alone). Posts the per-BU Slack **and** Telegram bot drift alerts (not the legacy Slack webhook) only on a clean→drifted **transition** — each to the BU's drift channel/chat (main one if unset), and skipped for a channel whose drift alerts are switched off. Refreshes the Inventory. |
 | GET | `/internal/workspaces/{workspace_id}/aws-credentials` | Decrypted AWS creds for a workspace: `{access_key_id, secret_access_key, account_id, region}`. Honors the `state_aws_account_id` override, falling back to `aws_account_id`. Empty strings if the account has no stored credentials. |
 | GET | `/internal/github-token` | Plaintext GitHub token for in-network crons that can't decrypt the config table themselves: `{token, source: "env"\|"config"\|"none"}`. |
 | POST | `/internal/workspaces/{workspace_id}/auto-delete` | Cleanup hook used by the liveness detector when a workspace's repo path disappears upstream. Body: `{reason}`. Deletes the workspace + its runs/drift reports/state locks and audits as `auto_delete_orphan`. Idempotent (204) on an already-missing workspace. |

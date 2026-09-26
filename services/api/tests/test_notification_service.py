@@ -709,6 +709,40 @@ async def test_telegram_drift_detected_links_the_workspace(
     assert "https://tdt.example.com/workspaces/ws-tg-4" in text
 
 
+async def test_telegram_drift_alert_routing(db_session, fake_telegram):
+    """Settings → Telegram → Drift alerts: main chat unless overridden,
+    nothing at all when switched off. Run notifications ignore the override."""
+    from app.routers.integrations import (
+        TELEGRAM_DRIFT_CHAT_ID_KEY,
+        TELEGRAM_DRIFT_ENABLED_KEY,
+    )
+
+    ws = await _make_ws(db_session)
+    await _configure_telegram(db_session, chat_id="-100MAIN")
+
+    def chats():
+        return [m["chat_id"] for m in fake_telegram.sent]
+
+    async def drift():
+        await ns.send_telegram_drift_detected(
+            db_session, workspace_id=ws.id, workspace_name="ws", summary="tags changed: +x"
+        )
+
+    await drift()
+    assert chats() == ["-100MAIN"]
+
+    await _set(db_session, TELEGRAM_DRIFT_CHAT_ID_KEY, "-100DRIFT", bu="default")
+    await drift()
+    await ns.send_telegram_run_failed(
+        db_session, workspace_id=ws.id, workspace_name="ws", run_id="r", command="apply"
+    )
+    assert chats() == ["-100MAIN", "-100DRIFT", "-100MAIN"]
+
+    await _set(db_session, TELEGRAM_DRIFT_ENABLED_KEY, "false", bu="default")
+    await drift()
+    assert chats() == ["-100MAIN", "-100DRIFT", "-100MAIN"]
+
+
 @pytest.mark.asyncio
 async def test_telegram_senders_noop_for_unknown_workspace(db_session, fake_telegram):
     await _configure_telegram(db_session)

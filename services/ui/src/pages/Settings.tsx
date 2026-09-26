@@ -1761,7 +1761,109 @@ type TelegramStatus = {
   bot_username?: string | null;
   chat_id?: string | null;
   chat_title?: string | null;
+  drift_chat_id?: string | null;
+  drift_chat_title?: string | null;
+  drift_alerts_enabled?: boolean;
 };
+
+type TelegramDriftChoice = "main" | "other" | "off";
+
+function telegramDriftChoiceOf(s: TelegramStatus): TelegramDriftChoice {
+  if (s.drift_alerts_enabled === false) return "off";
+  return s.drift_chat_id ? "other" : "main";
+}
+
+/**
+ * Where drift alerts go — Telegram twin of SlackDriftRouting. A bot can't
+ * list its chats, so a different chat is typed in and the API verifies it
+ * with getChat before saving.
+ */
+export function TelegramDriftRouting({
+  status,
+  onSaved,
+}: {
+  status: TelegramStatus;
+  onSaved: (s: TelegramStatus) => void;
+}) {
+  const [choice, setChoice] = useState<TelegramDriftChoice>(telegramDriftChoiceOf(status));
+  const [chatInput, setChatInput] = useState(status.drift_chat_id ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setChoice(telegramDriftChoiceOf(status));
+    setChatInput(status.drift_chat_id ?? "");
+  }, [status]);
+
+  const mainLabel = status.chat_title || status.chat_id || "not set";
+  const chatId = chatInput.trim();
+  const unchanged =
+    choice === telegramDriftChoiceOf(status) &&
+    (choice !== "other" || chatId === (status.drift_chat_id ?? ""));
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await api.put("/v1/integrations/telegram/drift", {
+        drift_chat_id: choice === "other" ? chatId : "",
+        drift_alerts_enabled: choice !== "off",
+      });
+      onSaved(r.data);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail ?? e?.message ?? "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-900/40">
+      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Drift alerts</span>
+      <p className="mb-2 mt-1 text-[11px] text-slate-500">
+        Posted once when a workspace goes from clean to drifted (e.g. someone edited a managed
+        resource's tags by hand). Defaults to the chat above. For a different chat, add the bot to
+        it first.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          aria-label="Drift alerts destination"
+          value={choice}
+          onChange={(e) => setChoice(e.target.value as TelegramDriftChoice)}
+          className="min-w-[14rem] rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm dark:border-slate-700 dark:bg-slate-950"
+        >
+          <option value="main">Main chat ({mainLabel})</option>
+          <option value="other">A different chat…</option>
+          <option value="off">Off — don't post drift alerts</option>
+        </select>
+        {choice === "other" && (
+          <Input
+            aria-label="Drift chat id"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="-1001234567890 or @my_channel"
+            autoComplete="off"
+            className="max-w-xs font-mono"
+          />
+        )}
+        <Button
+          type="button"
+          size="sm"
+          onClick={save}
+          disabled={saving || unchanged || (choice === "other" && !chatId)}
+        >
+          {saving ? <><Spinner /> Saving…</> : choice === "other" ? "Verify & save" : "Save"}
+        </Button>
+      </div>
+      {status.drift_chat_id && choice === "other" && (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Currently posting to <strong>{status.drift_chat_title || status.drift_chat_id}</strong>.
+        </p>
+      )}
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
 
 type TelegramTestResult = {
   ok: boolean;
@@ -2071,6 +2173,10 @@ function TelegramSection() {
                 </ol>
               )}
             </div>
+          )}
+
+          {status?.configured && (
+            <TelegramDriftRouting status={status} onSaved={setStatus} />
           )}
         </CardBody>
       </Card>
