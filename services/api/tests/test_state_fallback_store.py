@@ -20,7 +20,7 @@ def recorder(monkeypatch):
 
 def test_custom_endpoint_with_explicit_creds(recorder, monkeypatch):
     monkeypatch.setattr(state, "_USE_LOCALSTACK", False)
-    monkeypatch.setattr(state, "_S3_ENDPOINT_URL", "http://192.168.0.52:3900")
+    monkeypatch.setattr(state, "_S3_ENDPOINT_URL", "https://s3.example.internal:3900")
     monkeypatch.setattr(state, "_S3_STATE_ACCESS_KEY_ID", "GKabc")
     monkeypatch.setattr(state, "_S3_STATE_SECRET_ACCESS_KEY", "sekrit")
     svc = state._fallback_s3_store()
@@ -28,7 +28,7 @@ def test_custom_endpoint_with_explicit_creds(recorder, monkeypatch):
         "bucket": "bkt",
         "use_localstack": False,
         "region": "us-east-1",
-        "endpoint_url": "http://192.168.0.52:3900",
+        "endpoint_url": "https://s3.example.internal:3900",
         "access_key_id": "GKabc",
         "secret_access_key": "sekrit",
     }
