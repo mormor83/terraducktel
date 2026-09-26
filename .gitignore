@@ -27,3 +27,4 @@ site/
 *.vsix
 .vscode-test/
 out-test/
+/docs/design_handoff_ide_plugins/
