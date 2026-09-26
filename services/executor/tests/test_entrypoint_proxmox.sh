@@ -46,27 +46,37 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
   out="$(cat "${TMP}/out.txt")"
   [[ "${PROXMOX_VE_SSH_USERNAME}" == "root" && "${PROXMOX_VE_SSH_PRIVATE_KEY}" == "KEYDATA" ]] || fail "bpg ssh"
   [[ "${PROXMOX_VE_INSECURE}" == "false" && "${PM_TLS_INSECURE}" == "false" ]] || fail "secure flags"
-  [[ -f "${SSL_CERT_FILE}" ]] || fail "SSL_CERT_FILE missing"
-  grep -q SYSTEM "${SSL_CERT_FILE}" || fail "system bundle not merged"
-  grep -q CUSTOM "${SSL_CERT_FILE}" || fail "custom CA not merged"
-  [[ "$(stat -c %a "${SSL_CERT_FILE}")" == "600" ]] || fail "bundle perms"
+  # The custom CA must not be trusted process-wide (curl callbacks carry
+  # API_TOKEN) — only terraform and its provider plugins see it.
+  [[ -z "${SSL_CERT_FILE:-}" ]] || fail "SSL_CERT_FILE exported process-wide"
+  bundle="${TDT_PROXMOX_CA_BUNDLE}"
+  [[ -f "${bundle}" ]] || fail "CA bundle missing"
+  grep -q SYSTEM "${bundle}" || fail "system bundle not merged"
+  grep -q CUSTOM "${bundle}" || fail "custom CA not merged"
+  perms="$(stat -c %a "${bundle}" 2>/dev/null || stat -f %Lp "${bundle}")"
+  [[ "${perms}" == "600" ]] || fail "bundle perms"
+  # A fake terraform on PATH reports the SSL_CERT_FILE it was started with.
+  mkdir -p "${TMP}/bin"
+  printf '#!/usr/bin/env bash\necho "tf-sees=${SSL_CERT_FILE:-}"\n' > "${TMP}/bin/terraform"
+  chmod +x "${TMP}/bin/terraform"
+  [[ "$(PATH="${TMP}/bin:${PATH}" terraform version)" == "tf-sees=${bundle}" ]] \
+    || fail "terraform wrapper does not pass the CA bundle"
   [[ "${out}" != *sek* && "${out}" != *KEYDATA* ]] || fail "secret leaked to stdout"
 )
 
-# Case 3: custom CA set but the system bundle is missing — should still
-# succeed, merge only the custom CA, and warn on stdout (no secrets).
+# Case 3: custom CA set but the system bundle is missing — a custom-only
+# bundle would break every non-Proxmox TLS call, so this must fail loudly.
 (
   export TDT_PROXMOX_ENDPOINT="https://pve.local:8006" TDT_PROXMOX_TOKEN_ID="tdt@pve!ci" \
          TDT_PROXMOX_TOKEN_SECRET="sek" TDT_PROXMOX_TLS_INSECURE="false" \
          TDT_SYSTEM_CA_BUNDLE="${TMP}/does-not-exist.crt" \
          TDT_PROXMOX_CA_CERT_PEM=$'-----BEGIN CERTIFICATE-----\nCUSTOM\n-----END CERTIFICATE-----'
-  proxmox_wire_env > "${TMP}/out3.txt"
+  rc=0
+  proxmox_wire_env > "${TMP}/out3.txt" 2>&1 || rc=$?
   out="$(cat "${TMP}/out3.txt")"
-  [[ -f "${SSL_CERT_FILE}" ]] || fail "SSL_CERT_FILE missing (case 3)"
-  grep -q CUSTOM "${SSL_CERT_FILE}" || fail "custom CA not merged (case 3)"
-  grep -q SYSTEM "${SSL_CERT_FILE}" && fail "system bundle unexpectedly present (case 3)"
-  [[ "${out}" == *"WARN: system CA bundle not found"* ]] || fail "missing WARN (case 3)"
-  [[ "${out}" != *sek* ]] || fail "secret leaked to stdout (case 3)"
+  [[ "${rc}" -ne 0 ]] || fail "missing system bundle should fail (case 3)"
+  [[ "${out}" == *"system CA bundle not found"* ]] || fail "missing error message (case 3)"
+  [[ "${out}" != *sek* ]] || fail "secret leaked to output (case 3)"
 )
 
 echo "OK"

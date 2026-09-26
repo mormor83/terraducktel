@@ -456,7 +456,10 @@ env var:
    `TDT_PROXMOX_*` set that the entrypoint fans out to **both**
    `bpg/proxmox` (`PROXMOX_VE_*`) and `Telmate/proxmox` (`PM_*`) so one stored
    token serves either provider. A custom CA is merged with the system bundle
-   into `SSL_CERT_FILE` (Go replaces, not extends, its root pool).
+   (Go replaces, not extends, its root pool) and handed to `terraform` alone
+   as `SSL_CERT_FILE` via a shell wrapper — never exported, so the API
+   callbacks keep trusting only the system bundle. A missing system bundle
+   fails the run.
 
 4. **Checkov** scan against the source HCL — a hard gate, configurable via
    Settings → Checkov mode. Runs *before* `terraform init`.

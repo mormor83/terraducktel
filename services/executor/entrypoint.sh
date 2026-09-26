@@ -604,26 +604,43 @@ proxmox_wire_env() {
   local ca_note="no"
   if [[ -n "${TDT_PROXMOX_CA_CERT_PEM:-}" ]]; then
     # Go replaces (not extends) its root pool when SSL_CERT_FILE is set, so
-    # merge the system bundle + the custom CA into one file.
-    mkdir -p ~/.proxmox
+    # merge the system bundle + the custom CA into one file. Without the
+    # system bundle every non-Proxmox TLS call (registry, state) would break.
     if [[ ! -r "${TDT_SYSTEM_CA_BUNDLE}" ]]; then
-      echo "WARN: system CA bundle not found at ${TDT_SYSTEM_CA_BUNDLE}; SSL_CERT_FILE will contain only the custom CA"
+      echo "ERROR: system CA bundle not found at ${TDT_SYSTEM_CA_BUNDLE}; cannot add the Proxmox custom CA" >&2
+      return 1
     fi
+    mkdir -p ~/.proxmox
     {
-      [[ -r "${TDT_SYSTEM_CA_BUNDLE}" ]] && cat "${TDT_SYSTEM_CA_BUNDLE}"
+      cat "${TDT_SYSTEM_CA_BUNDLE}"
       printf '\n%s\n' "${TDT_PROXMOX_CA_CERT_PEM}"
     } > ~/.proxmox/bundle.pem
     chmod 600 ~/.proxmox/bundle.pem
-    export SSL_CERT_FILE="${HOME}/.proxmox/bundle.pem"
+    TDT_PROXMOX_CA_BUNDLE="${HOME}/.proxmox/bundle.pem"
     ca_note="yes"
   fi
   # Tail-only echo — never print the token secret or SSH key.
   echo "=== Proxmox auth wired: ${TDT_PROXMOX_ENDPOINT} as ${TDT_PROXMOX_TOKEN_ID} (tls_insecure=${TDT_PROXMOX_TLS_INSECURE}, ssh=${ssh_note}, custom_ca=${ca_note}) ==="
 }
+
+# The custom CA is scoped to terraform (and the provider plugins it spawns)
+# rather than exported: curl callbacks to the API carry API_TOKEN and must
+# keep trusting only the system bundle.
+TDT_PROXMOX_CA_BUNDLE=""
+terraform() {
+  if [[ -n "${TDT_PROXMOX_CA_BUNDLE}" ]]; then
+    SSL_CERT_FILE="${TDT_PROXMOX_CA_BUNDLE}" command terraform "$@"
+  else
+    command terraform "$@"
+  fi
+}
 # <<< proxmox_wire_env
 
 if [[ -n "${TDT_PROXMOX_ENDPOINT}" ]]; then
-  proxmox_wire_env
+  if ! proxmox_wire_env; then
+    report_status "failed" "Proxmox: system CA bundle not found at ${TDT_SYSTEM_CA_BUNDLE}; cannot add the cluster's custom CA"
+    exit 1
+  fi
 fi
 
 report_status "running"
