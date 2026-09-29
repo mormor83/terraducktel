@@ -33,6 +33,8 @@ type Run = {
   created_at?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
+  // Set when an environment promotion created this run.
+  promotion_id?: string | null;
 };
 
 type Workspace = {
@@ -476,6 +478,11 @@ export default function Runs() {
                                 {run.command}
                               </span>
                               <RunStatusBadge status={run.status} />
+                              {run.promotion_id && (
+                                <span title="Created by an environment promotion">
+                                  <Badge tone="violet">Promotion</Badge>
+                                </span>
+                              )}
                             </div>
                             <p className="mt-1 flex min-w-0 items-center gap-1 truncate font-mono text-[11px] text-slate-500">
                               {ws ? (

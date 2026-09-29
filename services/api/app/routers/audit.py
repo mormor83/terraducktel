@@ -1,12 +1,13 @@
 """Audit log read API."""
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.auth.bu_context import BUScope, current_bu
 from app.auth.rbac import Role, require_role
 from app.models.audit_log import AuditLog
+from app.models.env_link import EnvLink
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.audit import AuditLogEntry, AuditLogListResponse
@@ -62,8 +63,18 @@ async def list_audit_logs(
         q = q.where(AuditLog.workspace_id == workspace_id)
     if bu.bu_id is not None:
         q = q.where(
-            AuditLog.workspace_id.in_(
-                select(Workspace.id).where(Workspace.business_unit_id == bu.bu_id)
+            or_(
+                AuditLog.workspace_id.in_(
+                    select(Workspace.id).where(Workspace.business_unit_id == bu.bu_id)
+                ),
+                # Environment-link events have no single workspace; they are
+                # BU-owned through the link. Deleted links keep their audit
+                # rows but drop out of this per-BU view (superadmin still sees
+                # them) — same trade-off as a deleted workspace's entries.
+                (AuditLog.resource_type == "env_link")
+                & AuditLog.resource_id.in_(
+                    select(EnvLink.id).where(EnvLink.business_unit_id == bu.bu_id)
+                ),
             )
         )
     result = await db.execute(q)

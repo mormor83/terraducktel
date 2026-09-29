@@ -1079,6 +1079,12 @@ async def sync_all_workspaces(
     from app.services.repo_sync import sync_all
 
     res = await sync_all(db, bu_id=bu.bu_id)
+    # Environment compares read branch HEADs; a sync is the user saying "look
+    # again", so every pair in the BU gets recompared on its next view.
+    from app.services.env_compare_service import invalidate_bu
+
+    await invalidate_bu(db, bu.bu_id)
+    await db.commit()
     return _SyncResultOut(
         checked=res.checked,
         ok=res.ok,

@@ -21,6 +21,8 @@ function welcomeName(user: { name: string | null; email: string } | null): strin
     .join(" ");
 }
 import GitImport from "../components/GitImport";
+import { StackIndexContext } from "../components/env/StackIndexContext";
+import { getStackIndex, type StackIndex } from "../api/envLinks";
 import WorkspaceTree, {
   type AwsAccountLite,
   type AzureSubscriptionLite,
@@ -268,6 +270,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     load();
+  }, []);
+
+  // Environment-link membership for the small "linked" glyph on leaf rows.
+  // Fetched once; a failure just means no glyphs.
+  const [stackIndex, setStackIndex] = useState<StackIndex>({});
+  useEffect(() => {
+    getStackIndex()
+      .then((idx) => setStackIndex(idx && typeof idx === "object" ? idx : {}))
+      .catch(() => setStackIndex({}));
   }, []);
 
   // Auto-refresh while the tab is visible. Pauses when the tab goes hidden so
@@ -621,14 +632,16 @@ export default function Dashboard() {
           }
         />
       ) : (
-        <WorkspaceTree
-          workspaces={workspaces}
-          runs={runs}
-          awsAccounts={awsAccounts}
-          azureSubscriptions={azureSubscriptions}
-          gcpProjects={gcpProjects}
-          onChanged={load}
-        />
+        <StackIndexContext.Provider value={stackIndex}>
+          <WorkspaceTree
+            workspaces={workspaces}
+            runs={runs}
+            awsAccounts={awsAccounts}
+            azureSubscriptions={azureSubscriptions}
+            gcpProjects={gcpProjects}
+            onChanged={load}
+          />
+        </StackIndexContext.Provider>
       )}
     </div>
   );
