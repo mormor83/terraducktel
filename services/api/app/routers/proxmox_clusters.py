@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.bu_context import BUScope, current_bu
 from app.auth.rbac import Role, require_role
 from app.db import get_db
+from app.models.audit_log import AuditLog
 from app.models.proxmox_cluster import ProxmoxCluster
 from app.models.user import User
 from app.schemas.proxmox_cluster import (
@@ -22,6 +23,7 @@ from app.schemas.proxmox_cluster import (
 )
 from app.services import account_colors
 from app.services import proxmox_cluster_service as svc
+from app.services.audit_chain import stamp
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +133,7 @@ async def create_proxmox_cluster(
 async def update_proxmox_cluster(
     cluster_pk: str,
     body: ProxmoxClusterUpdate,
-    _: User = Depends(require_role(Role.admin)),
+    current_user: User = Depends(require_role(Role.admin)),
     bu: BUScope = Depends(current_bu),
     db: AsyncSession = Depends(get_db),
 ):
@@ -146,6 +148,21 @@ async def update_proxmox_cluster(
             data.pop(_not_nullable, None)
 
     new_secret = data.pop("api_token_secret", None)
+
+    # Redirecting the endpoint would otherwise let an admin who never knew the
+    # stored secret have /test (or a run) send it to a host they control. So an
+    # endpoint change must re-supply the secret, and it is audited. The schema
+    # already normalised `endpoint`; normalise the stored value the same way so
+    # re-submitting the unchanged endpoint is a no-op, not a "change".
+    old_endpoint = row.endpoint
+    endpoint_changed = "endpoint" in data and (
+        svc.normalize_endpoint(data["endpoint"]) != svc.normalize_endpoint(old_endpoint)
+    )
+    if endpoint_changed and not new_secret:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="api_token_secret is required when changing the endpoint",
+        )
     if new_secret:
         row.api_token_secret_encrypted = svc.encrypt_secret(new_secret)
 
@@ -167,6 +184,22 @@ async def update_proxmox_cluster(
         row.endpoint = svc.normalize_endpoint(data.pop("endpoint"))
     for k, v in data.items():
         setattr(row, k, v)
+    if endpoint_changed:
+        # Never include the secret — only who moved the cluster where.
+        audit = AuditLog(
+            user_id=current_user.id,
+            action="proxmox_cluster.endpoint_change",
+            resource_type="proxmox_cluster",
+            resource_id=row.id,
+            details={
+                "business_unit_id": row.business_unit_id,
+                "slug": row.slug,
+                "old_endpoint": old_endpoint,
+                "new_endpoint": row.endpoint,
+            },
+        )
+        db.add(audit)
+        await stamp(db, audit)
     await db.commit()
     await db.refresh(row)
     return _to_response(row)

@@ -261,3 +261,76 @@ async def test_test_endpoint_failure_is_ok_false(auth_client, admin_token, monke
     assert r.json()["ok"] is False
     assert "401" in r.json()["detail"]
     assert r.json()["version"] is None
+
+
+async def _endpoint_audits(_setup_db, cluster_id):
+    from sqlalchemy import select
+
+    from app.models.audit_log import AuditLog
+
+    async with _setup_db() as session:
+        return (await session.execute(
+            select(AuditLog).where(
+                AuditLog.action == "proxmox_cluster.endpoint_change",
+                AuditLog.resource_id == cluster_id,
+            )
+        )).scalars().all()
+
+
+async def test_endpoint_change_without_secret_is_422(auth_client, admin_token, _setup_db):
+    """Redirecting the endpoint must not let the stored secret follow it to a
+    new host unless the caller proves they know it."""
+    row = await _create(auth_client, admin_token, slug="redir")
+    upd = await auth_client.put(
+        f"/api/v1/proxmox-clusters/{row['id']}",
+        json={"endpoint": "https://evil.example:8006"},
+        headers=_h(admin_token),
+    )
+    assert upd.status_code == 422, upd.text
+    assert "api_token_secret" in upd.text
+    got = await auth_client.get("/api/v1/proxmox-clusters", headers=_h(admin_token))
+    assert next(c for c in got.json() if c["id"] == row["id"])["endpoint"] == "https://pve.local:8006"
+    assert await _endpoint_audits(_setup_db, row["id"]) == []
+
+
+async def test_endpoint_change_with_secret_is_audited(auth_client, admin_token, _setup_db):
+    row = await _create(auth_client, admin_token, slug="moved")
+    upd = await auth_client.put(
+        f"/api/v1/proxmox-clusters/{row['id']}",
+        json={"endpoint": "https://pve2.local:8006/api2/json", "api_token_secret": "rotated-secret-7777"},
+        headers=_h(admin_token),
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["endpoint"] == "https://pve2.local:8006"
+    assert upd.json()["token_secret_masked_tail"] == "…7777"
+    audits = await _endpoint_audits(_setup_db, row["id"])
+    assert len(audits) == 1
+    assert audits[0].user_id is not None
+    d = audits[0].details
+    assert d["old_endpoint"] == "https://pve.local:8006"
+    assert d["new_endpoint"] == "https://pve2.local:8006"
+    assert d["business_unit_id"] == row["business_unit_id"]
+    # Neither the new nor the old secret may reach the audit log.
+    assert "rotated-secret-7777" not in str(d)
+    assert "555555555555" not in str(d)
+
+
+@pytest.mark.parametrize(
+    "slug,same",
+    [
+        ("same-a", "https://pve.local:8006"),
+        ("same-b", "HTTPS://PVE.local:8006/api2/json/"),
+        ("same-c", "pve.local:8006"),
+    ],
+)
+async def test_unchanged_endpoint_without_secret_is_noop(auth_client, admin_token, _setup_db, slug, same):
+    row = await _create(auth_client, admin_token, slug=slug)
+    upd = await auth_client.put(
+        f"/api/v1/proxmox-clusters/{row['id']}",
+        json={"endpoint": same, "name": "still-here"},
+        headers=_h(admin_token),
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["endpoint"] == "https://pve.local:8006"
+    assert upd.json()["name"] == "still-here"
+    assert await _endpoint_audits(_setup_db, row["id"]) == []

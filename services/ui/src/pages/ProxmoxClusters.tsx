@@ -62,6 +62,17 @@ const EMPTY: FormState = {
   color: "",
 };
 
+// Mirror of the API's endpoint normalisation (schemas/proxmox_cluster.py):
+// assume https:// when no scheme, lower-case, drop trailing slashes and a
+// trailing /api2/json. Used only to decide whether the endpoint "changed".
+export function normalizeEndpoint(raw: string): string {
+  let v = (raw ?? "").trim();
+  if (v && !v.includes("://")) v = `https://${v}`;
+  v = v.toLowerCase().replace(/\/+$/, "");
+  if (v.endsWith("/api2/json")) v = v.slice(0, -"/api2/json".length).replace(/\/+$/, "");
+  return v;
+}
+
 const TEXTAREA_CLS =
   "block w-full rounded-md border border-brand-border bg-white px-3 py-2 font-mono text-xs " +
   "text-brand-text placeholder-brand-muted transition-colors focus:border-brand-400 focus:outline-none " +
@@ -84,11 +95,23 @@ function ClusterForm({
   error: string | null;
 }) {
   const [f, setF] = useState<FormState>(initial);
+  const [localError, setLocalError] = useState<string | null>(null);
+  // Pointing the cluster at a new host would otherwise send the stored secret
+  // there (on /test and on runs), so the API requires the secret alongside an
+  // endpoint change. Mirror that here instead of waiting for the 422.
+  const endpointChanged =
+    editing && normalizeEndpoint(f.endpoint) !== normalizeEndpoint(initial.endpoint);
+  const secretRequired = !editing || endpointChanged;
   function update<K extends keyof FormState>(k: K, v: FormState[K]) {
     setF((p) => ({ ...p, [k]: v }));
+    setLocalError(null);
   }
   function submit(e: FormEvent) {
     e.preventDefault();
+    if (endpointChanged && !f.api_token_secret) {
+      setLocalError("Re-enter the API token secret to change the endpoint.");
+      return;
+    }
     onSubmit(f);
   }
   return (
@@ -136,15 +159,28 @@ function ClusterForm({
           <div>
             <Label>
               API token secret{" "}
-              {editing && <span className="text-xs text-slate-500">(leave blank to keep current)</span>}
+              {editing && !endpointChanged && (
+                <span className="text-xs text-slate-500">(leave blank to keep current)</span>
+              )}
+              {endpointChanged && (
+                <span className="text-xs text-accent-600 dark:text-accent-400">
+                  (required — the endpoint changed)
+                </span>
+              )}
             </Label>
             <Input
               type="password"
+              aria-label="API token secret"
               value={f.api_token_secret}
               onChange={(e) => update("api_token_secret", e.target.value)}
-              required={!editing}
+              required={secretRequired}
               autoComplete="new-password"
             />
+            {endpointChanged && (
+              <p className="mt-1 text-xs text-slate-500">
+                The stored secret is never sent to a new endpoint; re-enter it to confirm the move.
+              </p>
+            )}
           </div>
           <div className="md:col-span-2 flex items-center gap-2">
             <input
@@ -206,9 +242,9 @@ function ClusterForm({
             <Label>Color</Label>
             <AccountColorPicker value={f.color} onChange={(c) => update("color", c)} />
           </div>
-          {error && (
+          {(localError ?? error) && (
             <p className="md:col-span-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
-              {error}
+              {localError ?? error}
             </p>
           )}
           <div className="md:col-span-2 mt-2 flex items-center gap-2">

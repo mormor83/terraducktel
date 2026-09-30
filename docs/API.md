@@ -369,7 +369,7 @@ the executor exports both providers' env-var vocabularies from the one token.
 |---|---|---|---|---|
 | GET | `/proxmox-clusters` | List clusters (secret + SSH key never returned; masked tail shown). | viewer | BU-scoped |
 | POST | `/proxmox-clusters` | Add a cluster (API token + optional SSH private key stored encrypted). | admin | BU-scoped |
-| PUT | `/proxmox-clusters/{cluster_pk}` | Update fields, rotate the token secret, set/clear SSH key, TLS flag, CA PEM. | admin | — |
+| PUT | `/proxmox-clusters/{cluster_pk}` | Update fields, rotate the token secret, set/clear SSH key, TLS flag, CA PEM. Changing `endpoint` requires `api_token_secret` in the same request (**422** otherwise) and is audited. | admin | — |
 | DELETE | `/proxmox-clusters/{cluster_pk}` | Delete; linked workspaces are unlinked (FK SET NULL). | admin | — |
 | POST | `/proxmox-clusters/{cluster_pk}/test` | Test connection: GET the Proxmox `/api2/json/version` endpoint with the stored token; honours `tls_insecure` / `ca_cert_pem`. Returns `{ok, detail, version?}`. | admin | — |
 
@@ -384,6 +384,18 @@ requires `ssh_username`. Responses carry `token_secret_masked_tail` and
 `has_ssh_key` in place of the secrets. Workspaces at
 `proxmox/cluster-<slug>/<node>/<stack>` auto-link to the matching cluster on
 import; `state_backend` stays `s3`.
+
+**PUT /proxmox-clusters/{cluster_pk}**: all fields optional; an omitted or
+`null` `api_token_secret` keeps the stored one. **Changing `endpoint` requires
+`api_token_secret` in the same body** (**422** otherwise) — without that, an
+admin who never knew the secret could point the cluster at a host they control
+and have `/test` or the next run deliver the stored token there. The comparison
+is made after the same normalisation the schema applies (scheme/host
+lower-cased, trailing `/` and `/api2/json` stripped), so re-submitting the
+unchanged endpoint is a no-op and needs no secret. An accepted endpoint change
+writes a `proxmox_cluster.endpoint_change` audit row carrying `slug`,
+`business_unit_id`, `old_endpoint`, `new_endpoint` and the acting user —
+never the secret.
 
 **POST .../test** decrypts the stored token in memory and probes the Proxmox
 version endpoint, and always returns `{ok, detail?, version?}` —
@@ -1097,7 +1109,8 @@ front of it.
 `auto_delete_orphan`, `run.trigger`, `approve`, `auto_approve`,
 `auto_apply_skipped`, `reject`, `aws_account.create`, `aws_account.update`,
 `integration.github.set`, `integration.slack.set`, `api_key.create`,
-`api_key.regenerate`, `api_key.rotate`, `api_key.revoke`, …
+`api_key.regenerate`, `api_key.rotate`, `api_key.revoke`,
+`proxmox_cluster.endpoint_change`, …
 
 `workspace.tags_bulk_edit` writes **one row per affected workspace** rather than
 one per batch, so a workspace's own audit trail shows every tag change that ever
