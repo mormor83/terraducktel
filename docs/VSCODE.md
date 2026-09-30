@@ -34,6 +34,15 @@ User scope, makes the new profile active, and offers to sign in immediately.
 modal, then it clears the profile from all three settings and deletes its
 stored credential.
 
+**User settings only.** `profiles`, `uiUrls`, `insecureTlsProfiles` and the
+legacy `activeProfile` decide where your stored credential is sent, so they
+are `application`-scoped: values in a repository's `.vscode/settings.json` or
+a `.code-workspace` file are ignored (the extension logs which ones it
+skipped to the *Terraducktel* output channel). On top of that, every stored
+credential is bound to the API URL it was issued for: if a profile's URL is
+later changed, the old credential is not sent to the new URL — you are asked
+to sign in again (switching the URL back restores the old session).
+
 The active profile is **not** a setting anymore: use
 **Terraducktel: Switch profile** (the sidebar's title-bar `$(server)` button,
 or the profile status bar item) to pick which one is active. It's kept in

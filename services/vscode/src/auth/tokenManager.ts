@@ -4,7 +4,10 @@ import { decodeJwtPayload, type AccessClaims } from "./jwt";
 import type { SecretStore } from "./secrets";
 
 export type CredentialKind = "password" | "api_key" | "sso";
-interface StoredCredential { kind: CredentialKind; refresh_token?: string; api_key?: string }
+/** `url` = the profile API URL the credential was issued for (absent on credentials stored by
+ *  earlier versions; those are bound to the profile's current URL the first time they are read). */
+interface StoredCredential { kind: CredentialKind; refresh_token?: string; api_key?: string; url?: string }
+const normUrl = (u: string) => u.replace(/\/+$/, "");
 
 /** One per profile. Persists ONLY the long-lived secret (refresh token or API key);
  *  the access token lives in memory and is re-minted on demand. */
@@ -25,7 +28,16 @@ export class TokenManager implements TokenProvider {
    *  lazily (no access token in memory after a reload), and those callers never pass through
    *  the client's coalescing — so the single flight has to live here too. */
   private refreshing: Promise<string | undefined> | null = null;
-  constructor(private readonly secrets: SecretStore, private readonly profileName: string) {}
+  /** Set by `load()` when the stored credential was issued for a different URL than `url`. */
+  private staleUrl: string | undefined;
+  private readonly url: string | undefined;
+  /** `url`: the API URL this manager's client talks to. When given, the stored credential is
+   *  bound to it — one issued for another URL is treated as absent (never sent), so re-pointing a
+   *  profile at a different host (by hand, or by a settings file the user did not write) cannot
+   *  leak it. Omitted only by tests that do not exercise binding. */
+  constructor(private readonly secrets: SecretStore, private readonly profileName: string, url?: string) {
+    this.url = url === undefined ? undefined : normUrl(url);
+  }
 
   private get key() { return `terraducktel.cred.${this.profileName}`; }
   attach(client: TdtClient) { this.client = client; }
@@ -34,7 +46,22 @@ export class TokenManager implements TokenProvider {
 
   private async load(): Promise<void> {
     const raw = await this.secrets.get(this.key);
-    this.cred = raw ? (JSON.parse(raw) as StoredCredential) : undefined;
+    let cred = raw ? (JSON.parse(raw) as StoredCredential) : undefined;
+    this.staleUrl = undefined;
+    if (cred && this.url !== undefined) {
+      if (typeof cred.url !== "string") {
+        // Pre-binding credential: adopt the profile's current URL. Not `persist()` — nothing
+        // observable changed, so listeners must not fire.
+        cred = { ...cred, url: this.url };
+        await this.secrets.store(this.key, JSON.stringify(cred));
+      } else if (normUrl(cred.url) !== this.url) {
+        // Issued for another host. Leave it in the store (switching the URL back restores the
+        // session) but never hand it to this client.
+        this.staleUrl = cred.url;
+        cred = undefined;
+      }
+    }
+    this.cred = cred;
     this.access = this.cred?.kind === "api_key" ? this.cred.api_key : undefined;
   }
   /** Idempotent: concurrent callers (explicit `restore()` and lazy `ensureLoaded()` alike) await
@@ -44,11 +71,16 @@ export class TokenManager implements TokenProvider {
   private async persist(c: StoredCredential | undefined) {
     this.loadPromise = Promise.resolve();
     this.cred = c;
-    if (c) await this.secrets.store(this.key, JSON.stringify(c)); else await this.secrets.delete(this.key);
+    this.staleUrl = undefined;
+    if (c) await this.secrets.store(this.key, JSON.stringify(this.url === undefined ? c : { ...c, url: this.url }));
+    else await this.secrets.delete(this.key);
     this.fire();
   }
 
   isSignedIn() { return !!this.cred; }
+  /** The URL a stored-but-unused credential was issued for, when it differs from this profile's
+   *  current URL (see the constructor); undefined otherwise. Valid after `restore()`. */
+  boundToOtherUrl(): string | undefined { return this.staleUrl; }
   /** Synchronous by design — see `TokenProvider.hasCredential`. Callers that could run before
    *  the secret store has been read must `await restore()` (or `getAccessToken()`) first. */
   hasCredential() { return !!this.cred; }

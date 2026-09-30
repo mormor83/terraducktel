@@ -19,6 +19,13 @@
   "categories": ["Other"],
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Profile URLs, UI URLs and TLS settings are only read from User settings, never from a workspace or folder, so an untrusted repository cannot redirect your Terraducktel credentials.",
+      "restrictedConfigurations": ["terraducktel.profiles", "terraducktel.uiUrls", "terraducktel.insecureTlsProfiles", "terraducktel.activeProfile"]
+    }
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -138,24 +145,28 @@
       "properties": {
         "terraducktel.profiles": {
           "type": "object",
+          "scope": "application",
           "additionalProperties": { "type": "string" },
           "default": {},
-          "markdownDescription": "Profile name → API origin, e.g. `prod` → `https://tdt.example.com`. Add rows here or run **Terraducktel: Add profile…**."
+          "markdownDescription": "Profile name → API origin, e.g. `prod` → `https://tdt.example.com`. Add rows here or run **Terraducktel: Add profile…**. User settings only: a workspace or folder cannot set this (it decides where your stored credential is sent)."
         },
         "terraducktel.uiUrls": {
           "type": "object",
+          "scope": "application",
           "additionalProperties": { "type": "string" },
           "default": {},
           "markdownDescription": "Profile name → web UI origin, only when the UI is served from a different origin than the API (e.g. the dev compose stack: `http://localhost:3001`)."
         },
         "terraducktel.insecureTlsProfiles": {
           "type": "array",
+          "scope": "application",
           "items": { "type": "string" },
           "default": [],
           "description": "Profile names for which TLS certificate verification is skipped (self-signed dev stacks only)."
         },
         "terraducktel.activeProfile": {
           "type": "string",
+          "scope": "application",
           "default": "",
           "description": "Name of the profile to use.",
           "deprecationMessage": "The active profile is chosen with 'Terraducktel: Switch profile' (sidebar title button / status bar). This setting is only read once to migrate."

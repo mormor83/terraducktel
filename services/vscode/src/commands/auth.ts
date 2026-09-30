@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { Session } from "../session";
-import { readProfiles, type Profile } from "../auth/profiles";
+import type { Profile } from "../auth/profiles";
+import { readUserProfiles } from "../auth/trustedConfig";
 import { migrateLegacyBu } from "../auth/bu";
 import { GLOBALSTATE_ACTIVE_PROFILE } from "../ids";
 
@@ -10,8 +11,10 @@ export function wrap(fn: (...a: unknown[]) => Promise<unknown>) {
 
 type StringMap = Record<string, string>;
 
+/** User-scope profiles only (see auth/trustedConfig.ts) — also what `writeProfiles` rewrites, so
+ *  Add/Remove profile can never copy a workspace-level value into the user's settings. */
 function currentProfiles(cfg: vscode.WorkspaceConfiguration): Profile[] {
-  return readProfiles(cfg.get("profiles"), cfg.get("uiUrls"), cfg.get("insecureTlsProfiles"));
+  return readUserProfiles(cfg);
 }
 
 /** Rewrites all three profile settings from a full `Profile[]`, always in the Settings-UI-native

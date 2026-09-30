@@ -65,6 +65,10 @@ See `docs/VSCODE.md` in the repository for the full setup and usage guide.
 | `terraducktel.statusBar.enabled` | `true` | Show the current file's mapped workspace in the status bar. |
 | `terraducktel.approvals.pollSeconds` | `60` | How often to poll for runs newly awaiting approval (seconds); `0` disables. |
 
+The first four settings decide where your credentials are sent, so they are read from **User
+settings only** — a workspace or folder `settings.json` cannot set them. A stored credential is also
+bound to the API URL it was issued for and is never sent to a different one.
+
 ## Commands
 
 | Command | Title |

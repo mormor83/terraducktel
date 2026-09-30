@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 import { TdtClient } from "./api/client";
 import type { AuthConfig, TokenPair } from "./api/types";
 import { TokenManager } from "./auth/tokenManager";
-import { pickActive, readProfiles, uiUrlFor, type Profile } from "./auth/profiles";
+import { pickActive, uiUrlFor, type Profile } from "./auth/profiles";
+import { ignoredWorkspaceOverrides, readUserProfiles, userLevel } from "./auth/trustedConfig";
 import { runLoopbackLogin } from "./auth/sso";
 import type { SecretStore } from "./auth/secrets";
 import { Store } from "./state/store";
@@ -71,7 +72,12 @@ export class Session implements vscode.Disposable {
     for (const d of this.cycle) d.dispose();
     this.cycle = [];
     this.store.stop();
-    const profiles = readProfiles(this.cfg().get("profiles"), this.cfg().get("uiUrls"), this.cfg().get("insecureTlsProfiles"));
+    // User scope only: a repo's `.vscode/settings.json` must never be able to re-point a profile
+    // (and with it the stored credential) at another host — see auth/trustedConfig.ts.
+    const cfg = this.cfg();
+    const ignored = ignoredWorkspaceOverrides(cfg);
+    if (ignored.length) this.log.appendLine(`Ignoring workspace/folder-level ${ignored.map((k) => `terraducktel.${k}`).join(", ")}: these settings are only read from User settings.`);
+    const profiles = readUserProfiles(cfg);
     this.hasProfiles = profiles.length > 0;
     const next = pickActive(profiles, await this.resolveActiveProfileName(profiles));
     this.profile = next;
@@ -81,9 +87,16 @@ export class Session implements vscode.Disposable {
     // into globalState by `migrateLegacyBu()` the first time profile settings are rewritten —
     // this fallback stays for a profile that was never touched by either).
     this.bu = this.ctx.workspaceState.get<string>(`bu.${next.name}`) ?? this.ctx.globalState.get<string>(`bu.${next.name}`) ?? next.bu ?? "";
-    this.tokens = new TokenManager(secretsAdapter(this.ctx.secrets), next.name);
+    // Bound to the URL: a credential stored for this profile under a different API URL is neither
+    // used nor sent until the user signs in again against the new one.
+    this.tokens = new TokenManager(secretsAdapter(this.ctx.secrets), next.name, next.url);
     await this.tokens.restore();
     if (gen !== this.reloadGen) return;       // a newer reload() took over while we read secrets
+    const staleFor = this.tokens.boundToOtherUrl();
+    if (staleFor) {
+      this.log.appendLine(`Stored credential for profile '${next.name}' was issued for ${staleFor}, not ${next.url}; not using it.`);
+      void vscode.window.showWarningMessage(`Terraducktel: profile '${next.name}' now points at ${next.url}, but its stored credential was issued for ${staleFor}. Sign in again to use the new URL.`, "Sign in").then((a) => a && vscode.commands.executeCommand("terraducktel.signIn"));
+    }
     this.client = new TdtClient({ baseUrl: next.url, bu: this.bu, tokens: this.tokens, insecureTls: next.insecureTls, trace: (l) => { if (this.cfg().get<boolean>("trace")) this.log.appendLine(l); } });
     this.tokens.attach(this.client);
     const client = this.client, tokens = this.tokens; // captured so an event from a superseded cycle is ignored
@@ -126,7 +139,7 @@ export class Session implements vscode.Disposable {
     const stored = this.ctx.globalState.get<string>(GLOBALSTATE_ACTIVE_PROFILE);
     if (stored && profiles.some((p) => p.name === stored)) return stored;
     if (this.ctx.globalState.get<boolean>(GLOBALSTATE_ACTIVE_PROFILE_MIGRATED)) return undefined;
-    const legacy = this.cfg().get<string>("activeProfile");
+    const legacy = userLevel<string>(this.cfg(), "activeProfile");
     await this.ctx.globalState.update(GLOBALSTATE_ACTIVE_PROFILE_MIGRATED, true);
     if (legacy) { await this.ctx.globalState.update(GLOBALSTATE_ACTIVE_PROFILE, legacy); return legacy; }
     return undefined;

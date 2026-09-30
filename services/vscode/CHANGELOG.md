@@ -4,6 +4,20 @@ All notable changes to the Terraducktel VS Code extension are documented here.
 
 ## Unreleased
 
+Security: a repository could redirect your credentials. `terraducktel.profiles`,
+`uiUrls`, `insecureTlsProfiles` and `activeProfile` were window-scoped, so a
+cloned repo's `.vscode/settings.json` could re-point an existing profile (say
+`prod`) at its own host, and the extension would send that profile's stored
+refresh token / API key there. Now:
+
+- those settings are `application`-scoped and restricted in untrusted
+  workspaces, and the extension reads them only from User settings, ignoring
+  workspace / folder values even where VS Code would still merge them;
+- stored credentials record the API URL they were issued for and are never
+  sent to a different URL — change a profile's URL and you sign in again.
+  Credentials stored by earlier versions are bound to the profile's current
+  URL the first time they are read.
+
 Brand redesign. Every command, gate and API call is unchanged; only how things look.
 
 - Status icons in the Workspaces and Runs trees use the Terraducktel icon set

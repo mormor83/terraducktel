@@ -137,3 +137,55 @@ describe("TokenManager", () => {
     expect(getCalls).toBe(1);
   });
 });
+
+describe("TokenManager URL binding", () => {
+  let srv: FakeServer; let url: string; let store: MemorySecretStore;
+  beforeEach(async () => { srv = new FakeServer(); url = await srv.start(); store = new MemorySecretStore(); });
+  afterEach(async () => { await srv.stop(); });
+  const bound = (u: string) => { const tm = new TokenManager(store, "prod", u); const c = new TdtClient({ baseUrl: u, bu: "default", tokens: tm }); tm.attach(c); return { tm, c }; };
+
+  it("records the URL a new credential was issued for", async () => {
+    const { tm } = bound(`${url}/`);
+    await tm.signInWithApiKey("tdt_k");
+    expect(JSON.parse((await store.get("terraducktel.cred.prod"))!)).toEqual({ kind: "api_key", api_key: "tdt_k", url });
+  });
+
+  it("never sends a credential issued for another URL (profile re-pointed at a new host)", async () => {
+    await store.store("terraducktel.cred.prod", JSON.stringify({ kind: "api_key", api_key: "tdt_prod", url: "https://tdt.example.com" }));
+    srv.json("GET", "/api/v1/workspaces", 200, []);
+    const { tm, c } = bound(url);   // `url` stands in for the attacker's host
+    await tm.restore();
+    expect(tm.isSignedIn()).toBe(false);
+    expect(tm.boundToOtherUrl()).toBe("https://tdt.example.com");
+    expect(await tm.getAccessToken()).toBeUndefined();
+    await c.listWorkspaces().catch(() => undefined);
+    for (const call of srv.calls) expect(call.headers.authorization).toBeUndefined();
+    // Not destroyed: pointing the profile back at its real URL restores the session.
+    const back = new TokenManager(store, "prod", "https://tdt.example.com/");
+    expect(await back.getAccessToken()).toBe("tdt_prod");
+    expect(back.boundToOtherUrl()).toBeUndefined();
+  });
+
+  it("does not attempt a refresh-token redemption against another URL", async () => {
+    await store.store("terraducktel.cred.prod", JSON.stringify({ kind: "password", refresh_token: "r-prod", url: "https://tdt.example.com" }));
+    const { tm } = bound(url);
+    expect(await tm.refreshAccessToken()).toBeUndefined();
+    expect(srv.calls).toHaveLength(0);
+  });
+
+  it("adopts the current URL for a credential stored before binding existed", async () => {
+    await store.store("terraducktel.cred.prod", JSON.stringify({ kind: "api_key", api_key: "tdt_old" }));
+    const { tm } = bound(url);
+    expect(await tm.getAccessToken()).toBe("tdt_old");
+    expect(JSON.parse((await store.get("terraducktel.cred.prod"))!).url).toBe(url);
+  });
+
+  it("signing in again against the new URL rebinds the credential", async () => {
+    await store.store("terraducktel.cred.prod", JSON.stringify({ kind: "api_key", api_key: "tdt_prod", url: "https://tdt.example.com" }));
+    const { tm } = bound(url);
+    await tm.restore();
+    await tm.signInWithApiKey("tdt_new");
+    expect(tm.boundToOtherUrl()).toBeUndefined();
+    expect(JSON.parse((await store.get("terraducktel.cred.prod"))!)).toEqual({ kind: "api_key", api_key: "tdt_new", url });
+  });
+});
