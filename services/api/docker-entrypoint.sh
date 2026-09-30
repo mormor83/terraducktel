@@ -19,6 +19,11 @@
 #                                                 "password123" dev password —
 #                                                 that's local-dev-only, set
 #                                                 by `make seed-db` instead.
+#   SEED_PASSWORD              (optional, >= 16 chars) — with the flag above,
+#                                                 admin@test.com gets THIS
+#                                                 password (never printed);
+#                                                 operator/viewer still get a
+#                                                 random one each, printed once.
 #
 # Exit early on any failure so the ECS deployment circuit breaker rolls back
 # instead of running a half-migrated DB.
@@ -34,9 +39,16 @@ if [ "$run_migrations" = "true" ]; then
 fi
 
 if [ "$seed_users" = "true" ]; then
-  echo "[entrypoint] seeding admin/operator/viewer with random passwords (see below)"
   echo "[entrypoint] DELETE THIS FLAG FROM THE TASK DEF AFTER FIRST DEPLOY"
-  SEED_RANDOM_PASSWORDS=true python scripts/seed_dev_users.py
+  if [ -n "$(printf '%s' "${SEED_PASSWORD:-}" | tr -d '[:space:]')" ]; then
+    # SEED_PASSWORD and SEED_RANDOM_PASSWORDS are mutually exclusive in the
+    # seed script; the provisioner-supplied admin password is never echoed.
+    echo "[entrypoint] seeding admin with SEED_PASSWORD (not shown), operator/viewer with random passwords (see below)"
+    python scripts/seed_dev_users.py
+  else
+    echo "[entrypoint] seeding admin/operator/viewer with random passwords (see below)"
+    SEED_RANDOM_PASSWORDS=true python scripts/seed_dev_users.py
+  fi
 fi
 
 echo "[entrypoint] starting uvicorn"

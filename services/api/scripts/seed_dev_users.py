@@ -22,9 +22,14 @@ production deploy never creates a well-known, publicly-documented password
 for a superadmin account. Capture the printed passwords from the deploy
 logs; they are not stored or shown again.
 
-`SEED_PASSWORD=<value>` sets one known password for all three users instead
-(for provisioners that already hold the secret); it takes precedence over
-SEED_RANDOM_PASSWORDS.
+`SEED_PASSWORD=<value>` (>= 16 chars) sets a known password for
+`admin@test.com` ONLY, for provisioners that already hold the secret. That
+password is never printed. operator@test.com / viewer@test.com still get a
+fresh random password each, printed once like SEED_RANDOM_PASSWORDS does.
+SEED_PASSWORD and SEED_RANDOM_PASSWORDS are mutually exclusive: setting both
+exits non-zero rather than guess which one the operator meant (a fixed
+password printed under a "generated … shown once" label in a deploy log is
+exactly the leak this script exists to avoid).
 """
 from __future__ import annotations
 
@@ -33,6 +38,7 @@ import os
 import secrets
 import sys
 import uuid
+from typing import NoReturn
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -57,24 +63,61 @@ def _random_passwords_enabled() -> bool:
     )
 
 
-def _build_dev_users() -> tuple[tuple[str, str, str], ...]:
-    """(email, password, role) triples.
+SEED_PASSWORD_MIN_LEN = 16
+FIXED_PASSWORD_EMAIL = "admin@test.com"
 
-    Precedence: SEED_PASSWORD (one operator-supplied password for every seeded
-    user — used by unattended installs whose provisioner already holds the
-    secret, e.g. the Proxmox cloud-init first boot) → SEED_RANDOM_PASSWORDS=true
-    (fresh random per user, printed once) → the documented dev `password123`.
-    The password is only ever applied when a user row is freshly created (see
-    seed() below); an existing user's password is never touched."""
+
+def _fail(msg: str) -> NoReturn:
+    print(f"ERROR: {msg}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def _build_dev_users() -> tuple[tuple[tuple[str, str, str], ...], frozenset[str]]:
+    """((email, password, role) triples, emails whose password was generated).
+
+    Modes (the password is only ever applied when a user row is freshly
+    created — see seed() below; an existing user's password is never touched):
+
+    - SEED_PASSWORD=<pw>: admin@test.com gets <pw> (never printed);
+      operator/viewer get fresh random passwords (printed once).
+    - SEED_RANDOM_PASSWORDS=true: every user gets a fresh random password
+      (printed once).
+    - neither: the documented dev `password123` for everyone.
+
+    Both at once, or a SEED_PASSWORD shorter than SEED_PASSWORD_MIN_LEN, is
+    refused with a non-zero exit.
+    """
     fixed = os.environ.get("SEED_PASSWORD", "").strip()
     if fixed:
-        return tuple((email, fixed, role) for email, role in DEV_EMAILS_ROLES)
+        if _random_passwords_enabled():
+            _fail(
+                "SEED_PASSWORD and SEED_RANDOM_PASSWORDS are mutually exclusive — "
+                "unset one of them."
+            )
+        if len(fixed) < SEED_PASSWORD_MIN_LEN:
+            _fail(
+                f"SEED_PASSWORD must be at least {SEED_PASSWORD_MIN_LEN} characters "
+                f"(got {len(fixed)})."
+            )
+        users = tuple(
+            (email, fixed if email == FIXED_PASSWORD_EMAIL else secrets.token_urlsafe(18), role)
+            for email, role in DEV_EMAILS_ROLES
+        )
+        generated = frozenset(e for e, _r in DEV_EMAILS_ROLES if e != FIXED_PASSWORD_EMAIL)
+        return users, generated
     if not _random_passwords_enabled():
-        return tuple((email, "password123", role) for email, role in DEV_EMAILS_ROLES)
-    return tuple((email, secrets.token_urlsafe(18), role) for email, role in DEV_EMAILS_ROLES)
+        return tuple((email, "password123", role) for email, role in DEV_EMAILS_ROLES), frozenset()
+    return (
+        tuple((email, secrets.token_urlsafe(18), role) for email, role in DEV_EMAILS_ROLES),
+        frozenset(e for e, _r in DEV_EMAILS_ROLES),
+    )
 
 
-DEV_USERS: tuple[tuple[str, str, str], ...] = _build_dev_users()
+DEV_USERS: tuple[tuple[str, str, str], ...]
+# Emails whose password was randomly generated in this invocation. Only these
+# are ever printed; an operator-supplied SEED_PASSWORD never is.
+GENERATED_PASSWORD_EMAILS: frozenset[str]
+DEV_USERS, GENERATED_PASSWORD_EMAILS = _build_dev_users()
 
 
 async def seed() -> int:
@@ -130,10 +173,11 @@ async def seed() -> int:
                     auth_provider="local",
                 )
             )
-            if _random_passwords_enabled():
-                # Only ever printed for a row we just created with this exact
-                # password — never for the "exists" branch above, where the
-                # real current password could be anything from an earlier run.
+            if email in GENERATED_PASSWORD_EMAILS:
+                # Only ever printed for a row we just created with a password
+                # generated right here — never for the "exists" branch above
+                # (the real current password could be anything from an earlier
+                # run) and never for an operator-supplied SEED_PASSWORD.
                 print(f"generated password for {email}: {password} (shown once, not stored anywhere)")
             # Flush the User row before queueing its UBU. Both rows share a
             # session, and SQLAlchemy's autoflush doesn't reliably order them
