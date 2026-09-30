@@ -33,6 +33,7 @@ type Run = {
   created_at?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
+  promotion_id?: string | null;
 };
 
 type Workspace = {
@@ -304,6 +305,11 @@ export default function RunDetail() {
             </span>
             <RunStatusBadge status={run.status} />
             <PolicyStatusBadge status={run.policy_status} />
+            {run.promotion_id && (
+              <Link to="/governance/environments" title="Created by an environment promotion">
+                <Badge tone="violet">Promotion</Badge>
+              </Link>
+            )}
             {workspace && (
               <Badge tone={ENV_TONE[workspace.environment] ?? "neutral"}>{workspace.environment}</Badge>
             )}

@@ -1312,12 +1312,16 @@ case "${TF_COMMAND}" in
       exit 1
     fi
     ;;
-  apply|destroy)
-    # Plan-phase of an apply (or destroy) run: produce + save the tfplan, then
-    # PAUSE for approval. The approve route in the API will spawn a second
-    # executor with TF_PHASE=apply that restores the saved tfplan and runs it.
+  apply|destroy|refresh)
+    # Plan-phase of an apply (or destroy / refresh) run: produce + save the
+    # tfplan, then PAUSE for approval. The approve route in the API will spawn a
+    # second executor with TF_PHASE=apply that restores the saved tfplan and
+    # runs it. `refresh` is `plan -refresh-only`: the saved plan only
+    # updates state to match real infrastructure, and still needs approval
+    # because it writes state.
     PLAN_FLAGS=""
     [[ "${TF_COMMAND}" == "destroy" ]] && PLAN_FLAGS="-destroy"
+    [[ "${TF_COMMAND}" == "refresh" ]] && PLAN_FLAGS="-refresh-only"
     if ! stream_run "Terraform Plan" /tmp/plan.log -- terraform plan ${PLAN_FLAGS} -input=false -no-color -out=tfplan; then
       trap - ERR
       report_status "failed" "$(cat /tmp/plan.log)"

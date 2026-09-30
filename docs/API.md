@@ -836,21 +836,58 @@ GET.
 
 ---
 
-## Environments — `/api/v1/environments`
+## Environment links — `/api/v1/env-links`
+
+Governance › Environments. A link pairs the stacks under two repo-tree nodes
+(account / region / folder / stack, same level, same BU, terraform only) so
+their differences can be compared and promoted.
 
 | Method | Path | Description | Min role |
 |---|---|---|---|
-| GET | `/environments` | List every workspace grouped by environment stage (`dev`/`staging`/`prod`), plus the promotion order. Cross-BU — no `X-Business-Unit` filtering. | viewer |
-| POST | `/environments/{workspace_id}/promote` | Promote a workspace's config to the next environment stage and trigger a plan run there. | admin |
+| GET | `/env-links` | Links in the current BU (all BUs for a superadmin on `all`), each with its `pair_summary` counts. Pairs are reconciled against the live workspace set on every read. | viewer |
+| POST | `/env-links` | Create. Body `{name, source_node:{level,path}, target_node:{level,path}, rewrite_rules?, pair_overrides?, protected_rules?}`. Omitted `protected_rules` are seeded with the defaults (env-specific keys + both account ids / ARNs). Requires a specific BU (400 on `all`); 409 on a duplicate name in the BU; 400 on level mismatch, overlapping or empty nodes, Helm-only nodes, or an invalid regex. | BU admin |
+| POST | `/env-links/preview-pairs` | Dry-run pairing for candidate nodes/rules (the link builder's live preview). Persists nothing; returns pairs, counts, warnings and the default protected rules for those nodes. | viewer |
+| GET | `/env-links/{id}` | One link. 404 outside the caller's BU. | viewer |
+| PUT | `/env-links/{id}` | Partial update. Any change to nodes / rewrite rules / overrides / protected rules bumps `rules_version`; a rename does not. | BU admin |
+| DELETE | `/env-links/{id}` | Delete the link and its pairs. Touches no stacks, runs or state. | BU admin |
+| GET | `/env-links/{id}/pairs` | Pairs with stack names; `?status=a,b` filters (unknown → 400). | viewer |
 
-Promotion chain is fixed: `dev → staging → prod`. 400 if the source
-workspace's environment isn't in the chain; 409 if it's already at `prod`
-(the final stage). Promoting creates (or reuses, if already present) a
-sibling workspace with the same name in the next stage, copying `repo_url`,
-`repo_ref`, `tf_working_dir`, `kind`, `cluster_id`, `azure_subscription_id`,
-and `state_aws_account_id` — but deliberately **not** `state_key`,
-`webhook_enabled`, or any drift/path status, so the new environment gets its
-own state path and starts with webhooks off and no scan history.
+**BU admin** = `require_bu_admin` (`app/auth/rbac.py`): a superadmin, interactive
+only — API keys are rejected at every tier. There is no per-BU admin role yet;
+that function is the single seam to change when one lands.
+
+Pair `status`: `not_compared` (matched, no compare yet) · `in_sync` · `diverged`
+· `missing_in_target` (carries `proposed_target_rel`) · `missing_in_source` ·
+`excluded` (by rule, or an ambiguous path). Link writes are audited as
+`env_link.create|update|delete` (`resource_type=env_link`, rules diff in
+`details.changes`) and show in the per-BU audit view.
+
+## Environment compare & promotion
+
+| Method | Path | Description | Min role |
+|---|---|---|---|
+| POST | `/env-links/{id}/compare` | Queue (re)compares. Body `{pair_ids?, direction?: forward\|reverse, force?}`. 202 `{queued}`. | viewer |
+| GET | `/env-pairs/{id}/compare` | `?direction=`. Config + state diff, side refs (branch, commit, state serial, drift), `create_preview` for missing pairs. **202** (with the stale result, if any) while computing. | viewer |
+| POST | `/env-pairs/{id}/refresh-state` | `{side}` — re-read the state TDT holds and recompare (no cloud call). | viewer |
+| POST | `/env-pairs/{id}/refresh-state/run` | `{side}` — queue a `refresh` run (plan -refresh-only → approval → apply). 201 `{run_id}`. | operator |
+| GET | `/env-pairs/{id}/history` | Promotions + recent runs on either stack. | viewer |
+| POST | `/env-links/{id}/promotions/preview` | Body = selection `{direction, confirm_reverse?, pairs:[{pair_id, hunk_ids, create_in_target?, target_branch?}], protected_overrides:[{hunk_id, reason}], commit_message?, reason?}`. Returns exact file changes per target stack, commits, `blockers`, `warnings`, default commit message. | BU admin |
+| POST | `/env-links/{id}/promotions` | Commit + push + create ordinary apply runs. 201; **200 `replayed`** for an identical selection within 15 min; 409 `{detail:{blockers}}` if blocked. `status=commit_failed` + `error` when the push is refused. | BU admin |
+| GET | `/promotions` | List (BU-scoped); `?link_id=&limit=`. | viewer |
+| GET | `/promotions/{id}` | Detail: status (derived from runs), commits (+ `web_url`), per-stack `stages` (committed/checkov/plan/opa/cost/approval/apply/verified), residual after verify. | viewer |
+| POST | `/promotions/{id}/revert` | Revert commit(s) on the same branch(es) + ordinary runs. 409 while runs are in flight, if already reverted, or if the promotion created stacks. | BU admin |
+| GET | `/env-links-stack-index` | `{stack_id: [{link_id, link_name, pair_id, side, status}]}` for the Dashboard "linked" glyph. | viewer |
+| GET | `/integrations/git-write` | Per-BU git write access: `{enabled, token_configured, token_source, token_tail, username, bot_name, bot_email}`. Token never returned. | admin |
+| PUT | `/integrations/git-write` | Body `{enabled?, token?, clear_token?, username?, bot_name?, bot_email?}`. | BU admin |
+| POST | `/integrations/git-write/test` | Push-permission check per repo the BU's stacks use. | admin |
+
+Promotion runs are plain `apply` runs (`runs.promotion_id` set, echoed on
+`RunResponse`); they are never auto-approved. `RunCreate.command` also accepts
+`refresh` (terraform only).
+
+The pre-2026 `/api/v1/environments` endpoints and their per-workspace promote
+action (fixed dev→staging→prod chain by the `environment` tag) was removed: it was
+unused and its runs were never enqueued.
 
 ---
 

@@ -10,6 +10,7 @@ import { TagChip, TagList } from "../TagChip";
 import { useTagFilter } from "./tagFilter";
 import { RunModal } from "../RunModal";
 import { FileIcon, HelmChip } from "./icons";
+import { LinkedStackGlyph } from "../env/StackIndexContext";
 import { azureInfo, gcpInfo, proxmoxInfo } from "./paths";
 import { BranchStatusChip, InlineLinkEditor, TreeRow } from "./primitives";
 import type {
@@ -271,6 +272,7 @@ export function WorkspaceLeafRow({
     <>
       {chip}
       {isHelm && <HelmChip />}
+      <LinkedStackGlyph stackId={workspace.id} />
       {isOrphaned && (
         <span title="The source path was deleted/renamed in the repo. Run/Destroy will fail; use Force delete to remove from TDT.">
           <Badge tone="warning">orphaned · path missing</Badge>

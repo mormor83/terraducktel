@@ -22,7 +22,9 @@ from app.routers import (  # noqa: E402
     business_units,
     clusters,
     drift,
-    environments,
+    env_links,
+    git_write,
+    promotions,
     gcp_projects,
     integrations,
     internal,
@@ -95,7 +97,11 @@ async def lifespan(app: FastAPI):
     retention_task = asyncio.create_task(
         drift_retention_loop(AsyncSessionLocal), name="drift-retention"
     )
-    tasks = (worker_task, reaper_task, gauges_task, sync_task, retention_task)
+    # Environment compare / promotion-verify jobs (Governance › Environments).
+    from app.services.bg_worker import bg_loop
+
+    bg_task = asyncio.create_task(bg_loop(AsyncSessionLocal), name="bg-jobs")
+    tasks = (worker_task, reaper_task, gauges_task, sync_task, retention_task, bg_task)
     try:
         yield
     finally:
@@ -220,7 +226,9 @@ app.include_router(state.router)
 app.include_router(audit.router)
 app.include_router(drift.router)
 app.include_router(inventory.router)
-app.include_router(environments.router)
+app.include_router(env_links.router)
+app.include_router(promotions.router)
+app.include_router(git_write.router)
 app.include_router(runtime_config.router)
 app.include_router(variables.router)
 app.include_router(workspace_variables.router)

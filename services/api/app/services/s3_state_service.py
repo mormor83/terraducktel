@@ -33,6 +33,12 @@ class S3StateService:
             kwargs["aws_secret_access_key"] = secret_access_key
         if use_localstack:
             from botocore.config import Config
+            # LocalStack accepts any credentials; without explicit ones boto3
+            # walks the ambient chain and raises NoCredentialsError in an API
+            # container that (correctly) has no AWS env of its own.
+            if "aws_access_key_id" not in kwargs:
+                kwargs["aws_access_key_id"] = "test"
+                kwargs["aws_secret_access_key"] = "test"
             kwargs["endpoint_url"] = "http://localstack:4566"
             kwargs["config"] = Config(s3={"addressing_style": "path"})
         self._client = boto3.client("s3", **kwargs)

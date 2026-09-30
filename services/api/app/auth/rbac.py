@@ -36,6 +36,30 @@ _CAPABILITY_ROLE: dict[str, Role] = {
 }
 
 
+async def require_bu_admin(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Gate for "BU admin" actions (environment links, promotions).
+
+    There is no per-BU admin role yet (memberships are operator|viewer), so
+    for now a BU admin is a superadmin. This is the ONE place that decision
+    lives — when memberships grow an `admin` role, change this function and
+    every caller follows.
+
+    Interactive-only, like the other superadmin gates: an admin-tier API key
+    owned by a superadmin would otherwise inherit the flag and act as a BU
+    admin in automation. Revisit together with the per-BU role.
+    """
+    api_key_service.block_api_keys(request, action="manage environment links")
+    if not bool(getattr(current_user, "is_superadmin", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Requires Business Unit admin",
+        )
+    return current_user
+
+
 def require_role(minimum_role: Role):
     """FastAPI dependency factory: reject users below the minimum role level.
 

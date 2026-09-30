@@ -3,7 +3,6 @@ import hashlib
 import hmac
 import json
 import logging
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -13,9 +12,9 @@ from app.auth.encryption_key import get_credential_encryption_key
 from app.db import get_db
 from app.models.business_unit import BusinessUnit
 from app.models.config import Config
-from app.models.run import Run, RunStatus
+
 from app.models.workspace import Workspace
-from app.services import run_step_service as steps_svc
+from app.services import run_service
 from app.services.config_service import ConfigService
 
 logger = logging.getLogger(__name__)
@@ -163,24 +162,14 @@ async def handle_forgejo_webhook(
             "reason": f"push branch '{branch}' != workspace branch '{workspace.repo_ref}'",
         }
 
-    # Create a plan run
-    run = Run(
-        id=str(uuid.uuid4()),
-        workspace_id=workspace.id,
-        triggered_by=f"webhook:{event_type}",
-        command="plan",
-        status=RunStatus.PENDING,
-        branch=workspace.repo_ref,
-    )
-    db.add(run)
-    await db.flush()
-    await steps_svc.seed_steps(db, run.id, "plan")
-    # Enqueue the worker job — without this the Run sits in PENDING and the
-    # executor is never launched. The manual trigger in routers/runs.py
-    # does the same call; webhook-triggered runs need it too.
-    from app.services.run_worker import enqueue_job
+    # TDT's own promotion commits already created their (apply) runs through
+    # the pipeline; a push made only of those must not add a duplicate plan.
+    if _promotion_only_push(payload):
+        return {"status": "ignored", "reason": "push contains only Terraducktel promotion commits"}
 
-    await enqueue_job(db, run_id=run.id, phase="plan")
+    run = await run_service.create_run(
+        db, workspace, command="plan", triggered_by=f"webhook:{event_type}", branch=workspace.repo_ref
+    )
     await db.commit()
 
     return {"status": "accepted", "run_id": run.id, "workspace_id": workspace.id}
@@ -197,10 +186,27 @@ def _verify_github_signature(payload: bytes, secret: str, signature: str | None)
     return hmac.compare_digest(expected, signature)
 
 
-def _changed_files(payload: dict) -> set[str]:
+# Trailer TDT puts on every promotion commit (promotion_service). Pushes made
+# only of such commits must not trigger webhook plans: the promotion already
+# created the target stacks' runs through the pipeline.
+PROMOTION_TRAILER = "Terraducktel-Promotion:"
+
+
+def _is_promotion_commit(commit: dict) -> bool:
+    return PROMOTION_TRAILER in (commit.get("message") or "")
+
+
+def _promotion_only_push(payload: dict) -> bool:
+    commits = payload.get("commits", []) or []
+    return bool(commits) and all(_is_promotion_commit(c) for c in commits)
+
+
+def _changed_files(payload: dict, skip_promotions: bool = False) -> set[str]:
     """Union the added/modified/removed lists from every commit in a push event."""
     out: set[str] = set()
     for c in payload.get("commits", []) or []:
+        if skip_promotions and _is_promotion_commit(c):
+            continue
         for k in ("added", "modified", "removed"):
             for p in c.get(k, []) or []:
                 if p:
@@ -322,6 +328,7 @@ async def handle_github_webhook(
         }
 
     changed = _changed_files(payload)
+    human_changed = _changed_files(payload, skip_promotions=True)
     triggered: list[dict] = []
     skipped: list[dict] = []
     for ws in rows:
@@ -340,22 +347,17 @@ async def handle_github_webhook(
             continue
         if changed and not _matches_workspace(ws, changed):
             continue
-        run = Run(
-            id=str(uuid.uuid4()),
-            workspace_id=ws.id,
-            triggered_by=f"webhook:github:push:{branch or 'unknown'}",
-            command="plan",
-            status=RunStatus.PENDING,
-            branch=ws.repo_ref,
+        # Only TDT promotion commits touched this stack → its runs already
+        # exist (created by the promotion, through the pipeline). Skip.
+        if changed and not _matches_workspace(ws, human_changed):
+            skipped.append({"workspace": ws.name, "reason": "promotion commit (run already created)"})
+            continue
+        if not changed and _promotion_only_push(payload):
+            skipped.append({"workspace": ws.name, "reason": "promotion commit (run already created)"})
+            continue
+        run = await run_service.create_run(
+            db, ws, command="plan", triggered_by=f"webhook:github:push:{branch or 'unknown'}", branch=ws.repo_ref
         )
-        db.add(run)
-        await db.flush()
-        await steps_svc.seed_steps(db, run.id, "plan")
-        # Enqueue so the worker actually picks this up — see the Forgejo
-        # handler note for why the seed_steps + commit pair is not enough.
-        from app.services.run_worker import enqueue_job
-
-        await enqueue_job(db, run_id=run.id, phase="plan")
         triggered.append({"run_id": run.id, "workspace_id": ws.id, "name": ws.name})
         logger.info(
             "github webhook: plan for workspace %s (%s) on branch %s",
@@ -433,6 +435,7 @@ async def handle_github_webhook_for_bu(
         }
 
     changed = _changed_files(payload)
+    human_changed = _changed_files(payload, skip_promotions=True)
     triggered: list[dict] = []
     skipped: list[dict] = []
     for ws in rows:
@@ -447,23 +450,17 @@ async def handle_github_webhook_for_bu(
             continue
         if changed and not _matches_workspace(ws, changed):
             continue
-        run = Run(
-            id=str(uuid.uuid4()),
-            workspace_id=ws.id,
-            triggered_by=f"webhook:github:{bu_slug}:push:{branch or 'unknown'}",
-            command="plan",
-            status=RunStatus.PENDING,
-            branch=ws.repo_ref,
+        # Only TDT promotion commits touched this stack → its runs already
+        # exist (created by the promotion, through the pipeline). Skip.
+        if changed and not _matches_workspace(ws, human_changed):
+            skipped.append({"workspace": ws.name, "reason": "promotion commit (run already created)"})
+            continue
+        if not changed and _promotion_only_push(payload):
+            skipped.append({"workspace": ws.name, "reason": "promotion commit (run already created)"})
+            continue
+        run = await run_service.create_run(
+            db, ws, command="plan", triggered_by=f"webhook:github:{bu_slug}:push:{branch or 'unknown'}", branch=ws.repo_ref
         )
-        db.add(run)
-        await db.flush()
-        await steps_svc.seed_steps(db, run.id, "plan")
-        # Enqueue so the worker picks this up. Without it, the Run sits in
-        # PENDING forever — the latent bug that made webhook-triggered runs
-        # invisible to operators.
-        from app.services.run_worker import enqueue_job
-
-        await enqueue_job(db, run_id=run.id, phase="plan")
         triggered.append({"run_id": run.id, "workspace_id": ws.id, "name": ws.name})
         logger.info(
             "github webhook (BU %s): plan for workspace %s (%s) on branch %s",

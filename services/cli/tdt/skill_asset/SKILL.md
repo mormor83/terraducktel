@@ -94,6 +94,40 @@ error, never a silent pick.
 
 On exit 3 or 5 the CLI already prints the failed step and the tail of its log.
 
+## Environments: compare & promote (API only, no CLI wrapper yet)
+
+Governance › Environments links a **source** repo-tree node to a **target**
+(account, region, folder or single stack; both at the same level), pairs their
+stacks, and diffs **repo config** (a semantic HCL diff, each side read at its own
+pinned branch) and **live state** (the tfstate TDT holds; secrets redacted).
+The CLI doesn't wrap this yet, so call the API (base `<url>/api/v1`, header
+`X-Business-Unit: <slug>`):
+
+```text
+POST /env-links/preview-pairs          {source_node:{level,path}, target_node:{level,path}}   dry-run pairing, viewer
+GET  /env-links                        links + pair_summary
+POST /env-links                        {name, source_node, target_node, rewrite_rules?, pair_overrides?, protected_rules?}
+GET  /env-links/{id}/pairs?status=     pairs (not_compared|in_sync|diverged|missing_in_target|missing_in_source|excluded)
+POST /env-links/{id}/compare           {pair_ids?, direction?: forward|reverse, force?}   queue compares → 202
+GET  /env-pairs/{pair}/compare?direction=   200 result | 202 computing (retry): config_diff.hunks[], state_diff, refs
+POST /env-links/{id}/promotions/preview     selection → exact file changes, blockers[], warnings[]
+POST /env-links/{id}/promotions             commit + ordinary apply runs (201; 200 replayed; 409 blockers)
+GET  /promotions/{id}                  status + per-stack stages (checkov/plan/opa/cost/approval/apply/verified)
+```
+
+- **Hunks** are `promotable`, `protected` (per-link key/value rules: account
+  ids, sizing, env names…) or `backend` (never promotable). A diff of only
+  protected/backend hunks counts as `in_sync`.
+- **Link / promote / revert are BU-admin and interactive-only.** API keys get
+  403 at every tier, so log in with SSO for those. Reads (preview-pairs,
+  compare, pairs, promotions) work with a key.
+- **Promotion never bypasses the gate.** It commits to the target's pinned
+  branch and creates normal `apply` runs that wait for approval like any other.
+  It needs the BU's git write access enabled (Settings → GitHub; off by default).
+- **Compare reads the tfstate TDT stores.** It isn't a live cloud scan and never
+  shows secret values. To diff what is actually in AWS (e.g. Secrets Manager
+  contents), use AWS directly.
+
 ## Gotchas that are still true
 
 - **The executor has no `aws` CLI.** A helm/kubernetes provider using exec-auth

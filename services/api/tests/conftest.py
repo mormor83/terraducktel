@@ -64,6 +64,9 @@ async def _setup_db():
     import app.models.business_unit  # noqa: F401
     import app.models.api_key  # noqa: F401
     import app.models.policy  # noqa: F401
+    import app.models.env_link  # noqa: F401
+    import app.models.promotion  # noqa: F401
+    import app.models.bg_job  # noqa: F401
 
     test_engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
@@ -261,6 +264,9 @@ async def db_session():
     import app.models.business_unit  # noqa: F401
     import app.models.api_key  # noqa: F401
     import app.models.policy  # noqa: F401
+    import app.models.env_link  # noqa: F401
+    import app.models.promotion  # noqa: F401
+    import app.models.bg_job  # noqa: F401
 
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
