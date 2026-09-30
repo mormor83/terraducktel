@@ -9,6 +9,9 @@ ENTRYPOINT="${HERE}/../entrypoint.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
 export HOME="${TMP}/home"; mkdir -p "${HOME}"
+# The assertions check that proxmox_wire_env never exports SSL_CERT_FILE, so
+# start without one inherited from the caller (proxied CI/dev shells set it).
+unset SSL_CERT_FILE
 # A fake system bundle so the CA merge has something to concatenate.
 export TDT_SYSTEM_CA_BUNDLE="${TMP}/system.crt"
 printf -- '-----BEGIN CERTIFICATE-----\nSYSTEM\n-----END CERTIFICATE-----\n' > "${TDT_SYSTEM_CA_BUNDLE}"
