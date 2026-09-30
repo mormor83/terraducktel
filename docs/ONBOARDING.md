@@ -26,20 +26,29 @@ Target time: under 30 minutes on a machine with Docker and Git.
 ## Running against an external Postgres + S3 store
 
 For a deployment where the database and the Terraform-state bucket live on
-their own hosts (the home-lab Proxmox install does this: Postgres 16 and
-Garage on separate VMs), layer `deploy/docker-compose.external-db.yml` over
-the base file and point `.env` at them:
+their own hosts (e.g. Postgres + Garage or MinIO), layer
+`deploy/docker-compose.external-db.yml` over the base file and point `.env`
+at them:
 
 ```bash
 COMPOSE_FILE=docker-compose.yml:deploy/docker-compose.external-db.yml
-DATABASE_URL=postgresql+asyncpg://terraducktel:<pw>@<pg-host>:5432/terraducktel
+DATABASE_URL=postgresql+asyncpg://terraducktel:<pw>@<pg-host>:5432/terraducktel?ssl=require
 POSTGRES_PASSWORD=<pw>          # pg-backup
 PG_HOST=<pg-host>
 S3_USE_LOCALSTACK=false
-S3_ENDPOINT_URL=http://<s3-host>:3900
-S3_STATE_ACCESS_KEY_ID=…
-S3_STATE_SECRET_ACCESS_KEY=…
+S3_ENDPOINT_URL=https://<s3-host>:3900
 ```
+
+Use TLS for both. `?ssl=require` is asyncpg's spelling (alembic's migration
+URL is translated to `sslmode=require` automatically); a plaintext `http://`
+`S3_ENDPOINT_URL` to a non-local host works but logs a WARNING, since state
+can contain secrets.
+
+The S3 store's key pair is **not** an env var: once the API is up, sign in as
+a superadmin and set it in **Settings → State store** (stored encrypted in
+the `config` table; the page only ever shows a masked tail). Until it is set,
+non-AWS workspaces use boto3's default credential chain for the fallback
+bucket.
 
 The override switches off the bundled `postgres`, `localstack`, `forgejo`
 and `act_runner` services. Needs Compose ≥ 2.24.

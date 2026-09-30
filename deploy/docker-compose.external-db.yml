@@ -3,10 +3,11 @@
 # postgres / localstack / forgejo / act_runner services switched off.
 #
 #   COMPOSE_FILE=docker-compose.yml:deploy/docker-compose.external-db.yml
-#   .env: DATABASE_URL=postgresql+asyncpg://terraducktel:<pw>@<host>:5432/terraducktel
+#   .env: DATABASE_URL=postgresql+asyncpg://terraducktel:<pw>@<host>:5432/terraducktel?ssl=require
 #         POSTGRES_PASSWORD=<pw>  PG_HOST=<host>          (pg-backup)
-#         S3_USE_LOCALSTACK=false S3_ENDPOINT_URL=http://<host>:3900
-#         S3_STATE_ACCESS_KEY_ID=… S3_STATE_SECRET_ACCESS_KEY=…
+#         S3_USE_LOCALSTACK=false S3_ENDPOINT_URL=https://<host>:3900
+#   then, as a superadmin, set the store's key pair in Settings → State store
+#   (stored encrypted in the config table; never an env var).
 #
 # Needs Docker Compose >= 2.24 for the `!reset`/`!override` merge tags: a
 # plain override can only add to a mapping, never remove from it, so dropping

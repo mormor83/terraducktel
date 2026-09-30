@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,7 @@ from app.services.secret_scanner import scan_terraform_state_json
 from app.services import aws_account_service as accs
 from app.services import azure_subscription_service as azsvc
 from app.services import gcp_project_service as gcpsvc
+from app.services import state_store_config
 
 logger = logging.getLogger(__name__)
 
@@ -48,29 +50,76 @@ _USE_LOCALSTACK = os.environ.get("S3_USE_LOCALSTACK", "false").lower() in ("true
 _FALLBACK_BUCKET = os.environ.get("S3_STATE_BUCKET", "terraducktel-state")
 _S3_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 # Any S3-compatible store for the fallback bucket (Garage/MinIO/…). Empty
-# string == unset so compose can pass `${S3_ENDPOINT_URL:-}` through.
+# string == unset so compose can pass `${S3_ENDPOINT_URL:-}` through. Not a
+# secret, so it stays an env var; the key pair for it lives in the encrypted
+# `config` table (see services/state_store_config.py, Settings → State store).
 _S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL", "").strip() or None
-_S3_STATE_ACCESS_KEY_ID = os.environ.get("S3_STATE_ACCESS_KEY_ID", "").strip() or None
-_S3_STATE_SECRET_ACCESS_KEY = os.environ.get("S3_STATE_SECRET_ACCESS_KEY", "").strip() or None
+
+# Hosts where plaintext http:// to the state store is expected (dev/LocalStack).
+_LOCAL_S3_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "localstack"})
+_insecure_endpoint_warned: set[str] = set()
 
 
-def _fallback_s3_store() -> S3StateService:
+def is_insecure_endpoint(endpoint_url: str | None) -> bool:
+    """True for a plaintext http:// endpoint on a non-local host."""
+    if not endpoint_url:
+        return False
+    parsed = urlparse(endpoint_url)
+    if parsed.scheme.lower() != "http":
+        return False
+    return (parsed.hostname or "").lower() not in _LOCAL_S3_HOSTS
+
+
+def _warn_if_insecure_endpoint(endpoint_url: str | None) -> None:
+    """Log one WARNING per process when state (and the key pair signing every
+    request to it) would travel over plaintext http:// to a non-local host."""
+    if endpoint_url in _insecure_endpoint_warned or not is_insecure_endpoint(endpoint_url):
+        return
+    _insecure_endpoint_warned.add(endpoint_url)
+    logger.warning(
+        "S3_ENDPOINT_URL %s uses plaintext http:// to a non-local host: Terraform "
+        "state (which can contain secrets) and request signatures travel "
+        "unencrypted. Use https:// for any store reachable over a network.",
+        endpoint_url,
+    )
+
+
+def fallback_store_settings() -> dict:
+    """Non-secret env-side settings of the fallback bucket (for Settings)."""
+    return {
+        "bucket": _FALLBACK_BUCKET,
+        "endpoint_url": _S3_ENDPOINT_URL,
+        "use_localstack": _USE_LOCALSTACK,
+        "insecure_endpoint": is_insecure_endpoint(_S3_ENDPOINT_URL),
+    }
+
+
+async def _fallback_s3_store(db: AsyncSession) -> S3StateService:
     """Shared-bucket store for workspaces without an AwsAccount.
 
-    Precedence: explicit S3_ENDPOINT_URL (+ S3_STATE_* creds) → LocalStack
-    (S3_USE_LOCALSTACK=true; creds default to LocalStack's accepted
-    `test`/`test` when none are given) → real AWS via boto3's default chain.
+    Endpoint: S3_ENDPOINT_URL (any S3-compatible store) → LocalStack
+    (S3_USE_LOCALSTACK=true) → real AWS. Credentials: the key pair from the
+    `config` table (read through ConfigService's TTL cache, so a change in
+    Settings applies within ~60s) → otherwise boto3's default chain, or
+    LocalStack's `test`/`test` which S3StateService injects for the bundled
+    LocalStack endpoint only. Exactly one half of the key pair configured is
+    refused (→ 503) rather than silently falling back to ambient creds.
     """
-    access_key, secret_key = _S3_STATE_ACCESS_KEY_ID, _S3_STATE_SECRET_ACCESS_KEY
-    if _USE_LOCALSTACK and not _S3_ENDPOINT_URL and not (access_key and secret_key):
-        access_key, secret_key = "test", "test"
+    creds = await state_store_config.load(db)
+    if creds.partial:
+        raise state_store_config.PartialS3CredentialsError(
+            "Fallback S3 state-store credentials are half-configured: set both "
+            "the access key ID and the secret access key (Settings → State "
+            "store), or clear both."
+        )
+    _warn_if_insecure_endpoint(_S3_ENDPOINT_URL)
     return S3StateService(
         bucket=_FALLBACK_BUCKET,
         use_localstack=_USE_LOCALSTACK,
         region=_S3_REGION,
         endpoint_url=_S3_ENDPOINT_URL,
-        access_key_id=access_key,
-        secret_access_key=secret_key,
+        access_key_id=creds.access_key_id,
+        secret_access_key=creds.secret_access_key,
     )
 
 
@@ -107,7 +156,7 @@ async def _s3_store_for(ws: Workspace, db: AsyncSession) -> StateStore:
             access_key_id=access_key,
             secret_access_key=secret_key,
         )
-    return _fallback_s3_store()
+    return await _fallback_s3_store(db)
 
 
 async def _azure_store_for(ws: Workspace, db: AsyncSession) -> StateStore:
