@@ -2,7 +2,6 @@
 import logging
 import os
 import smtplib
-import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -111,26 +110,6 @@ async def trigger_run(
     if body.variables:
         variables_encrypted = varsvc.serialize_run_variables(body.variables)
 
-    # Auto-approve is only meaningful for commands that have an apply phase.
-    # On `plan`-only runs the flag is silently dropped so clients can pass it
-    # uniformly from automation without us 422-ing.
-    auto_approve = bool(body.auto_approve_if_no_changes) and body.command in ("apply", "destroy")
-    auto_skip_apply = bool(body.auto_approve_skip_apply) and auto_approve
-
-    run = Run(
-        id=str(uuid.uuid4()),
-        workspace_id=workspace_id,
-        triggered_by=current_user.id,
-        command=body.command,
-        status=RunStatus.PENDING,
-        # Snapshot the workspace's current branch onto the run row so the
-        # dashboard can show last-run-on-branch even after the operator
-        # changes the branch between trigger and the apply phase.
-        branch=ws.repo_ref,
-        variables_encrypted=variables_encrypted,
-        auto_approve_if_no_changes=auto_approve,
-        auto_approve_skip_apply=auto_skip_apply,
-    )
     # Pre-flight: catch encryption-key misconfig at trigger time so the operator
     # gets an immediate 5xx instead of a run that mysteriously goes to FAILED a
     # couple of seconds later. `_get_executor_service` lets RuntimeError from
@@ -139,21 +118,22 @@ async def trigger_run(
     if os.environ.get("EXECUTOR_ENABLED", "").lower() in ("true", "1", "yes"):
         _get_executor_service(db)  # raises if encryption key is unset
 
-    db.add(run)
-    await db.flush()
+    from app.services import run_service
 
-    # Seed canonical step list so the UI shows the timeline immediately. The
-    # timeline shape depends on the workspace kind (terraform vs helm).
-    await steps_svc.seed_steps(
-        db, run.id, body.command, getattr(ws, "kind", "terraform") or "terraform"
-    )
-
-    # Enqueue rather than launch inline: the worker (app/services/run_worker.py)
-    # claims the job within ~POLL_INTERVAL_SECONDS and spawns the executor.
-    # Trigger handler stays fast even if Docker is slow / under load.
-    from app.services.run_worker import enqueue_job
-
-    await enqueue_job(db, run_id=run.id, phase="plan")
+    try:
+        run = await run_service.create_run(
+            db,
+            ws,
+            command=body.command,
+            triggered_by=current_user.id,
+            variables_encrypted=variables_encrypted,
+            # Dropped by create_run for commands without an apply phase, so
+            # automation can pass them uniformly without a 422.
+            auto_approve_if_no_changes=bool(body.auto_approve_if_no_changes),
+            auto_approve_skip_apply=bool(body.auto_approve_skip_apply),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
 
     await db.commit()
     await db.refresh(run)
@@ -455,6 +435,24 @@ async def patch_run(
 
     await db.commit()
     await db.refresh(run)
+
+    # Environment links: a finished run changes what a compare would show, and
+    # a promotion run's progress drives its promotion's status (+ verify on
+    # applied). Own session, best-effort — never fails the executor's PATCH.
+    if body.status is not None and (run.promotion_id or run.status in (
+        RunStatus.APPLIED, RunStatus.FAILED, RunStatus.CANCELLED
+    )):
+        try:
+            async with _db.AsyncSessionLocal() as hook_session:
+                from app.services import env_compare_service, promotion_service
+
+                hook_run = await hook_session.get(Run, run.id)
+                await env_compare_service.invalidate_stacks(hook_session, [run.workspace_id])
+                await hook_session.commit()
+                if hook_run is not None and hook_run.promotion_id:
+                    await promotion_service.on_run_changed(hook_session, hook_run)
+        except Exception:  # noqa: BLE001
+            logger.warning("environment-link hook failed for run %s", run.id, exc_info=True)
 
     if notify_after_commit and notification_payload is not None:
         # Best-effort. Catch transient outage exceptions ONLY — DB / decryption /

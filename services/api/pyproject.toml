@@ -10,7 +10,10 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.111",
     "uvicorn[standard]",
-    "sqlalchemy>=2.0",
+    # asyncio extra = greenlet (SQLAlchemy 2.1 dropped it from the default deps).
+    # Capped at 2.0.x to match requirements.lock / the prod image; CI installs
+    # unpinned from here, so an uncapped spec silently tested a different ORM.
+    "sqlalchemy[asyncio]>=2.0,<2.1",
     "alembic",
     "asyncpg",
     "psycopg2-binary>=2.9",
@@ -29,6 +32,9 @@ dependencies = [
     # OIDC / SSO (generic IdP support). Lightweight.
     "authlib>=1.3",
     "itsdangerous>=2.2",
+    # Environment promotion diff engine: HCL → key tree (+ terraducktel.yaml).
+    "python-hcl2>=4.3",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

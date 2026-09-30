@@ -114,6 +114,10 @@ class Run(Base):
     policy_status: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="not_run", default="not_run"
     )
+    # Set when the run was created by an environment promotion (Governance ›
+    # Environments). Purely a tag — promotion runs go through the exact same
+    # pipeline and approval as any other run.
+    promotion_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)

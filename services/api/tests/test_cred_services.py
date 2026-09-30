@@ -202,6 +202,31 @@ def test_s3_localstack_sugar_sets_localstack_endpoint(s3_client_kwargs):
     assert s3_client_kwargs["config"].s3["addressing_style"] == "path"
 
 
+def test_s3_localstack_without_creds_injects_test_pair(s3_client_kwargs):
+    s3mod.S3StateService("bkt", use_localstack=True)
+    assert s3_client_kwargs["aws_access_key_id"] == "test"
+    assert s3_client_kwargs["aws_secret_access_key"] == "test"
+
+
+def test_s3_localstack_keeps_explicit_creds(s3_client_kwargs):
+    s3mod.S3StateService(
+        "bkt", use_localstack=True, access_key_id="AK", secret_access_key="SK"
+    )
+    assert s3_client_kwargs["aws_access_key_id"] == "AK"
+    assert s3_client_kwargs["aws_secret_access_key"] == "SK"
+
+
+def test_s3_localstack_flag_with_custom_endpoint_never_sends_test_creds(s3_client_kwargs):
+    # S3_USE_LOCALSTACK=true left on while pointing at a real store: the
+    # dummy test/test pair belongs to LocalStack only and must not leak to it.
+    s3mod.S3StateService(
+        "bkt", use_localstack=True, endpoint_url="https://minio.example.com"
+    )
+    assert s3_client_kwargs["endpoint_url"] == "https://minio.example.com"
+    assert "aws_access_key_id" not in s3_client_kwargs
+    assert "aws_secret_access_key" not in s3_client_kwargs
+
+
 def test_s3_real_aws_has_no_endpoint_override(s3_client_kwargs):
     s3mod.S3StateService("bkt", access_key_id="AK", secret_access_key="SK")
     assert "endpoint_url" not in s3_client_kwargs

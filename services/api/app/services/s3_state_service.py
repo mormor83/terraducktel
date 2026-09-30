@@ -40,6 +40,14 @@ class S3StateService:
         endpoint = endpoint_url or ("http://localstack:4566" if use_localstack else None)
         if endpoint:
             from botocore.config import Config
+            # LocalStack accepts any credentials; without explicit ones boto3
+            # walks the ambient chain and raises NoCredentialsError in an API
+            # container that (correctly) has no AWS env of its own. Only for
+            # the LocalStack endpoint itself: a real S3-compatible store given
+            # via ``endpoint_url`` must never be sent the dummy test/test pair.
+            if use_localstack and not endpoint_url and "aws_access_key_id" not in kwargs:
+                kwargs["aws_access_key_id"] = "test"
+                kwargs["aws_secret_access_key"] = "test"
             kwargs["endpoint_url"] = endpoint
             kwargs["config"] = Config(s3={"addressing_style": "path"})
         self._client = boto3.client("s3", **kwargs)
