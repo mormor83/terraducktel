@@ -13,6 +13,10 @@ import AuditLog from "./pages/AuditLog";
 import Users from "./pages/Users";
 import Settings from "./pages/Settings";
 import Policies from "./pages/Policies";
+import Environments from "./pages/Environments";
+import EnvLinkBuilder from "./pages/EnvLinkBuilder";
+import EnvLinkDetail from "./pages/EnvLinkDetail";
+import PromotionDetail from "./pages/PromotionDetail";
 import Login from "./pages/Login";
 import { useCurrentUser, hasMinRole, getValidToken } from "./hooks/useAuth";
 import { setToken } from "./api/client";
@@ -42,6 +46,7 @@ const NAV_ICONS: Record<string, ReactNode> = {
   dashboard: <><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>,
   runs: <><circle cx="12" cy="12" r="9" /><polygon points="10 8.5 16 12 10 15.5 10 8.5" fill="currentColor" stroke="none" /></>,
   inventory: <><path d="M12 2 2 7l10 5 10-5-10-5Z" /><path d="m2 17 10 5 10-5" /><path d="m2 12 10 5 10-5" /></>,
+  environments: <><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><path d="M11 18H8a2 2 0 0 1-2-2V9" /><path d="m15 9-3-3 3-3" /><path d="m9 15 3 3-3 3" /></>,
   audit: <><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2" /><rect x="8" y="2" width="8" height="4" rx="1" /><path d="M8 11h8M8 15h6" /></>,
   users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13A4 4 0 0 1 16 11" /></>,
   building: <><rect x="4" y="3" width="16" height="18" rx="1.5" /><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h6" /></>,
@@ -64,6 +69,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "GOVERNANCE",
     items: [
       { to: "/policies", label: "Policies", iconId: "policies", roleGate: "admin" },
+      { to: "/governance/environments", label: "Environments", iconId: "environments" },
       { to: "/audit", label: "Audit log", iconId: "audit", roleGate: "admin" },
     ],
   },
@@ -349,6 +355,7 @@ const SECTION_TITLES: Array<[string, string]> = [
   ["/runs", "Runs"],
   ["/inventory", "Cloud inventory"],
   ["/policies", "Policies"],
+  ["/governance/environments", "Environments"],
   ["/audit", "Audit log"],
   ["/users", "Users"],
   ["/business-units", "Business Units"],
@@ -458,6 +465,11 @@ function AuthedApp() {
                 <Route path="/approvals" element={<Navigate to="/runs?status=awaiting_approval" replace />} />
                 <Route path="/policies" element={<RequireAuth><Policies /></RequireAuth>} />
                 <Route path="/audit" element={<RequireAuth><AuditLog /></RequireAuth>} />
+                <Route path="/governance/environments" element={<RequireAuth><Environments /></RequireAuth>} />
+                <Route path="/governance/environments/new" element={<RequireAuth><EnvLinkBuilder /></RequireAuth>} />
+                <Route path="/governance/environments/:id" element={<RequireAuth><EnvLinkDetail /></RequireAuth>} />
+                <Route path="/governance/environments/:id/edit" element={<RequireAuth><EnvLinkBuilder /></RequireAuth>} />
+                <Route path="/governance/environments/:id/promotions/:pid" element={<RequireAuth><PromotionDetail /></RequireAuth>} />
                 <Route path="/aws" element={<Navigate to="/settings#cloud" replace />} />
                 <Route path="/users" element={<RequireAuth><Users /></RequireAuth>} />
                 <Route path="/business-units" element={<RequireAuth><BusinessUnits /></RequireAuth>} />

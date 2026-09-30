@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.schemas.variable import RunVariable
 
 
-RunCommand = Literal["plan", "apply", "destroy"]
+RunCommand = Literal["plan", "apply", "destroy", "refresh"]
 
 
 class RunCreate(BaseModel):
@@ -86,5 +86,7 @@ class RunResponse(BaseModel):
     # the worker will do.
     auto_approve_if_no_changes: bool = False
     auto_approve_skip_apply: bool = False
+    # Set when an environment promotion created this run (display only).
+    promotion_id: Optional[str] = None
 
     model_config = {"from_attributes": True}

@@ -25,11 +25,11 @@ def step_names_for_command(command: str, kind: str = "terraform") -> list[str]:
     """
     if kind == "helm":
         base = list(HELM_STEP_NAMES)
-        if command in ("apply", "destroy"):
+        if command in ("apply", "destroy", "refresh"):
             base.extend(HELM_APPLY_EXTRA_STEP_NAMES)
         return base
     base = list(DEFAULT_STEP_NAMES)
-    if command in ("apply", "destroy"):
+    if command in ("apply", "destroy", "refresh"):
         base.extend(APPLY_EXTRA_STEP_NAMES)
     return base
 
