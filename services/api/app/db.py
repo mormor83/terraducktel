@@ -27,6 +27,27 @@ engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
+def to_sync_url(url: str) -> str:
+    """asyncpg DATABASE_URL → the psycopg2 URL alembic's sync engine needs.
+
+    asyncpg spells TLS as ``?ssl=require`` (the documented form for an
+    external Postgres); libpq/psycopg2 rejects ``ssl`` as an unknown DSN
+    option and wants ``sslmode`` instead, so translate it rather than make
+    operators pick a spelling that breaks one of the two drivers.
+    """
+    from sqlalchemy.engine import make_url
+
+    if not url.startswith("postgresql+asyncpg://"):
+        return url
+    u = make_url(url).set(drivername="postgresql+psycopg2")
+    q = dict(u.query)
+    if "ssl" in q:
+        ssl = q.pop("ssl")
+        q.setdefault("sslmode", ssl)
+        u = u.set(query=q)
+    return u.render_as_string(hide_password=False)
+
+
 class Base(DeclarativeBase):
     pass
 
