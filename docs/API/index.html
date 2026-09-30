@@ -749,10 +749,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#environments-apiv1environments" class="md-nav__link">
+  <a href="#environment-links-apiv1env-links" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Environments — /api/v1/environments
+        Environment links — /api/v1/env-links
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-compare-promotion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment compare &amp; promotion
       
     </span>
   </a>
@@ -1383,10 +1394,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#environments-apiv1environments" class="md-nav__link">
+  <a href="#environment-links-apiv1env-links" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Environments — /api/v1/environments
+        Environment links — /api/v1/env-links
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-compare-promotion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment compare &amp; promotion
       
     </span>
   </a>
@@ -2975,7 +2997,10 @@ selected BU slug) is exposed — never page contents or run state.</p>
 <p>Presence rows older than ~10× the window are lazily garbage-collected on each
 GET.</p>
 <hr />
-<h2 id="environments-apiv1environments">Environments — <code>/api/v1/environments</code><a class="headerlink" href="#environments-apiv1environments" title="Permanent link">&para;</a></h2>
+<h2 id="environment-links-apiv1env-links">Environment links — <code>/api/v1/env-links</code><a class="headerlink" href="#environment-links-apiv1env-links" title="Permanent link">&para;</a></h2>
+<p>Governance › Environments. A link pairs the stacks under two repo-tree nodes
+(account / region / folder / stack, same level, same BU, terraform only) so
+their differences can be compared and promoted.</p>
 <table>
 <thead>
 <tr>
@@ -2988,26 +3013,159 @@ GET.</p>
 <tbody>
 <tr>
 <td>GET</td>
-<td><code>/environments</code></td>
-<td>List every workspace grouped by environment stage (<code>dev</code>/<code>staging</code>/<code>prod</code>), plus the promotion order. Cross-BU — no <code>X-Business-Unit</code> filtering.</td>
+<td><code>/env-links</code></td>
+<td>Links in the current BU (all BUs for a superadmin on <code>all</code>), each with its <code>pair_summary</code> counts. Pairs are reconciled against the live workspace set on every read.</td>
 <td>viewer</td>
 </tr>
 <tr>
 <td>POST</td>
-<td><code>/environments/{workspace_id}/promote</code></td>
-<td>Promote a workspace's config to the next environment stage and trigger a plan run there.</td>
+<td><code>/env-links</code></td>
+<td>Create. Body <code>{name, source_node:{level,path}, target_node:{level,path}, rewrite_rules?, pair_overrides?, protected_rules?}</code>. Omitted <code>protected_rules</code> are seeded with the defaults (env-specific keys + both account ids / ARNs). Requires a specific BU (400 on <code>all</code>); 409 on a duplicate name in the BU; 400 on level mismatch, overlapping or empty nodes, Helm-only nodes, or an invalid regex.</td>
+<td>BU admin</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/env-links/preview-pairs</code></td>
+<td>Dry-run pairing for candidate nodes/rules (the link builder's live preview). Persists nothing; returns pairs, counts, warnings and the default protected rules for those nodes.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/env-links/{id}</code></td>
+<td>One link. 404 outside the caller's BU.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/env-links/{id}</code></td>
+<td>Partial update. Any change to nodes / rewrite rules / overrides / protected rules bumps <code>rules_version</code>; a rename does not.</td>
+<td>BU admin</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/env-links/{id}</code></td>
+<td>Delete the link and its pairs. Touches no stacks, runs or state.</td>
+<td>BU admin</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/env-links/{id}/pairs</code></td>
+<td>Pairs with stack names; <code>?status=a,b</code> filters (unknown → 400).</td>
+<td>viewer</td>
+</tr>
+</tbody>
+</table>
+<p><strong>BU admin</strong> = <code>require_bu_admin</code> (<code>app/auth/rbac.py</code>): a superadmin, interactive
+only — API keys are rejected at every tier. There is no per-BU admin role yet;
+that function is the single seam to change when one lands.</p>
+<p>Pair <code>status</code>: <code>not_compared</code> (matched, no compare yet) · <code>in_sync</code> · <code>diverged</code>
+· <code>missing_in_target</code> (carries <code>proposed_target_rel</code>) · <code>missing_in_source</code> ·
+<code>excluded</code> (by rule, or an ambiguous path). Link writes are audited as
+<code>env_link.create|update|delete</code> (<code>resource_type=env_link</code>, rules diff in
+<code>details.changes</code>) and show in the per-BU audit view.</p>
+<h2 id="environment-compare-promotion">Environment compare &amp; promotion<a class="headerlink" href="#environment-compare-promotion" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/env-links/{id}/compare</code></td>
+<td>Queue (re)compares. Body <code>{pair_ids?, direction?: forward\|reverse, force?}</code>. 202 <code>{queued}</code>.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/env-pairs/{id}/compare</code></td>
+<td><code>?direction=</code>. Config + state diff, side refs (branch, commit, state serial, drift), <code>create_preview</code> for missing pairs. <strong>202</strong> (with the stale result, if any) while computing.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/env-pairs/{id}/refresh-state</code></td>
+<td><code>{side}</code> — re-read the state TDT holds and recompare (no cloud call).</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/env-pairs/{id}/refresh-state/run</code></td>
+<td><code>{side}</code> — queue a <code>refresh</code> run (plan -refresh-only → approval → apply). 201 <code>{run_id}</code>.</td>
+<td>operator</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/env-pairs/{id}/history</code></td>
+<td>Promotions + recent runs on either stack.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/env-links/{id}/promotions/preview</code></td>
+<td>Body = selection <code>{direction, confirm_reverse?, pairs:[{pair_id, hunk_ids, create_in_target?, target_branch?}], protected_overrides:[{hunk_id, reason}], commit_message?, reason?}</code>. Returns exact file changes per target stack, commits, <code>blockers</code>, <code>warnings</code>, default commit message.</td>
+<td>BU admin</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/env-links/{id}/promotions</code></td>
+<td>Commit + push + create ordinary apply runs. 201; <strong>200 <code>replayed</code></strong> for an identical selection within 15 min; 409 <code>{detail:{blockers}}</code> if blocked. <code>status=commit_failed</code> + <code>error</code> when the push is refused.</td>
+<td>BU admin</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/promotions</code></td>
+<td>List (BU-scoped); <code>?link_id=&amp;limit=</code>.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/promotions/{id}</code></td>
+<td>Detail: status (derived from runs), commits (+ <code>web_url</code>), per-stack <code>stages</code> (committed/checkov/plan/opa/cost/approval/apply/verified), residual after verify.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/promotions/{id}/revert</code></td>
+<td>Revert commit(s) on the same branch(es) + ordinary runs. 409 while runs are in flight, if already reverted, or if the promotion created stacks.</td>
+<td>BU admin</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/env-links-stack-index</code></td>
+<td><code>{stack_id: [{link_id, link_name, pair_id, side, status}]}</code> for the Dashboard "linked" glyph.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/integrations/git-write</code></td>
+<td>Per-BU git write access: <code>{enabled, token_configured, token_source, token_tail, username, bot_name, bot_email}</code>. Token never returned.</td>
+<td>admin</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/integrations/git-write</code></td>
+<td>Body <code>{enabled?, token?, clear_token?, username?, bot_name?, bot_email?}</code>.</td>
+<td>BU admin</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/integrations/git-write/test</code></td>
+<td>Push-permission check per repo the BU's stacks use.</td>
 <td>admin</td>
 </tr>
 </tbody>
 </table>
-<p>Promotion chain is fixed: <code>dev → staging → prod</code>. 400 if the source
-workspace's environment isn't in the chain; 409 if it's already at <code>prod</code>
-(the final stage). Promoting creates (or reuses, if already present) a
-sibling workspace with the same name in the next stage, copying <code>repo_url</code>,
-<code>repo_ref</code>, <code>tf_working_dir</code>, <code>kind</code>, <code>cluster_id</code>, <code>azure_subscription_id</code>,
-and <code>state_aws_account_id</code> — but deliberately <strong>not</strong> <code>state_key</code>,
-<code>webhook_enabled</code>, or any drift/path status, so the new environment gets its
-own state path and starts with webhooks off and no scan history.</p>
+<p>Promotion runs are plain <code>apply</code> runs (<code>runs.promotion_id</code> set, echoed on
+<code>RunResponse</code>); they are never auto-approved. <code>RunCreate.command</code> also accepts
+<code>refresh</code> (terraform only).</p>
+<p>The pre-2026 <code>/api/v1/environments</code> endpoints and their per-workspace promote
+action (fixed dev→staging→prod chain by the <code>environment</code> tag) was removed: it was
+unused and its runs were never enqueued.</p>
 <hr />
 <h2 id="integrations-apiv1integrations">Integrations — <code>/api/v1/integrations</code><a class="headerlink" href="#integrations-apiv1integrations" title="Permanent link">&para;</a></h2>
 <p>Per-BU third-party credentials and pipeline-gate configuration, stored in the
