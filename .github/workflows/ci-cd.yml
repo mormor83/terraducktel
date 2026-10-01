@@ -109,8 +109,58 @@ jobs:
         working-directory: services/ui
         run: npm run test
 
+  # ── path filter for the IDE clients ────────────────────────────────────────
+  # Plain `git diff` (no third-party action). The IDE client jobs are slow and
+  # are deliberately NOT in any `needs:` list: a client build must not be able
+  # to block a server release. On manual dispatch, a tag push, a first push
+  # (all-zero "before" SHA) or an unreachable base, both run.
+  changes:
+    name: Detect IDE client changes
+    runs-on: ubuntu-latest
+    outputs:
+      vscode: ${{ steps.filter.outputs.vscode }}
+      jetbrains: ${{ steps.filter.outputs.jetbrains }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base=""
+          case "$EVENT" in
+            pull_request) base="$PR_BASE_SHA" ;;
+            push) base="$PUSH_BEFORE_SHA" ;;
+          esac
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "No usable base SHA (event=$EVENT); running both client jobs."
+            echo "vscode=true" >> "$GITHUB_OUTPUT"
+            echo "jetbrains=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$base" "$HEAD_SHA")"
+          echo "Changed files:"; echo "$files"
+          if echo "$files" | grep -qE '^(services/vscode/|services/api/tests/test_vscode_api_contract\.py$)'; then
+            echo "vscode=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "vscode=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$files" | grep -qE '^(services/jetbrains/|services/api/tests/test_jetbrains_api_contract\.py$)'; then
+            echo "jetbrains=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "jetbrains=false" >> "$GITHUB_OUTPUT"
+          fi
+
   vscode:
     name: VS Code extension (type-check, unit tests, package)
+    needs: changes
+    if: needs.changes.outputs.vscode == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -135,6 +185,8 @@ jobs:
 
   jetbrains:
     name: JetBrains plugin (unit + platform tests, build zip)
+    needs: changes
+    if: needs.changes.outputs.jetbrains == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -195,7 +247,7 @@ jobs:
   # ── release: cut the tag BEFORE the image tag is computed ──────────────────
   release:
     name: Create GitHub Release
-    needs: [api-tests, cli-tests, ui, vscode, jetbrains, release-version]
+    needs: [api-tests, cli-tests, ui, release-version]
     # Three ways in: a push to the repo's own default branch (auto-computed
     # from conventional commits), an explicit `v*.*.*` tag push, or a manual
     # dispatch. `branches: [main, dev]` above covers the public (`main`) and
@@ -258,7 +310,7 @@ jobs:
   # ── docs site: publish docs/ to gh-pages under /docs/ ──────────────────────
   docs:
     name: Publish docs
-    needs: [api-tests, cli-tests, ui, vscode, jetbrains, release-version]
+    needs: [api-tests, cli-tests, ui, release-version]
     # Only from the repo's own default branch. A PR must still *build* the docs
     # (the build step below runs on PRs via `mkdocs build --strict`), but only a
     # merge publishes.
