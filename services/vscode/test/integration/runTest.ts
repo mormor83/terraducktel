@@ -1,6 +1,8 @@
 import * as path from "node:path";
 import { runTests } from "@vscode/test-electron";
 import { fork } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 async function main() {
   const extensionDevelopmentPath = path.resolve(__dirname, "../../");
@@ -13,11 +15,14 @@ async function main() {
     stdio: "inherit",
   });
   await new Promise((r) => setTimeout(r, 500));
+  // A short user-data dir: VS Code puts a unix socket under it and macOS caps socket paths at
+  // ~103 chars, which a deep checkout/worktree path would exceed.
+  const userDataDir = mkdtempSync(path.join(tmpdir(), "tdt-vsc-"));
   try {
     await runTests({
       extensionDevelopmentPath,
       extensionTestsPath,
-      launchArgs: ["--disable-extensions", "--disable-gpu"],
+      launchArgs: ["--disable-extensions", "--disable-gpu", `--user-data-dir=${userDataDir}`],
       extensionTestsEnv: { TDT_STUB_URL: "http://127.0.0.1:48765" },
     });
   } finally {
