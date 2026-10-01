@@ -9,6 +9,9 @@ import logging
 
 import pytest
 
+# Imported at module load: app.main's configure_logging() replaces the root
+# handlers, which would drop caplog's handler if it ran inside a test.
+import app.main as main_mod
 import app.routers.state as state
 from app.services import state_store_config as ssc
 
@@ -200,3 +203,39 @@ async def test_no_warning_for_https_or_local(recorder, monkeypatch, _setup_db, c
     async with _setup_db() as s:
         await state._fallback_s3_store(s)
     assert not [r for r in caplog.records if "plaintext http://" in r.getMessage()]
+
+
+async def _idle_loop(*_args, **_kwargs):
+    import asyncio
+
+    await asyncio.Event().wait()
+
+
+@pytest.mark.parametrize(
+    "url,expect_warning",
+    [("http://garage.internal:3900", True), ("https://garage.internal:3900", False)],
+)
+async def test_api_startup_warns_for_plaintext_remote_endpoint(
+    recorder, monkeypatch, caplog, url, expect_warning
+):
+    """The operator sees the http:// WARNING at boot, not only once the first
+    non-AWS workspace happens to touch its state."""
+    import app.services.bg_worker as bg_worker
+    import app.services.repo_sync as repo_sync
+    import app.services.run_worker as run_worker
+
+    for mod, names in (
+        (run_worker, ("worker_loop", "reaper_loop", "gauges_loop", "drift_retention_loop")),
+        (repo_sync, ("repo_sync_loop",)),
+        (bg_worker, ("bg_loop",)),
+    ):
+        for name in names:
+            monkeypatch.setattr(mod, name, _idle_loop)
+    monkeypatch.setattr(state, "_S3_ENDPOINT_URL", url)
+    caplog.set_level(logging.WARNING, logger=state.logger.name)
+
+    async with main_mod.lifespan(main_mod.app):
+        warnings = [r for r in caplog.records if "plaintext http://" in r.getMessage()]
+        assert bool(warnings) is expect_warning
+        if expect_warning:
+            assert warnings[0].levelno == logging.WARNING

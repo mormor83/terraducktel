@@ -400,7 +400,7 @@ behind the API.
   bucket (`routers/state.py::_fallback_s3_store`, async). The endpoint is the
   `S3_ENDPOINT_URL` env var (not secret; custom endpoints always use
   path-style addressing, and a plaintext `http://` endpoint on a non-local
-  host logs a WARNING once per process). The key pair is a secret, so it
+  host logs a WARNING once per process, at API startup). The key pair is a secret, so it
   lives in the encrypted `config` table (`state_store.s3.access_key_id` /
   `state_store.s3.secret_access_key`, `is_secret=true`, global rather than
   per-BU) and is read through `ConfigService` on each store construction

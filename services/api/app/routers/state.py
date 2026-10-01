@@ -84,6 +84,11 @@ def _warn_if_insecure_endpoint(endpoint_url: str | None) -> None:
     )
 
 
+def warn_if_insecure_fallback_endpoint() -> None:
+    """Startup hook (app.main lifespan) for the configured S3_ENDPOINT_URL."""
+    _warn_if_insecure_endpoint(_S3_ENDPOINT_URL)
+
+
 def fallback_store_settings() -> dict:
     """Non-secret env-side settings of the fallback bucket (for Settings)."""
     return {
