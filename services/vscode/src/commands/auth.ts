@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import type { Session } from "../session";
 import type { Profile } from "../auth/profiles";
 import { readUserProfiles } from "../auth/trustedConfig";
-import { migrateLegacyBu } from "../auth/bu";
 import { GLOBALSTATE_ACTIVE_PROFILE } from "../ids";
 
 export function wrap(fn: (...a: unknown[]) => Promise<unknown>) {
@@ -77,10 +76,6 @@ export function registerAuthCommands(ctx: vscode.ExtensionContext, s: Session) {
 
       const cfg = vscode.workspace.getConfiguration("terraducktel");
       const existing = currentProfiles(cfg);
-      // Rewriting always goes through the map form, which has no `bu` field — preserve any
-      // legacy per-profile default BU (for every profile, not just the one being added) into
-      // globalState before it's dropped.
-      await migrateLegacyBu(existing, ctx.globalState);
       const profiles = existing.filter((p) => p.name !== profileName);
       profiles.push({ name: profileName, url: apiUrl, uiUrl: uiUrl || undefined, insecureTls: tlsPick.insecure });
       await writeProfiles(cfg, profiles);
@@ -98,20 +93,19 @@ export function registerAuthCommands(ctx: vscode.ExtensionContext, s: Session) {
       const confirm = await vscode.window.showWarningMessage(`Remove Terraducktel profile '${pick.label}'? This also deletes its stored credentials.`, { modal: true }, "Remove");
       if (confirm !== "Remove") return;
 
-      await migrateLegacyBu(profiles, ctx.globalState);
       await writeProfiles(cfg, profiles.filter((p) => p.name !== pick.label));
       if (s.profile?.name === pick.label) await ctx.globalState.update(GLOBALSTATE_ACTIVE_PROFILE, undefined);
       await ctx.secrets.delete(`terraducktel.cred.${pick.label}`);
       void vscode.window.showInformationMessage(`Terraducktel: removed profile '${pick.label}'.`);
     })),
-    vscode.commands.registerCommand("terraducktel.switchBusinessUnit", wrap(async () => {
-      const c = s.requireClient();
-      if (s.tokens?.kind() === "api_key") throw new Error("API keys are bound to one business unit.");
-      const bus = await c.listBusinessUnits();
-      const items = bus.map((b) => ({ label: b.slug, description: b.name }));
-      if (s.tokens?.claims()?.is_superadmin) items.unshift({ label: "all", description: "every business unit (superadmin)" });
-      const pick = await vscode.window.showQuickPick(items, { placeHolder: `Business unit (current: ${s.bu || "default"})` });
-      if (pick) await s.setBu(pick.label);
+    vscode.commands.registerCommand("terraducktel.filterBusinessUnits", wrap(async () => {
+      const visible = new Set(s.visibleSlugs());
+      const items = s.store.bus.map((b) => ({ label: b.name || b.slug, description: b.slug, picked: visible.has(b.slug), slug: b.slug }));
+      if (!items.length) { void vscode.window.showInformationMessage("Terraducktel: no business units to filter yet."); return; }
+      const picks = await vscode.window.showQuickPick(items, { canPickMany: true, placeHolder: "Business units to show (checked = visible)", title: "Terraducktel: filter business units" });
+      if (!picks) return;
+      if (!picks.length) { void vscode.window.showErrorMessage("Terraducktel: select at least one business unit."); return; }
+      await s.setVisibleBus(picks.map((p) => p.slug));
     })),
   );
 }

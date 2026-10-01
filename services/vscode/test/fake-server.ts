@@ -22,6 +22,8 @@ export class FakeServer {
     });
   }
   on(method: string, path: string | RegExp, h: Handler) { this.routes.push({ m: method, p: path, h }); return this; }
+  /** Drops every handler registered for exactly this method+path (so a test can swap a response). */
+  off(method: string, path: string | RegExp) { this.routes = this.routes.filter((r) => !(r.m === method && r.p === path)); return this; }
   json(method: string, path: string | RegExp, status: number, payload: unknown) {
     return this.on(method, path, (_q, _b, res) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(payload)); });
   }

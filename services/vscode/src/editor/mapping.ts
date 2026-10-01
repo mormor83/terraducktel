@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { Workspace } from "../api/types";
+import type { BusinessUnit, Workspace } from "../api/types";
 
 /** Canonical "host/path" form for comparing git remotes across schemes. `local://` keeps its path. */
 export function normalizeRepoUrl(url: string | null | undefined): string | undefined {
@@ -55,4 +55,16 @@ export function matchWorkspace(workspaces: Workspace[], q: { relativeDir: string
   if (best.length !== 1) return undefined;                     // ambiguous (typically unknown remote + same path in two repos)
   const ws = best[0];
   return { ws, exact: normalizeWd(ws.tf_working_dir) === q.relativeDir };
+}
+
+export interface BuMatch { ws: Workspace; bu: BusinessUnit; exact: boolean }
+
+/** `matchWorkspace` run per BU (so its own tie rules stay intact): the best match of EACH BU, sorted
+ *  by BU name. More than one result means the path is imported in several BUs — the caller has to
+ *  ask the user which one they mean. (Same behaviour as the JetBrains plugin.) */
+export function matchAcrossBus(groups: Array<{ bu: BusinessUnit; workspaces: Workspace[] }>, q: { relativeDir: string; remoteUrl?: string }): BuMatch[] {
+  const label = (b: BusinessUnit) => (b.name || b.slug).toLowerCase();
+  return groups
+    .flatMap(({ bu, workspaces }) => { const m = matchWorkspace(workspaces, q); return m ? [{ ...m, bu }] : []; })
+    .sort((a, b) => label(a.bu).localeCompare(label(b.bu)) || a.bu.slug.localeCompare(b.bu.slug));
 }

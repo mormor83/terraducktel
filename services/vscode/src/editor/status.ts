@@ -2,9 +2,9 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import type { Session } from "../session";
-import type { Run, Workspace } from "../api/types";
+import type { BusinessUnit, Run, Workspace } from "../api/types";
 import { GitProbe, type GitInfo } from "./git";
-import { matchWorkspace, relativeDir } from "./mapping";
+import { matchAcrossBus, relativeDir, type BuMatch } from "./mapping";
 import { runCommandFor } from "../commands/workspace";
 import type { PlanDocumentProvider } from "../output/planDocument";
 import { CTX_FILE_MAPPED, CMD_CURRENT_FILE_ACTIONS, STATUS_BAR_CURRENT_FILE } from "../ids";
@@ -19,7 +19,9 @@ const isTfFile = (doc: vscode.TextDocument) => doc.uri.scheme === "file" && (TF_
  *  the resolved path for both the git probe and the mapping — never throws. */
 const resolvePath = (p: string) => fs.promises.realpath(p).catch(() => p);
 
-export interface CurrentFile { ws: Workspace; git?: GitInfo; exact: boolean; resolvedPath: string }
+/** The active file's workspace. `matches` has more than one entry when the same path is imported in
+ *  several BUs; `ws`/`bu` are then just the first of them — `EditorStatus.choose()` asks which. */
+export interface CurrentFile { ws: Workspace; bu: BusinessUnit; git?: GitInfo; exact: boolean; resolvedPath: string; matches: BuMatch[] }
 
 /** One status-bar item that says which TDT workspace the active Terraform file belongs to. */
 export class EditorStatus implements vscode.Disposable {
@@ -29,7 +31,7 @@ export class EditorStatus implements vscode.Disposable {
   private subs: vscode.Disposable[] = [];
   private seq = 0;
 
-  constructor(private readonly s: Session, private readonly deps: { watch: (r: Run) => void; plans: PlanDocumentProvider; reveal: (wsId: string) => Promise<void>; git?: GitProbe }) {
+  constructor(private readonly s: Session, private readonly deps: { watch: (r: Run, bu: string) => void; plans: PlanDocumentProvider; reveal: (wsId: string) => Promise<void>; git?: GitProbe }) {
     this.git = deps.git ?? new GitProbe();
     this.item = vscode.window.createStatusBarItem(STATUS_BAR_CURRENT_FILE, vscode.StatusBarAlignment.Left, 50);
     this.item.name = "Terraducktel workspace"; this.item.command = CMD_CURRENT_FILE_ACTIONS;
@@ -41,7 +43,7 @@ export class EditorStatus implements vscode.Disposable {
       vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration("terraducktel.statusBar")) void this.refresh(); }),
       vscode.commands.registerCommand(CMD_CURRENT_FILE_ACTIONS, wrap(() => this.actions())),
       vscode.commands.registerCommand("terraducktel.planCurrentFile", wrap(() => this.planCurrent())),
-      vscode.commands.registerCommand("terraducktel.revealCurrentWorkspace", wrap(async () => { if (this.cur) await this.deps.reveal(this.cur.ws.id); })),
+      vscode.commands.registerCommand("terraducktel.revealCurrentWorkspace", wrap(async () => { const m = await this.choose(); if (m) await this.deps.reveal(m.ws.id); })),
     );
     void this.refresh();
   }
@@ -56,15 +58,20 @@ export class EditorStatus implements vscode.Disposable {
     if (my !== this.seq) return;                                            // a newer refresh superseded this one
     const git = await this.git.info(resolved);
     if (my !== this.seq) return;                                            // a newer refresh superseded this one
-    let match: ReturnType<typeof matchWorkspace>;
-    if (git) { const rel = relativeDir(git.root, resolved); if (rel !== undefined) match = matchWorkspace(this.s.store.workspaces, { relativeDir: rel, remoteUrl: git.remoteUrl }); }
-    this.set(match ? { ws: match.ws, git, exact: match.exact, resolvedPath: resolved } : undefined, git, true);
+    let matches: BuMatch[] = [];
+    if (git) { const rel = relativeDir(git.root, resolved); if (rel !== undefined) matches = matchAcrossBus([...this.s.store.data.values()].map((d) => ({ bu: d.bu, workspaces: d.workspaces })), { relativeDir: rel, remoteUrl: git.remoteUrl }); }
+    const [m] = matches;
+    this.set(m ? { ws: m.ws, bu: m.bu, git, exact: m.exact, resolvedPath: resolved, matches } : undefined, git, true);
   }
 
   private set(cur: CurrentFile | undefined, git: GitInfo | undefined, showUnmapped: boolean) {
     this.cur = cur;
     void vscode.commands.executeCommand("setContext", CTX_FILE_MAPPED, !!cur);
-    if (cur) {
+    if (cur && cur.matches.length > 1) {
+      this.item.text = `$(cloud) TDT: ${cur.matches.length} workspaces match`;
+      this.item.tooltip = `${cur.matches.map((m) => `${m.ws.name} — ${m.bu.name || m.bu.slug}`).join("\n")}\nClick to choose`;
+      this.item.backgroundColor = undefined; this.item.show();
+    } else if (cur) {
       const last = this.s.store.runsFor(cur.ws.id)[0];
       const branchNote = git?.branch && git.branch !== cur.ws.repo_ref ? ` · on ${git.branch} (tracks ${cur.ws.repo_ref})` : "";
       this.item.text = `$(cloud) TDT: ${cur.ws.name}${last ? ` · ${last.status}` : ""}`;
@@ -76,13 +83,22 @@ export class EditorStatus implements vscode.Disposable {
     } else this.item.hide();
   }
 
+  /** The workspace the user means: the only match, or the one picked ("workspace — BU") when the same path is imported in several BUs. */
+  private async choose(): Promise<BuMatch | undefined> {
+    const cur = this.cur; if (!cur) return undefined;
+    if (cur.matches.length === 1) return cur.matches[0];
+    const pick = await vscode.window.showQuickPick(cur.matches.map((m) => ({ label: `${m.ws.name} — ${m.bu.name || m.bu.slug}`, description: m.ws.tf_working_dir, m })), { placeHolder: "This file is imported in several business units — which workspace?" });
+    return pick?.m;
+  }
+
   private async actions() {
     if (!this.cur) { const ui = this.s.uiUrl(); if (ui) await vscode.env.openExternal(vscode.Uri.parse(`${ui}/`)); return; }
-    const { ws, git } = this.cur; const last = this.s.store.runsFor(ws.id)[0];
+    const m = await this.choose(); if (!m) return;
+    const { ws } = m; const { git } = this.cur; const last = this.s.store.runsFor(ws.id)[0];
     type Item = vscode.QuickPickItem & { act: () => Promise<unknown> };
     const items: Item[] = [
-      { label: "$(play) Plan this leaf", description: ws.name, act: () => this.planCurrent() },
-      ...(last ? [{ label: "$(diff) Show last plan", description: `${last.command} · ${last.status}`, act: () => this.deps.plans.open(last.id, ws.name) }] : []),
+      { label: "$(play) Plan this leaf", description: ws.name, act: () => this.planFor(m) },
+      ...(last ? [{ label: "$(diff) Show last plan", description: `${last.command} · ${last.status}`, act: () => this.deps.plans.open(last.id, ws.name, m.bu.slug) }] : []),
       { label: "$(list-tree) Reveal in sidebar", act: () => this.deps.reveal(ws.id) },
       { label: "$(link-external) Open in browser", act: async () => { const ui = this.s.uiUrl(); if (ui) await vscode.env.openExternal(vscode.Uri.parse(`${ui}/`)); } },
     ];
@@ -92,7 +108,13 @@ export class EditorStatus implements vscode.Disposable {
 
   private async planCurrent() {
     if (!this.cur) { void vscode.window.showInformationMessage("Terraducktel: the active file is not inside an imported workspace."); return; }
-    const { ws } = this.cur;
+    const m = await this.choose(); if (m) await this.planFor(m);
+  }
+
+  /** Plans an already-chosen match, so the actions menu never asks "which BU?" a second time. */
+  private async planFor(m: BuMatch) {
+    if (!this.cur) return;
+    const { ws, bu } = m;
     // A terminal `git checkout` fires no editor event, so `this.cur.git` (from the last refresh())
     // can be stale — and a stale branch here would pin the WRONG branch on the server. Force a
     // fresh probe right before deciding, falling back to the cached value only if it fails.
@@ -106,7 +128,7 @@ export class EditorStatus implements vscode.Disposable {
       ], { placeHolder: `Checked out ${git.branch}, workspace tracks ${ws.repo_ref}` });
       if (!pick) return; branch = pick.b;
     }
-    await runCommandFor(this.s, ws, "plan", this.deps.watch, { branch });
+    await runCommandFor(this.s, ws, bu.slug, "plan", this.deps.watch, { branch });
   }
   dispose() { for (const d of this.subs) d.dispose(); }
 }

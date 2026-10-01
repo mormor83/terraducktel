@@ -3,8 +3,8 @@ import { registerAuthCommands } from "./commands/auth";
 import { registerRunCommands } from "./commands/run";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { EditorStatus } from "./editor/status";
-import { ApprovalWatcher } from "./notifications/approvals";
-import { createRearm } from "./notifications/rearm";
+import { ApprovalWatcher, approvalMessage } from "./notifications/approvals";
+import { createRearm, rearmKey } from "./notifications/rearm";
 import { RunOutputManager } from "./output/runOutput";
 import { PlanDocumentProvider } from "./output/planDocument";
 import { Session } from "./session";
@@ -54,13 +54,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
   const seenStore = { get: () => context.globalState.get<Record<string, number>>("terraducktel.approvals.seen"), set: (v: Record<string, number>) => Promise.resolve(context.globalState.update("terraducktel.approvals.seen", v)) };
   const approvals = new ApprovalWatcher({
     client: () => (session.tokens?.isSignedIn() ? session.client : undefined),
+    hidden: () => session.hiddenBus(),
     workspaceName: (id) => session.store.workspace(id)?.name ?? id.slice(0, 8),
     seen: seenStore,
     trace: (l) => { if (vscode.workspace.getConfiguration("terraducktel").get<boolean>("trace")) session.log.appendLine(l); },
-    notify: ({ run, workspaceName, summary }) => {
-      const s = summary ? ` (+${summary.add ?? 0} ~${summary.change ?? 0} -${summary.destroy ?? 0})` : "";
-      void vscode.window.showInformationMessage(`TDT: ${workspaceName} ${run.command} is awaiting approval${s}.`, "Approve…", "Reject…", "Open").then((a) => {
-        const node = new RunNode(run, { showWorkspace: workspaceName });
+    notify: (n) => {
+      const { run, bu, workspaceName } = n;
+      void vscode.window.showInformationMessage(approvalMessage(n), "Approve…", "Reject…", "Open").then((a) => {
+        const node = new RunNode(run, { bu: bu.slug, showWorkspace: workspaceName });
         if (a === "Approve…") void vscode.commands.executeCommand("terraducktel.approve", node);
         else if (a === "Reject…") void vscode.commands.executeCommand("terraducktel.reject", node);
         else if (a === "Open") void vscode.commands.executeCommand("terraducktel.openInBrowser", node);
@@ -85,12 +86,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
     return secs <= 0 ? 0 : Math.max(15, secs) * 1000;
   };
   const rearm = createRearm({
-    key: () => (session.tokens?.isSignedIn() ? `${session.profile?.name}:${session.bu}` : undefined),
+    key: () => (session.tokens?.isSignedIn() ? rearmKey(session.profile?.name, session.visibleSlugs()) : undefined),
     prime: () => approvals.prime(),
     start: () => approvals.start(approvalsInterval()),
     stop: () => approvals.stop(),
   });
-  context.subscriptions.push(session.onDidChange(() => void rearm()),
+  // The BU list arrives with the store's refresh, not with a session change: re-arm only when the
+  // visible set (and so the key) actually moved, or every 30 s store poll would restart the timer.
+  let armedKey: string | undefined;
+  const rearmIfKeyChanged = () => { const k = session.tokens?.isSignedIn() ? rearmKey(session.profile?.name, session.visibleSlugs()) : undefined; if (k !== armedKey) { armedKey = k; void rearm(); } };
+  context.subscriptions.push(session.onDidChange(() => { armedKey = session.tokens?.isSignedIn() ? rearmKey(session.profile?.name, session.visibleSlugs()) : undefined; void rearm(); }), session.store.onDidChange(rearmIfKeyChanged),
     vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration("terraducktel.approvals")) void rearm(); }));
   void rearm();
 
@@ -111,7 +116,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<TestSu
       // Mirrors what the real "Plan" command does: trigger, then refresh the store so the new
       // run shows up without waiting for the next poll tick.
       triggerPlan: async (id) => {
-        const run = await session.requireClient().triggerRun(id, { command: "plan" });
+        const hit = session.store.findWorkspace(id); if (!hit) throw new Error(`Unknown workspace ${id}`);
+        const run = await session.clientFor(hit.bu.slug).triggerRun(id, { command: "plan" });
         await session.store.refresh();
         return run;
       },

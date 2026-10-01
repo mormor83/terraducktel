@@ -4,6 +4,31 @@ All notable changes to the Terraducktel VS Code extension are documented here.
 
 ## Unreleased
 
+Business units are now the top level of the sidebar. Every business unit you can
+access is a root node in both the Workspaces and Runs trees (its workspaces
+keep the provider → account → region → folders grouping beneath it), instead
+of one "current" BU you had to switch between.
+
+- **Terraducktel: Filter business units…** (sidebar title button, the
+  "Showing X of Y business units" row, or the command palette) replaces
+  *Switch business unit*. It is a multi-select; the choice is remembered per
+  profile as the BUs you hid, so BUs added later show up by default, and at
+  least one must stay selected.
+- Each poll fetches workspaces and runs once per visible BU (with that BU's
+  `X-Business-Unit`, up to 4 in parallel). One BU failing shows an error on
+  that BU only; the others keep their data.
+- Every action on a workspace or run (plan/apply/destroy, approve/reject/
+  cancel, sync, branch, plan output) uses the BU of the node it was started
+  from. From the command palette or the editor status bar, the pickers span all
+  visible BUs; a file whose path is imported in several BUs asks which
+  workspace you mean ("workspace — BU").
+- Approval notifications watch all visible BUs and name the BU in the message.
+  Changing the filter re-primes them, so newly shown BUs do not announce their
+  whole backlog.
+- The status bar shows `profile · X/Y BUs`.
+- Removed: the per-profile active-BU state (`bu.<profile>` in workspace/global
+  state) and the legacy `bu` field of array-form profiles are no longer used.
+
 Security: a repository could redirect your credentials. `terraducktel.profiles`,
 `uiUrls`, `insecureTlsProfiles` and `activeProfile` were window-scoped, so a
 cloned repo's `.vscode/settings.json` could re-point an existing profile (say

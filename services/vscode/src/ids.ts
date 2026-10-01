@@ -7,7 +7,6 @@ export const PLAN_SCHEME = "tdt-plan";
 /** Language id of run OutputChannels; its TextMate grammar (syntaxes/) tints `── step [status]` headers. */
 export const OUTPUT_LANGUAGE = "terraducktel-output";
 export const CTX_SIGNED_IN = "terraducktel.signedIn";
-export const CTX_CAN_WRITE = "terraducktel.canWrite";
 export const CTX_FILE_MAPPED = "terraducktel.currentFileMapped";
 export const CTX_HAS_PROFILES = "terraducktel.hasProfiles";
 export const STATUS_BAR_CURRENT_FILE = "terraducktel.currentFile";

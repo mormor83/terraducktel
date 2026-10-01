@@ -7,7 +7,8 @@ import { ignoredWorkspaceOverrides, readUserProfiles, userLevel } from "./auth/t
 import { runLoopbackLogin } from "./auth/sso";
 import type { SecretStore } from "./auth/secrets";
 import { Store } from "./state/store";
-import { CTX_CAN_WRITE, CTX_HAS_PROFILES, CTX_SIGNED_IN, GLOBALSTATE_ACTIVE_PROFILE, GLOBALSTATE_ACTIVE_PROFILE_MIGRATED } from "./ids";
+import { getHidden, setVisible, visibleSlugs } from "./state/buFilter";
+import { CTX_HAS_PROFILES, CTX_SIGNED_IN, GLOBALSTATE_ACTIVE_PROFILE, GLOBALSTATE_ACTIVE_PROFILE_MIGRATED } from "./ids";
 
 /** vscode.SecretStorage returns Thenables, not Promises — adapt it to the testable SecretStore shape. */
 function secretsAdapter(secrets: vscode.SecretStorage): SecretStore {
@@ -18,12 +19,12 @@ function secretsAdapter(secrets: vscode.SecretStorage): SecretStore {
   };
 }
 
-/** Everything that depends on "which deployment / which BU / who am I". Rebuilt on profile change. */
+/** Everything that depends on "which deployment / who am I" (business units are per-node, not session state). Rebuilt on profile change. */
 export class Session implements vscode.Disposable {
   profile: Profile | undefined;
   tokens: TokenManager | undefined;
+  /** Not bound to any BU (no `X-Business-Unit`); per-BU work goes through `clientFor(bu)`. */
   client: TdtClient | undefined;
-  bu = "";
   /** Mirrors the `terraducktel.hasProfiles` context key; used by `viewsWelcome` to tell "no
    *  profiles yet" from "have profiles, just not signed in". */
   hasProfiles = false;
@@ -46,7 +47,7 @@ export class Session implements vscode.Disposable {
     this.log = vscode.window.createOutputChannel("Terraducktel");
     // Signed out ⇒ no client ⇒ the store polls nothing. Without this the timer would keep
     // issuing credential-less requests at a signed-out user.
-    this.store = new Store(() => (this.tokens?.isSignedIn() ? this.client : undefined), () => ({ runsLimit: this.cfg().get<number>("runsLimit", 200) }));
+    this.store = new Store(() => (this.tokens?.isSignedIn() ? this.client : undefined), () => ({ runsLimit: this.cfg().get<number>("runsLimit", 200) }), () => this.hiddenBus());
     this.disposables.push(this.log, this.store,
       // Only a profile/active-profile change invalidates the session. `refreshIntervalSeconds`
       // just re-arms the timer; `runsLimit` and `trace` are read live on every use.
@@ -58,16 +59,19 @@ export class Session implements vscode.Disposable {
   private readonly plainHttpWarned = new Set<string>();
   private cfg() { return vscode.workspace.getConfiguration("terraducktel"); }
   private pollIntervalMs() { return Math.max(5, this.cfg().get<number>("refreshIntervalSeconds", 30)) * 1000; }
-  uiUrl() { return this.profile ? uiUrlFor(this.profile) : undefined; }
-  canWrite(): boolean {
-    if (!this.tokens?.isSignedIn()) return false;
-    const c = this.tokens.claims();
-    // No claims and not an API key = a JWT session whose access token has not been minted yet;
-    // assume read-only until it is, rather than flashing write actions we may not be allowed.
-    if (!c) return this.tokens.kind() === "api_key";   // API key: role unknown; the server enforces
-    return c.is_superadmin === true || c.role === "operator" || c.role === "admin";
+  /** BU slugs the user filtered out for the active profile (empty = all visible). */
+  hiddenBus(): string[] { return this.profile ? getHidden(this.ctx.globalState, this.profile.name) : []; }
+  /** Slugs of the BUs currently shown, in server order. */
+  visibleSlugs(): string[] { return visibleSlugs(this.store.bus.map((b) => b.slug), this.hiddenBus()); }
+  /** Persists "show exactly these BUs" for the active profile (throws on an empty selection) and refetches. */
+  async setVisibleBus(slugs: string[]): Promise<void> {
+    if (!this.profile) return;
+    await setVisible(this.ctx.globalState, this.profile.name, this.store.bus.map((b) => b.slug), slugs);
+    this.changed.fire(); await this.store.refresh();
   }
-
+  /** A client bound to `bu` — what every action on a workspace/run node must use. */
+  clientFor(bu: string): TdtClient { return this.requireClient().withBu(bu); }
+  uiUrl() { return this.profile ? uiUrlFor(this.profile) : undefined; }
   async reload(): Promise<void> {
     const gen = ++this.reloadGen;
     for (const d of this.cycle) d.dispose();
@@ -83,12 +87,7 @@ export class Session implements vscode.Disposable {
     const next = pickActive(profiles, await this.resolveActiveProfileName(profiles));
     this.profile = next;
     if (next) warnOnPlainHttp(next, this.plainHttpWarned, (m) => { void vscode.window.showWarningMessage(m); });
-    if (!next) { this.tokens = undefined; this.client = undefined; this.bu = ""; this.store.clear(); await this.publishContexts(); return; }
-    // Per-folder choice (workspaceState) wins, then the cross-window choice `setBu()` also
-    // records in globalState, then whatever the legacy per-profile `bu` setting carried (migrated
-    // into globalState by `migrateLegacyBu()` the first time profile settings are rewritten —
-    // this fallback stays for a profile that was never touched by either).
-    this.bu = this.ctx.workspaceState.get<string>(`bu.${next.name}`) ?? this.ctx.globalState.get<string>(`bu.${next.name}`) ?? next.bu ?? "";
+    if (!next) { this.tokens = undefined; this.client = undefined; this.store.clear(); await this.publishContexts(); return; }
     // Bound to the URL: a credential stored for this profile under a different API URL is neither
     // used nor sent until the user signs in again against the new one.
     this.tokens = new TokenManager(secretsAdapter(this.ctx.secrets), next.name, next.url);
@@ -99,16 +98,15 @@ export class Session implements vscode.Disposable {
       this.log.appendLine(`Stored credential for profile '${next.name}' was issued for ${staleFor}, not ${next.url}; not using it.`);
       void vscode.window.showWarningMessage(`Terraducktel: profile '${next.name}' now points at ${next.url}, but its stored credential was issued for ${staleFor}. Sign in again to use the new URL.`, "Sign in").then((a) => a && vscode.commands.executeCommand("terraducktel.signIn"));
     }
-    this.client = new TdtClient({ baseUrl: next.url, bu: this.bu, tokens: this.tokens, insecureTls: next.insecureTls, trace: (l) => { if (this.cfg().get<boolean>("trace")) this.log.appendLine(l); } });
+    this.client = new TdtClient({ baseUrl: next.url, bu: "", tokens: this.tokens, insecureTls: next.insecureTls, trace: (l) => { if (this.cfg().get<boolean>("trace")) this.log.appendLine(l); } });
     this.tokens.attach(this.client);
     const client = this.client, tokens = this.tokens; // captured so an event from a superseded cycle is ignored
     this.cycle.push(
       client.onSignedOut(() => {
-        // `client` itself is expected to change under us — `setBu()` reassigns `this.client` to a
-        // `withBu()` clone of the SAME auth session (same shared listeners) as a matter of course,
-        // and that must keep firing this toast. What must NOT fire it is an event arriving late from
-        // a cycle that a later `reload()` has since replaced wholesale (new profile/tokens/client) —
-        // so guard on `tokens`, the identity that is stable across `setBu()` but not across `reload()`.
+        // Every per-BU `withBu()` clone shares this client's auth session (and these listeners), so
+        // a 401 seen through any of them lands here. What must NOT fire the toast is an event arriving
+        // late from a cycle that a later `reload()` has since replaced wholesale (new profile/tokens/
+        // client) — so guard on `tokens`, the identity that is stable per reload cycle.
         if (this.tokens !== tokens) return;
         // Drop the cached snapshot: it belongs to a session that no longer exists, and leaving
         // it on screen makes a signed-out tree look live. The timer stays armed but idles —
@@ -126,7 +124,6 @@ export class Session implements vscode.Disposable {
   }
   private async publishContexts() {
     await vscode.commands.executeCommand("setContext", CTX_SIGNED_IN, !!this.tokens?.isSignedIn());
-    await vscode.commands.executeCommand("setContext", CTX_CAN_WRITE, this.canWrite());
     await vscode.commands.executeCommand("setContext", CTX_HAS_PROFILES, this.hasProfiles);
     this.changed.fire();
   }
@@ -152,17 +149,6 @@ export class Session implements vscode.Disposable {
   async setActiveProfile(name: string): Promise<void> {
     await this.ctx.globalState.update(GLOBALSTATE_ACTIVE_PROFILE, name);
     await this.reload();
-  }
-
-  async setBu(slug: string) {
-    if (!this.profile || !this.client) return;
-    this.bu = slug;
-    // workspaceState is the per-folder choice; globalState mirrors it so the choice also survives
-    // in a NEW window that has never opened this folder (or opened no folder at all).
-    await this.ctx.workspaceState.update(`bu.${this.profile.name}`, slug);
-    await this.ctx.globalState.update(`bu.${this.profile.name}`, slug);
-    this.client = this.client.withBu(slug); this.tokens?.attach(this.client);
-    this.changed.fire(); await this.store.refresh();
   }
 
   /** Throws a friendly error when there is no profile / no session. */

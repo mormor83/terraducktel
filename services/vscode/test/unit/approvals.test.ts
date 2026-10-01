@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeServer } from "../fake-server";
 import { TdtClient } from "../../src/api/client";
-import { ApprovalWatcher, type ApprovalNotice, type SeenStore } from "../../src/notifications/approvals";
+import { ApprovalWatcher, approvalMessage, type ApprovalNotice, type SeenStore } from "../../src/notifications/approvals";
 
 const tokens = { getAccessToken: async () => "t", refreshAccessToken: async () => "t", signOut: async () => {}, hasCredential: () => true };
 const run = (id: string, ws = "w1") => ({ id, workspace_id: ws, command: "apply", status: "awaiting_approval", created_at: "2026-09-12T10:00:00Z" });
@@ -12,9 +12,10 @@ function memStore(initial?: Record<string, number>): SeenStore & { value?: Recor
 
 describe("ApprovalWatcher", () => {
   let srv: FakeServer; let url: string; let client: TdtClient; let notices: ApprovalNotice[]; let now: number;
-  beforeEach(async () => { srv = new FakeServer(); url = await srv.start(); client = new TdtClient({ baseUrl: url, bu: "default", tokens }); notices = []; now = 1_000_000; });
-  afterEach(async () => { await srv.stop(); });
-  const mk = (seen = memStore(), ttlMs?: number) => new ApprovalWatcher({ client: () => client, workspaceName: (id) => (id === "w1" ? "vpc" : id), notify: (n) => notices.push(n), seen, now: () => now, ttlMs });
+  beforeEach(async () => { srv = new FakeServer(); srv.json("GET", "/api/v1/business-units", 200, [{ id: "1", slug: "default", name: "Default" }]); url = await srv.start(); client = new TdtClient({ baseUrl: url, bu: "default", tokens }); notices = []; now = 1_000_000; });
+  afterEach(async () => { await srv.stop(); hidden = []; });
+  let hidden: string[] = [];
+  const mk = (seen = memStore(), ttlMs?: number) => new ApprovalWatcher({ client: () => client, hidden: () => hidden, workspaceName: (id) => (id === "w1" ? "vpc" : id), notify: (n) => notices.push(n), seen, now: () => now, ttlMs });
 
   it("notifies once per new awaiting run, with the graph summary when available", async () => {
     let awaiting: ReturnType<typeof run>[] = [];
@@ -198,4 +199,68 @@ describe("ApprovalWatcher", () => {
     await w.poll(); expect(notices).toEqual([]); expect(srv.calls.length).toBe(0);
     w.start(1); w.start(0); await new Promise((r) => setTimeout(r, 20)); expect(srv.calls.length).toBe(0); w.dispose();
   });
+
+  describe("across business units", () => {
+    const BUS = [{ id: "1", slug: "alpha", name: "Alpha" }, { id: "2", slug: "beta", name: "Beta" }, { id: "3", slug: "gamma", name: "Gamma" }];
+    type R = ReturnType<typeof run>[];
+    const perBuRuns = (byBu: Record<string, R>) => { srv.off("GET", "/api/v1/runs"); srv.on("GET", "/api/v1/runs", (req, _b, res) => {
+      const slug = String(req.headers["x-business-unit"]);
+      if (byBu[slug] === undefined) { res.writeHead(500, { "content-type": "application/json" }); res.end(JSON.stringify({ detail: "no" })); return; }
+      res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(byBu[slug]));
+    }); };
+    const setBus = (bus = BUS) => { srv.off("GET", "/api/v1/business-units"); srv.json("GET", "/api/v1/business-units", 200, bus); };
+    const graphs = () => srv.json("GET", /^\/api\/v1\/runs\/[^/]+\/graph$/, 200, { nodes: [], edges: [], summary: {} });
+
+    it("polls every visible BU with its own header and tags each notice with its BU", async () => {
+      setBus(); const byBu: Record<string, R> = { alpha: [], beta: [], gamma: [] }; perBuRuns(byBu); graphs();
+      const w = mk(); await w.prime();
+      byBu.alpha = [run("ra")]; byBu.beta = [run("rb")]; await w.poll();
+      expect(notices.map((n) => [n.run.id, n.bu.name])).toEqual([["ra", "Alpha"], ["rb", "Beta"]]);
+      const polled = srv.requests("GET", "/api/v1/runs?").map((c) => c.headers["x-business-unit"]).sort();
+      expect(polled).toEqual(["alpha", "alpha", "beta", "beta", "gamma", "gamma"]);   // prime + poll, per BU
+      expect(srv.requests("GET", "/api/v1/runs/rb/graph")[0].headers["x-business-unit"]).toBe("beta");
+    });
+
+    it("polls at most 4 BUs at a time", async () => {
+      setBus(["a", "b", "c", "d", "e", "f"].map((slug, i) => ({ id: String(i), slug, name: slug })));
+      let inflight = 0, max = 0;
+      srv.off("GET", "/api/v1/runs");
+      srv.on("GET", "/api/v1/runs", (_q, _b, res) => { inflight++; max = Math.max(max, inflight); setTimeout(() => { inflight--; res.writeHead(200, { "content-type": "application/json" }); res.end("[]"); }, 30); });
+      const w = mk(); await w.poll();
+      expect(max).toBeGreaterThan(1); expect(max).toBeLessThanOrEqual(4);
+    });
+
+    it("does not poll or notify for a hidden BU", async () => {
+      setBus(); const byBu: Record<string, R> = { alpha: [], beta: [], gamma: [] }; perBuRuns(byBu); graphs();
+      hidden = ["beta"]; const w = mk(); await w.prime();
+      byBu.alpha = [run("ra")]; byBu.beta = [run("rb")]; await w.poll();
+      expect(notices.map((n) => n.run.id)).toEqual(["ra"]);
+      expect(srv.calls.some((c) => c.url.startsWith("/api/v1/runs") && c.headers["x-business-unit"] === "beta")).toBe(false);
+    });
+
+    it("swallows a BU's backlog the first time it is polled (e.g. a BU that just became visible)", async () => {
+      setBus(BUS.slice(0, 1)); const byBu: Record<string, R> = { alpha: [], beta: [run("old")] }; perBuRuns(byBu); graphs();
+      const w = mk(); await w.prime();
+      setBus(BUS.slice(0, 2)); byBu.alpha = [run("ra")];
+      await w.poll();
+      expect(notices.map((n) => n.run.id)).toEqual(["ra"]);        // beta's "old" was recorded, not announced
+      byBu.beta = [run("old"), run("new")]; await w.poll();
+      expect(notices.map((n) => n.run.id)).toEqual(["ra", "new"]);
+    });
+
+    it("one BU failing does not stop the others from notifying", async () => {
+      setBus(BUS.slice(0, 2)); perBuRuns({ alpha: [], beta: [] }); graphs();
+      const w = mk(); await w.prime();
+      perBuRuns({ alpha: [run("ra")] });                           // beta now answers 500
+      await w.poll();
+      expect(notices.map((n) => n.run.id)).toEqual(["ra"]);
+    });
+  });
+
+});
+
+describe("approvalMessage", () => {
+  const n = (summary?: { add?: number; change?: number; destroy?: number }): ApprovalNotice => ({ run: { id: "r", workspace_id: "w", command: "apply", status: "awaiting_approval" }, workspaceName: "vpc", bu: { id: "1", slug: "plat", name: "Platform" }, summary });
+  it("names the workspace and its business unit", () => { expect(approvalMessage(n())).toBe("TDT: vpc (Platform) apply is awaiting approval."); });
+  it("appends the plan summary when known", () => { expect(approvalMessage(n({ add: 1, change: 2, destroy: 3 }))).toBe("TDT: vpc (Platform) apply is awaiting approval (+1 ~2 -3)."); });
 });

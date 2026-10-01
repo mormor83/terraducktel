@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { matchWorkspace, normalizeRepoUrl, relativeDir } from "../../src/editor/mapping";
-import type { Workspace } from "../../src/api/types";
+import { matchAcrossBus, matchWorkspace, normalizeRepoUrl, relativeDir } from "../../src/editor/mapping";
+import type { BusinessUnit, Workspace } from "../../src/api/types";
 
 const ws = (p: Partial<Workspace> & { name: string; tf_working_dir: string }): Workspace => ({
   id: p.name, business_unit_id: "bu", environment: "dev", region: "us-east-1", aws_account_id: "1", repo_ref: "main",
@@ -78,4 +78,42 @@ describe("matchWorkspace", () => {
     const withDotSlash = [ws({ name: "vpc", tf_working_dir: "./account-1/eu-west-1/vpc" })];
     expect(matchWorkspace(withDotSlash, { relativeDir: "account-1/eu-west-1/vpc", remoteUrl: "https://github.com/acme/infra.git" })).toMatchObject({ ws: { name: "vpc" }, exact: true });
   });
+});
+
+describe("matchAcrossBus", () => {
+  const bu = (slug: string): BusinessUnit => ({ id: slug, slug, name: slug.toUpperCase() });
+  const q = { relativeDir: "account-1/eu-west-1/vpc/modules", remoteUrl: "https://github.com/acme/infra.git" };
+
+  it("finds the single workspace that covers the file, whichever BU it is in", () => {
+    const m = matchAcrossBus([{ bu: bu("a"), workspaces: [ws({ name: "x", tf_working_dir: "other/dir" })] }, { bu: bu("b"), workspaces: [ws({ name: "vpc", tf_working_dir: "account-1/eu-west-1/vpc" })] }], q);
+    expect(m.map((x) => [x.ws.name, x.bu.slug, x.exact])).toEqual([["vpc", "b", false]]);
+  });
+
+  it("returns every candidate when the same path is imported in several BUs", () => {
+    const m = matchAcrossBus([{ bu: bu("a"), workspaces: [ws({ name: "vpc", tf_working_dir: "account-1/eu-west-1/vpc" })] }, { bu: bu("b"), workspaces: [ws({ name: "vpc-b", tf_working_dir: "account-1/eu-west-1/vpc" })] }], q);
+    expect(m.map((x) => x.bu.slug)).toEqual(["a", "b"]);
+  });
+
+  it("returns the best match per BU (not just the longest overall), sorted by BU name", () => {
+    const m = matchAcrossBus([{ bu: bu("a"), workspaces: [ws({ name: "vpc", tf_working_dir: "account-1/eu-west-1/vpc" })] }, { bu: bu("b"), workspaces: [ws({ name: "mods", tf_working_dir: "account-1/eu-west-1/vpc/modules" })] }], q);
+    expect(m.map((x) => x.ws.name)).toEqual(["vpc", "mods"]);
+  });
+
+  it("sorts candidates by BU name", () => {
+    const m = matchAcrossBus([{ bu: bu("z"), workspaces: [ws({ name: "zz", tf_working_dir: "account-1/eu-west-1/vpc" })] }, { bu: bu("a"), workspaces: [ws({ name: "aa", tf_working_dir: "account-1/eu-west-1/vpc" })] }], q);
+    expect(m.map((x) => x.bu.slug)).toEqual(["a", "z"]);
+  });
+
+  it("breaks a BU-name tie by slug, like the JetBrains plugin", () => {
+    const same = (slug: string) => ({ id: slug, slug, name: "Platform" });
+    const m = matchAcrossBus([{ bu: same("plat-z"), workspaces: [ws({ name: "z", tf_working_dir: "account-1/eu-west-1/vpc" })] }, { bu: same("plat-a"), workspaces: [ws({ name: "a", tf_working_dir: "account-1/eu-west-1/vpc" })] }], q);
+    expect(m.map((x) => x.bu.slug)).toEqual(["plat-a", "plat-z"]);
+  });
+
+  it("keeps matchWorkspace's rule inside one BU: an unresolvable tie there yields no candidate", () => {
+    const tie = [ws({ name: "one", tf_working_dir: "a/b" }), ws({ name: "two", tf_working_dir: "a/b", repo_url: "https://github.com/acme/other.git" })];
+    expect(matchAcrossBus([{ bu: bu("a"), workspaces: tie }], { relativeDir: "a/b" })).toEqual([]);
+  });
+
+  it("returns nothing when no BU has data", () => { expect(matchAcrossBus([], q)).toEqual([]); });
 });

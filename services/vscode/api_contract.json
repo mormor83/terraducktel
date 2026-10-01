@@ -5,7 +5,7 @@
     { "method": "POST", "path": "/auth/token", "used_by": "Sign in with password" },
     { "method": "GET", "path": "/auth/oidc/login", "used_by": "Sign in with SSO (browser is sent here; the extension never fetches it)", "browser": true },
     { "method": "POST", "path": "/auth/refresh", "used_by": "automatic token refresh" },
-    { "method": "GET", "path": "/business-units", "used_by": "Switch business unit" },
+    { "method": "GET", "path": "/business-units", "used_by": "Sidebar business-unit roots, Filter business units…, approval notifications" },
     { "method": "GET", "path": "/workspaces", "used_by": "Workspaces view" },
     { "method": "PUT", "path": "/workspaces/{workspace_id}", "used_by": "Set tracked branch" },
     { "method": "GET", "path": "/workspaces/{workspace_id}/branches", "used_by": "Set tracked branch (picker)" },

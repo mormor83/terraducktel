@@ -21,12 +21,15 @@ const ws = (p: Partial<Workspace> & { name: string }): Workspace => ({
   repo_url: "https://github.com/acme/infra.git", ...p,
 });
 
-function fakeSession(opts: { signedIn?: boolean; workspaces?: Workspace[]; runs?: Record<string, Run[]> } = {}): Session {
+const buOf = (slug: string) => ({ id: slug, slug, name: slug.toUpperCase() });
+/** `workspaces` all live in BU "default"; `byBu` instead spreads them over several BUs. */
+function fakeSession(opts: { signedIn?: boolean; workspaces?: Workspace[]; byBu?: Record<string, Workspace[]>; runs?: Record<string, Run[]> } = {}): Session {
   const signedIn = opts.signedIn ?? true;
+  const byBu = opts.byBu ?? { default: opts.workspaces ?? [] };
   return {
     tokens: { isSignedIn: () => signedIn },
     store: {
-      workspaces: opts.workspaces ?? [],
+      data: new Map(Object.entries(byBu).map(([slug, workspaces]) => [slug, { bu: buOf(slug), workspaces, runs: [], loaded: true }])),
       runsFor: (id: string) => opts.runs?.[id] ?? [],
       onDidChange: () => ({ dispose() {} }),
     },
@@ -156,15 +159,16 @@ describe("EditorStatus", () => {
       return `${branch}\n`;
     };
     const run = { id: "r1", workspace_id: "vpc", command: "plan", status: "planning", created_at: "t" } as Run;
+    const clientBus: string[] = [];
     const updateWorkspace = vi.fn(async () => undefined);
     const triggerRun = vi.fn(async () => run);
     const refresh = vi.fn(async () => undefined);
     const session = {
       tokens: { isSignedIn: () => true },
-      store: { workspaces: [w], runsFor: () => [], onDidChange: () => ({ dispose() {} }), refresh },
+      store: { data: new Map([["alpha", { bu: buOf("alpha"), workspaces: [w], runs: [], loaded: true }]]), runsFor: () => [], onDidChange: () => ({ dispose() {} }), refresh },
       onDidChange: () => ({ dispose() {} }),
       uiUrl: () => "http://ui.example",
-      requireClient: () => ({ updateWorkspace, triggerRun }),
+      clientFor: (bu: string) => { clientBus.push(bu); return { updateWorkspace, triggerRun }; },
     } as unknown as Session;
 
     // Capture the command handlers EditorStatus registers, the way the real extension host
@@ -184,8 +188,51 @@ describe("EditorStatus", () => {
 
     expect(updateWorkspace).toHaveBeenCalledWith("vpc", { repo_ref: "feat/y" }); // re-probed branch, not the stale "main"
     expect(triggerRun).toHaveBeenCalledWith("vpc", { command: "plan" });
+    expect(clientBus).toEqual(["alpha"]);                  // acted in the BU the workspace lives in
 
     vscodeStub.window.showQuickPick = originalShowQuickPick;
     registerSpy.mockRestore();
   });
+
+  it("maps a file to a workspace in any BU and carries that BU", async () => {
+    const session = fakeSession({ byBu: { a: [ws({ name: "x", tf_working_dir: "other/dir" })], b: [ws({ name: "vpc" })] } });
+    stub.window.activeTextEditor = { document: fakeDoc("/repo/account-1/eu-west-1/vpc/main.tf") };
+    const { status } = make(session, gitExec("/repo", "https://github.com/acme/infra.git", "main"));
+    await status.refresh();
+    expect(status.current()).toMatchObject({ ws: { name: "vpc" }, bu: { slug: "b" } });
+  });
+
+  it("same path in two BUs: says so in the item, then asks 'workspace — BU' before acting", async () => {
+    const session = fakeSession({ byBu: { a: [ws({ name: "vpc", id: "w-a" })], b: [ws({ name: "vpc", id: "w-b" })] } });
+    stub.window.activeTextEditor = { document: fakeDoc("/repo/account-1/eu-west-1/vpc/main.tf") };
+    const registerSpy = vi.spyOn(vscodeStub.commands, "registerCommand");
+    const { status, item, reveal } = make(session, gitExec("/repo", "https://github.com/acme/infra.git", "main"));
+    await status.refresh();
+    expect(item.text).toBe("$(cloud) TDT: 2 workspaces match"); expect(item.visible).toBe(true);
+    const asked = vi.spyOn(vscodeStub.window as { showQuickPick: (...a: unknown[]) => Promise<unknown> }, "showQuickPick").mockImplementation(async (items: unknown) => (items as unknown[])[1]);
+    const handler = registerSpy.mock.calls.find(([id]) => id === "terraducktel.revealCurrentWorkspace")?.[1] as () => Promise<void>;
+    await handler();
+    expect((asked.mock.calls[0][0] as Array<{ label: string }>).map((i) => i.label)).toEqual(["vpc — A", "vpc — B"]);
+    expect(reveal).toHaveBeenCalledWith("w-b");
+    asked.mockRestore(); registerSpy.mockRestore();
+  });
+
+  it("ambiguous file: 'Plan this leaf' from the actions menu reuses the first BU choice instead of asking again", async () => {
+    const session = fakeSession({ byBu: { a: [ws({ name: "vpc", id: "w-a" })], b: [ws({ name: "vpc", id: "w-b" })] } });
+    const triggered: Array<{ bu: string; wsId: string }> = [];
+    (session as unknown as { clientFor: unknown }).clientFor = (bu: string) => ({ triggerRun: async (wsId: string) => { triggered.push({ bu, wsId }); return { id: "run-12345678" }; } });
+    (session.store as unknown as { refresh: unknown }).refresh = async () => {};
+    stub.window.activeTextEditor = { document: fakeDoc("/repo/account-1/eu-west-1/vpc/main.tf") };
+    const registerSpy = vi.spyOn(vscodeStub.commands, "registerCommand");
+    const { status } = make(session, gitExec("/repo", "https://github.com/acme/infra.git", "main"));
+    await status.refresh();
+    const answers = [(items: unknown[]) => items[0], (items: unknown[]) => items.find((i) => (i as { label: string }).label.includes("Plan this leaf")), (items: unknown[]) => items[1]];
+    const asked = vi.spyOn(vscodeStub.window as { showQuickPick: (...a: unknown[]) => Promise<unknown> }, "showQuickPick").mockImplementation(async (items: unknown) => (answers.shift() ?? (() => undefined))(items as unknown[]));
+    const handler = registerSpy.mock.calls.find(([id]) => id === "terraducktel.currentFileActions")?.[1] as () => Promise<void>;
+    await handler();
+    expect(asked).toHaveBeenCalledTimes(2);
+    expect(triggered).toEqual([{ bu: "a", wsId: "w-a" }]);
+    asked.mockRestore(); registerSpy.mockRestore();
+  });
+
 });

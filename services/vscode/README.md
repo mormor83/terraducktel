@@ -14,7 +14,10 @@ notification, without leaving the editor.
 - **Workspaces & Runs sidebar** — a Workspaces tree grouped like the web UI
   (provider → account → region → folders → workspace) with drift and
   last-run status, and a Runs tree (newest first, awaiting-approval on top
-  with a badge count).
+  with a badge count). Every business unit you can access is a top-level
+  node in both trees; **Filter business units…** chooses which ones are shown
+  (remembered per profile), and actions always run in the BU of the node you
+  used them on.
 - **Plan / Apply… / Destroy…, with live steps** — trigger a run from the
   sidebar or the command palette and watch its steps stream into an output
   channel as they complete.
@@ -29,7 +32,7 @@ notification, without leaving the editor.
   file, with branch-pinning if your checkout is on a different branch than
   the workspace tracks.
 - **Approval notifications** — polls for runs newly awaiting approval in the
-  active business unit and raises a notification with Approve…/Reject…/Open
+  visible business units and raises a notification with Approve…/Reject…/Open
   actions.
 
 ## Requirements
@@ -78,7 +81,7 @@ bound to the API URL it was issued for and is never sent to a different one.
 | `terraducktel.switchProfile` | Switch profile |
 | `terraducktel.addProfile` | Add profile… |
 | `terraducktel.removeProfile` | Remove profile… |
-| `terraducktel.switchBusinessUnit` | Switch business unit |
+| `terraducktel.filterBusinessUnits` | Filter business units… (choose which BUs the trees show) |
 | `terraducktel.refresh` | Refresh |
 | `terraducktel.plan` | Plan |
 | `terraducktel.apply` | Apply… |

@@ -29,8 +29,8 @@ export function planDecorationOptions(kind: PlanKind): vscode.DecorationRenderOp
   };
 }
 
-export function planUri(runId: string, label: string) {
-  return vscode.Uri.parse(`${PLAN_SCHEME}:${encodeURIComponent(label)}.tfplan.txt?run=${runId}`);
+export function planUri(runId: string, label: string, bu: string) {
+  return vscode.Uri.parse(`${PLAN_SCHEME}:${encodeURIComponent(label)}.tfplan.txt?run=${runId}&bu=${encodeURIComponent(bu)}`);
 }
 
 export class PlanDocumentProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
@@ -58,11 +58,11 @@ export class PlanDocumentProvider implements vscode.TextDocumentContentProvider,
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     const hit = this.cache.get(uri.toString());
     if (hit !== undefined) return hit;
-    const runId = new URLSearchParams(uri.query).get("run");
+    const q = new URLSearchParams(uri.query); const runId = q.get("run"); const bu = q.get("bu") ?? "";
     if (!runId) return "(no run id in this plan URI)";
     const c = this.client(); if (!c) return "(not signed in — run “Terraducktel: Sign in”, then reopen this plan)";
     try {
-      const text = await this.fetch(c, runId, uri);
+      const text = await this.fetch(c.withBu(bu), runId, uri);
       return text;
     } catch (e) {
       return `(could not load the plan: ${e instanceof Error ? e.message : String(e)})`;
@@ -76,10 +76,10 @@ export class PlanDocumentProvider implements vscode.TextDocumentContentProvider,
     return text;
   }
 
-  async open(runId: string, label: string): Promise<void> {
+  async open(runId: string, label: string, bu: string): Promise<void> {
     const c = this.client(); if (!c) throw new Error("Not signed in.");
-    const uri = planUri(runId, label);
-    await this.fetch(c, runId, uri);
+    const uri = planUri(runId, label, bu);
+    await this.fetch(c.withBu(bu), runId, uri);
     this.changed.fire(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     // Best-effort: gives HCL syntax colouring on top of the diff decorations when a Terraform

@@ -13,12 +13,18 @@ suite("Terraducktel extension smoke", () => {
     await ext.exports?.__test?.signInWithApiKey?.("tdt_smoke");
     await new Promise((r) => setTimeout(r, 1500));
     const names = await ext.exports.__test.workspaceNames();
-    assert.deepStrictEqual(names, ["vpc"]);
+    assert.deepStrictEqual(names, ["vpc", "db"]);   // one fetch per BU, both visible by default
     const run = await ext.exports.__test.triggerPlan("w1");
-    assert.strictEqual(run.id, "r2");
+    assert.strictEqual(run.id, "r2");           // the stub 404s unless the plan carries the workspace's own BU header
     await new Promise((r) => setTimeout(r, 1500));
     const runIds = await ext.exports.__test.runIds();
     assert.ok(runIds.includes("r2"));
+  });
+
+  test("replaces 'switch business unit' with 'filter business units'", async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes("terraducktel.filterBusinessUnits"), "filterBusinessUnits not registered");
+    assert.ok(!commands.includes("terraducktel.switchBusinessUnit"), "switchBusinessUnit should be gone");
   });
 
   test("registers editor integration commands", async () => {

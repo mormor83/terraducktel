@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRearm } from "../../src/notifications/rearm";
+import { createRearm, rearmKey } from "../../src/notifications/rearm";
 
 describe("createRearm", () => {
   it("primes once per key and starts", async () => {
@@ -74,5 +74,23 @@ describe("createRearm", () => {
     releaseFirstPrime();
     await p1;                                  // p1 finally resolves, but must not start() again — it was superseded
     expect(calls).toEqual(["stop", "prime:a:default", "stop", "prime:b:default", "start:b:default"]);
+  });
+});
+
+describe("rearmKey", () => {
+  it("is profile plus the sorted visible BU slugs, so a filter change re-primes", () => {
+    expect(rearmKey("prod", ["b", "a"])).toBe("prod:a,b");
+    expect(rearmKey("prod", ["a", "b"])).toBe(rearmKey("prod", ["b", "a"]));
+    expect(rearmKey("prod", ["a"])).not.toBe(rearmKey("prod", ["a", "b"]));
+    expect(rearmKey("dev", ["a"])).not.toBe(rearmKey("prod", ["a"]));
+  });
+
+  it("drives createRearm: a different visible set primes again, the same one does not", async () => {
+    const calls: string[] = []; let visible = ["a", "b"];
+    const rearm = createRearm({ key: () => rearmKey("prod", visible), prime: async () => { calls.push("prime"); }, start: () => calls.push("start"), stop: () => calls.push("stop") });
+    await rearm(); calls.length = 0;
+    await rearm(); expect(calls).toEqual(["start"]);
+    calls.length = 0; visible = ["a"]; await rearm();
+    expect(calls).toEqual(["stop", "prime", "start"]);
   });
 });

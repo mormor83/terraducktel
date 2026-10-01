@@ -1,9 +1,14 @@
+/** Identity of a notification session: the profile plus WHICH BUs are being watched (sorted, so order
+ *  is irrelevant). A filter change alters it, and `createRearm` then re-primes instead of announcing
+ *  the newly visible BUs' whole backlog. */
+export const rearmKey = (profile: string | undefined, visibleSlugs: readonly string[]) => `${profile}:${[...visibleSlugs].sort().join(",")}`;
+
 /** Pure state machine behind `rearm()` in extension.ts — extracted so the sign-out-races-prime
- *  guard is unit-testable without a vscode host. Primes once per `key()` (profile+BU), then starts
- *  the poll; a rearm superseded by a later one (sign-out, profile/BU switch, config change) while
+ *  guard is unit-testable without a vscode host. Primes once per `key()` (profile + visible BUs), then starts
+ *  the poll; a rearm superseded by a later one (sign-out, profile / filter change, config change) while
  *  its prime() is still in flight must not go on to start() with now-stale state. */
 export interface RearmDeps {
-  /** A string identifying "which session" (e.g. `${profile}:${bu}`), or undefined when signed out. */
+  /** A string identifying "which session" (see `rearmKey`), or undefined when signed out. */
   key: () => string | undefined;
   prime: () => Promise<void>;
   start: () => void;
@@ -13,7 +18,7 @@ export interface RearmDeps {
 export function createRearm(d: RearmDeps): () => Promise<void> {
   let primedFor: string | undefined;
   // Bumped on every call: a call still awaiting prime() when a later call starts (sign-out,
-  // profile/BU switch) must not go on to start() the timer with stale state.
+  // profile / filter change) must not go on to start() the timer with stale state.
   let gen = 0;
   return async () => {
     const my = ++gen;

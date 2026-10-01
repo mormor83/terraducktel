@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type * as vscode from "vscode";
-import { planDecorationOptions, planLineKinds } from "../../src/output/planDocument";
+import { planDecorationOptions, planLineKinds, planUri } from "../../src/output/planDocument";
 describe("planLineKinds", () => {
   it("classifies terraform plan lines", () => {
     const text = ["Terraform will perform the following actions:", "  # aws_s3_bucket.b will be created", "  + resource \"aws_s3_bucket\" \"b\" {", "      + bucket = \"x\"", "  ~ update in-place", "  - resource \"x\" \"y\" {", "-/+ resource \"a\" \"b\" (replace)", "Plan: 1 to add, 1 to change, 1 to destroy."].join("\n");
@@ -21,5 +21,12 @@ describe("planDecorationOptions", () => {
     expect(planDecorationOptions("replace")).toMatchObject({ border: "0 0 0 2px solid" });
     expect(colour(planDecorationOptions("replace").borderColor)).toBe("terraducktel.replace");
     expect(planDecorationOptions("add").border).toBeUndefined();
+  });
+});
+
+describe("planUri", () => {
+  it("carries the run id and its business unit, so a restored tab fetches with the right BU", () => {
+    const q = new URLSearchParams(planUri("r1", "vpc", "team a").query);
+    expect(q.get("run")).toBe("r1"); expect(q.get("bu")).toBe("team a");
   });
 });

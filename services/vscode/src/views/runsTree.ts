@@ -1,12 +1,14 @@
 import * as vscode from "vscode";
-import type { Run } from "../api/types";
+import type { BusinessUnit, Run } from "../api/types";
 import { TERMINAL_RUN_STATUSES } from "../api/types";
 import type { Session } from "../session";
-import { MessageNode, RunNode, StepNode, type Node } from "./nodes";
+import { BuNode, MessageNode, RunNode, StepNode, type Node } from "./nodes";
 
 const ORDER = ["awaiting_approval", "applying", "running", "planning", "pending", "planned", "failed", "applied", "cancelled"];
 /** Unknown / future statuses sort after every known one instead of ahead of them (`indexOf` → -1). */
 const rank = (status: string) => { const i = ORDER.indexOf(status); return i === -1 ? ORDER.length : i; };
+const byName = (a: BusinessUnit, b: BusinessUnit) => (a.name || a.slug).localeCompare(b.name || b.slug);
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Badge for the Workspaces view (and so the activity-bar icon): runs waiting at the gate. */
 export function awaitingBadge(runs: Run[]): vscode.ViewBadge | undefined {
@@ -14,6 +16,7 @@ export function awaitingBadge(runs: Run[]): vscode.ViewBadge | undefined {
   return n ? { value: n, tooltip: `${n} awaiting approval` } : undefined;
 }
 
+/** Roots are the visible business units; a BU's children are its own runs. */
 export class RunsTree implements vscode.TreeDataProvider<Node> {
   private changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
@@ -29,20 +32,30 @@ export class RunsTree implements vscode.TreeDataProvider<Node> {
   getTreeItem(n: Node) { return n; }
   async getChildren(n?: Node): Promise<Node[]> {
     if (!this.s.tokens?.isSignedIn()) return [];
-    if (n instanceof RunNode) return this.stepsOf(n.run);
+    if (n instanceof RunNode) return this.stepsOf(n.run, n.bu);
+    const store = this.s.store;
+    if (n instanceof BuNode) {
+      const d = store.data.get(n.bu); if (!d) return [];
+      const runs = [...d.runs].sort((a, b) => rank(a.status) - rank(b.status) || (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+      const name = (id: string) => d.workspaces.find((w) => w.id === id)?.name ?? id.slice(0, 8);
+      const msgs: Node[] = d.error ? [new MessageNode(`Refresh failed: ${d.error}`, "warning")] : runs.length ? [] : [new MessageNode("No recent runs")];
+      return [...msgs, ...runs.map((r) => new RunNode(r, { bu: n.bu, showWorkspace: name(r.workspace_id), collapsible: true }))];
+    }
     if (n) return [];
-    const runs = [...this.s.store.runs].sort((a, b) => rank(a.status) - rank(b.status) || (b.created_at ?? "").localeCompare(a.created_at ?? ""));
-    if (!runs.length) return [new MessageNode("No runs yet")];
-    const name = (id: string) => this.s.store.workspace(id)?.name ?? id.slice(0, 8);
-    return runs.map((r) => new RunNode(r, { showWorkspace: name(r.workspace_id), collapsible: true }));
+    if (!store.bus.length && !store.globalError) return [new MessageNode("No business units")];
+    const visible = store.visibleBus();
+    return [...visible].sort(byName).map((bu) => {
+      const d = store.data.get(bu.slug);
+      return new BuNode(bu, d?.error ? `${bu.slug} · error` : `${bu.slug} · ${plural(d?.runs.length ?? 0, "run")}`, visible.length === 1);
+    });
   }
 
   /** Steps are fetched lazily — only when a run is actually expanded — and without their output
    *  (`include_output=false`), which is what the run's OutputChannel is for. */
-  private async stepsOf(run: Run): Promise<Node[]> {
+  private async stepsOf(run: Run, bu: string): Promise<Node[]> {
     const cached = this.steps.get(run.id);
     if (cached) return cached;
-    const client = this.s.client;
+    const client = this.s.client?.withBu(bu);
     if (!client) return [];
     try {
       const steps = await client.getSteps(run.id, 0, false);

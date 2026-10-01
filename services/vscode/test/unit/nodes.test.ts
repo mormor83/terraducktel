@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import type { Run, Workspace } from "../../src/api/types";
 import type { CloudGroup } from "../../src/state/grouping";
 import { initBrandIcons } from "../../src/views/brand";
-import { CloudNode, RunNode, StepNode, WorkspaceNode, describeRun, runContextValue, workspaceDescription } from "../../src/views/nodes";
+import { BuNode, CloudNode, RunNode, StepNode, WorkspaceNode, describeRun, runContextValue, workspaceDescription } from "../../src/views/nodes";
 
 const iconFile = (icon: unknown) => (icon as { dark: { path: string } }).dark.path.split("/").pop();
 const ws = { id: "w1", name: "vpc", repo_ref: "main", drift_status: "clean", tf_working_dir: "a/vpc", environment: "dev", kind: "terraform", path_status: "ok", tags: {} } as unknown as Workspace;
@@ -25,22 +25,31 @@ describe("brand tree icons", () => {
   beforeAll(() => initBrandIcons(vscode.Uri.file("/ext")));
 
   it("gives a workspace its last run's status SVG, and the workspace glyph when it has no runs", () => {
-    expect(iconFile(new WorkspaceNode(ws, "vpc", run(), 1).iconPath)).toBe("failed-dark.svg");
-    expect(iconFile(new WorkspaceNode(ws, "vpc", undefined, 0).iconPath)).toBe("none-dark.svg");
+    expect(iconFile(new WorkspaceNode("bu", ws, "vpc", run(), 1).iconPath)).toBe("failed-dark.svg");
+    expect(iconFile(new WorkspaceNode("bu", ws, "vpc", undefined, 0).iconPath)).toBe("none-dark.svg");
   });
 
   it("gives run and step rows their status SVG, spinning while in flight", () => {
-    expect(iconFile(new RunNode(run({ status: "awaiting_approval" })).iconPath)).toBe("awaiting-dark.svg");
+    expect(iconFile(new RunNode(run({ status: "awaiting_approval" }), { bu: "bu" }).iconPath)).toBe("awaiting-dark.svg");
     expect(iconFile(new StepNode(run(), { id: "s", run_id: "r", position: 0, name: "Plan", status: "success" }).iconPath)).toBe("applied-dark.svg");
     expect((new StepNode(run(), { id: "s", run_id: "r", position: 0, name: "Plan", status: "running" }).iconPath as vscode.ThemeIcon).id).toBe("sync~spin");
   });
 
   it("tints cloud-group icons with the brand accent", () => {
     for (const [cloud, id] of [["aws", "cloud"], ["azure", "azure"], ["gcp", "globe"]] as const) {
-      const icon = new CloudNode(group(cloud)).iconPath as vscode.ThemeIcon;
+      const icon = new CloudNode("bu", group(cloud)).iconPath as vscode.ThemeIcon;
       expect(icon.id).toBe(id);
       expect((icon.color as vscode.ThemeColor).id).toBe("terraducktel.accent");
     }
-    expect(new CloudNode(group("aws")).description).toBe("AWS · 2");
+    expect(new CloudNode("bu", group("aws")).description).toBe("AWS · 2");
   });
+});
+
+describe("BuNode", () => {
+  it("uses the BU name as label, the organization icon, a stable id and the BU slug", () => {
+    const n = new BuNode({ id: "1", slug: "plat", name: "Platform" }, "plat · 3 workspaces", false);
+    expect(n.label).toBe("Platform"); expect(n.id).toBe("bu:plat"); expect(n.bu).toBe("plat"); expect(n.description).toBe("plat · 3 workspaces");
+    expect((n.iconPath as vscode.ThemeIcon).id).toBe("organization");
+  });
+  it("carries the BU slug on run nodes", () => { expect(new RunNode(run(), { bu: "plat" }).bu).toBe("plat"); });
 });

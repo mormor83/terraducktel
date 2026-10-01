@@ -4,21 +4,22 @@ import type { Run, Workspace } from "../api/types";
 import { WorkspaceNode } from "../views/nodes";
 import { wrap } from "./auth";
 
-async function pickWorkspace(s: Session): Promise<Workspace | undefined> {
-  const pick = await vscode.window.showQuickPick(
-    s.store.workspaces.map((w) => ({ label: w.name, description: w.tf_working_dir, detail: `${w.environment} · ${w.repo_ref}`, ws: w })),
-    { placeHolder: "Workspace", matchOnDescription: true },
-  );
-  return pick?.ws;
+/** A workspace together with the BU it lives in — every action on it is made through `s.clientFor(bu)`. */
+export interface BuWorkspace { ws: Workspace; bu: string }
+
+/** Command-palette fallback: pick among the workspaces of ALL visible BUs (BU name in the detail line). */
+async function pickWorkspace(s: Session): Promise<BuWorkspace | undefined> {
+  const items = [...s.store.data.values()].flatMap((d) => d.workspaces.map((w) => ({ label: w.name, description: w.tf_working_dir, detail: `${d.bu.name || d.bu.slug} · ${w.environment} · ${w.repo_ref}`, pick: { ws: w, bu: d.bu.slug } })));
+  return (await vscode.window.showQuickPick(items, { placeHolder: "Workspace", matchOnDescription: true, matchOnDetail: true }))?.pick;
 }
-const asWs = async (s: Session, arg: unknown) => (arg instanceof WorkspaceNode ? arg.ws : pickWorkspace(s));
+const asWs = async (s: Session, arg: unknown): Promise<BuWorkspace | undefined> => (arg instanceof WorkspaceNode ? { ws: arg.ws, bu: arg.bu } : pickWorkspace(s));
 
 /** Behaviour shared by the Plan/Apply/Destroy commands and the editor status bar's "Plan this
  *  leaf" action: the Apply modal and Destroy type-the-name guard stay in effect regardless of
  *  the caller. When `opts.branch` differs from the workspace's tracked branch, it is pinned via
  *  `updateWorkspace` before the run is triggered. */
-export async function runCommandFor(s: Session, ws: Workspace, command: "plan" | "apply" | "destroy", watch: (r: Run) => void, opts: { branch?: string } = {}): Promise<void> {
-  const c = s.requireClient();
+export async function runCommandFor(s: Session, ws: Workspace, bu: string, command: "plan" | "apply" | "destroy", watch: (r: Run, bu: string) => void, opts: { branch?: string } = {}): Promise<void> {
+  const c = s.clientFor(bu);
   if (command === "apply") {
     const ok = await vscode.window.showWarningMessage(`Apply ${ws.name}? The plan will pause for approval before anything changes.`, { modal: true }, "Start apply");
     if (ok !== "Start apply") return;
@@ -39,13 +40,13 @@ export async function runCommandFor(s: Session, ws: Workspace, command: "plan" |
   }
   void vscode.window.showInformationMessage(`TDT: ${command} started on ${ws.name} (${run.id.slice(0, 8)}).`);
   await s.store.refresh();
-  watch(run);
+  watch(run, bu);
 }
 
-export function registerWorkspaceCommands(ctx: vscode.ExtensionContext, s: Session, watch: (r: Run) => void) {
+export function registerWorkspaceCommands(ctx: vscode.ExtensionContext, s: Session, watch: (r: Run, bu: string) => void) {
   const trigger = async (arg: unknown, command: "plan" | "apply" | "destroy") => {
-    const ws = await asWs(s, arg); if (!ws) return;
-    await runCommandFor(s, ws, command, watch);
+    const t = await asWs(s, arg); if (!t) return;
+    await runCommandFor(s, t.ws, t.bu, command, watch);
   };
 
   ctx.subscriptions.push(
@@ -55,8 +56,8 @@ export function registerWorkspaceCommands(ctx: vscode.ExtensionContext, s: Sessi
     vscode.commands.registerCommand(
       "terraducktel.setBranch",
       wrap(async (arg) => {
-        const c = s.requireClient();
-        const ws = await asWs(s, arg); if (!ws) return;
+        const t = await asWs(s, arg); if (!t) return;
+        const { ws } = t; const c = s.clientFor(t.bu);
         const b = await c.listBranches(ws.id).catch(() => ({ source: "none", branches: [] as string[] }));
         let ref: string | undefined;
         if (b.branches.length) {
@@ -74,9 +75,8 @@ export function registerWorkspaceCommands(ctx: vscode.ExtensionContext, s: Sessi
     vscode.commands.registerCommand(
       "terraducktel.syncWorkspace",
       wrap(async (arg) => {
-        const c = s.requireClient();
-        const ws = await asWs(s, arg); if (!ws) return;
-        await c.syncWorkspace(ws.id);
+        const t = await asWs(s, arg); if (!t) return;
+        await s.clientFor(t.bu).syncWorkspace(t.ws.id);
         await s.store.refresh();
       }),
     ),

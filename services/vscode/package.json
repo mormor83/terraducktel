@@ -74,7 +74,7 @@
       { "command": "terraducktel.switchProfile", "title": "Switch profile", "category": "Terraducktel", "icon": "$(server)" },
       { "command": "terraducktel.addProfile", "title": "Add profile…", "category": "Terraducktel" },
       { "command": "terraducktel.removeProfile", "title": "Remove profile…", "category": "Terraducktel" },
-      { "command": "terraducktel.switchBusinessUnit", "title": "Switch business unit", "category": "Terraducktel", "icon": "$(organization)" },
+      { "command": "terraducktel.filterBusinessUnits", "title": "Filter business units…", "category": "Terraducktel", "icon": "$(filter)" },
       { "command": "terraducktel.refresh", "title": "Refresh", "category": "Terraducktel", "icon": "$(refresh)" },
       { "command": "terraducktel.plan", "title": "Plan", "category": "Terraducktel", "icon": "$(play)" },
       { "command": "terraducktel.apply", "title": "Apply…", "category": "Terraducktel" },
@@ -96,23 +96,23 @@
       "view/title": [
         { "command": "terraducktel.switchProfile", "when": "view == terraducktel.workspaces && terraducktel.hasProfiles", "group": "navigation@0" },
         { "command": "terraducktel.refresh", "when": "view == terraducktel.workspaces || view == terraducktel.runs", "group": "navigation@1" },
-        { "command": "terraducktel.switchBusinessUnit", "when": "view == terraducktel.workspaces && terraducktel.signedIn", "group": "navigation@2" }
+        { "command": "terraducktel.filterBusinessUnits", "when": "view == terraducktel.workspaces && terraducktel.signedIn", "group": "navigation@2" }
       ],
       "view/item/context": [
-        { "command": "terraducktel.plan", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "inline@1" },
-        { "command": "terraducktel.plan", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "1_run@1" },
-        { "command": "terraducktel.apply", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "1_run@2" },
-        { "command": "terraducktel.destroy", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "1_run@3" },
-        { "command": "terraducktel.setBranch", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "2_edit@1" },
-        { "command": "terraducktel.syncWorkspace", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.canWrite", "group": "2_edit@2" },
+        { "command": "terraducktel.plan", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.signedIn", "group": "inline@1" },
+        { "command": "terraducktel.plan", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.signedIn", "group": "1_run@1" },
+        { "command": "terraducktel.apply", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.signedIn", "group": "1_run@2" },
+        { "command": "terraducktel.destroy", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.signedIn", "group": "1_run@3" },
+        { "command": "terraducktel.setBranch", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.signedIn", "group": "2_edit@1" },
+        { "command": "terraducktel.syncWorkspace", "when": "view == terraducktel.workspaces && viewItem == workspace && terraducktel.signedIn", "group": "2_edit@2" },
         { "command": "terraducktel.openInBrowser", "when": "view == terraducktel.workspaces && viewItem == workspace", "group": "3_nav@1" },
         { "command": "terraducktel.copyId", "when": "view == terraducktel.workspaces && viewItem == workspace", "group": "3_nav@2" },
         { "command": "terraducktel.watchRun", "when": "viewItem =~ /^run/", "group": "inline@1" },
         { "command": "terraducktel.showPlan", "when": "viewItem =~ /^run/", "group": "inline@2" },
-        { "command": "terraducktel.approve", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "inline@3" },
-        { "command": "terraducktel.approve", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "1_gate@1" },
-        { "command": "terraducktel.reject", "when": "viewItem == run.awaiting_approval && terraducktel.canWrite", "group": "1_gate@2" },
-        { "command": "terraducktel.cancelRun", "when": "viewItem =~ /^run\\.(pending|running|planning|awaiting_approval)$/ && terraducktel.canWrite", "group": "1_gate@3" },
+        { "command": "terraducktel.approve", "when": "viewItem == run.awaiting_approval && terraducktel.signedIn", "group": "inline@3" },
+        { "command": "terraducktel.approve", "when": "viewItem == run.awaiting_approval && terraducktel.signedIn", "group": "1_gate@1" },
+        { "command": "terraducktel.reject", "when": "viewItem == run.awaiting_approval && terraducktel.signedIn", "group": "1_gate@2" },
+        { "command": "terraducktel.cancelRun", "when": "viewItem =~ /^run\\.(pending|running|planning|awaiting_approval)$/ && terraducktel.signedIn", "group": "1_gate@3" },
         { "command": "terraducktel.watchRun", "when": "viewItem =~ /^run/", "group": "2_view@1" },
         { "command": "terraducktel.showPlan", "when": "viewItem =~ /^run/", "group": "2_view@2" },
         { "command": "terraducktel.openInBrowser", "when": "viewItem =~ /^run/", "group": "3_nav@1" },
@@ -129,7 +129,7 @@
         { "command": "terraducktel.cancelRun", "when": "terraducktel.signedIn" },
         { "command": "terraducktel.setBranch", "when": "terraducktel.signedIn" },
         { "command": "terraducktel.syncWorkspace", "when": "terraducktel.signedIn" },
-        { "command": "terraducktel.switchBusinessUnit", "when": "terraducktel.signedIn" },
+        { "command": "terraducktel.filterBusinessUnits", "when": "terraducktel.signedIn" },
         { "command": "terraducktel.copyId", "when": "false" },
         { "command": "terraducktel.openInBrowser", "when": "false" },
         { "command": "terraducktel.currentFileActions", "when": "terraducktel.signedIn && terraducktel.currentFileMapped" },
@@ -137,7 +137,7 @@
         { "command": "terraducktel.planCurrentFile", "when": "terraducktel.signedIn" }
       ],
       "editor/title": [
-        { "command": "terraducktel.planCurrentFile", "when": "terraducktel.currentFileMapped && terraducktel.canWrite && resourceExtname =~ /\\.(tf|tfvars|hcl)$/", "group": "navigation" }
+        { "command": "terraducktel.planCurrentFile", "when": "terraducktel.currentFileMapped && terraducktel.signedIn && resourceExtname =~ /\\.(tf|tfvars|hcl)$/", "group": "navigation" }
       ]
     },
     "configuration": {

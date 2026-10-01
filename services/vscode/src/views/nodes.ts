@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { Run, RunStep, Workspace } from "../api/types";
+import type { BusinessUnit, Run, RunStep, Workspace } from "../api/types";
 import type { CloudGroup, FolderNode, RegionGroup } from "../state/grouping";
 import { statusIcon } from "./brand";
 
@@ -17,12 +17,30 @@ const CLOUD_ICON: Record<string, string> = { aws: "cloud", azure: "azure", gcp: 
 
 export function stepDescription(step: RunStep): string { return step.duration_seconds ? `${step.duration_seconds}s` : ""; }
 
-export type Node = CloudNode | RegionNode | FolderTreeNode | WorkspaceNode | RunNode | StepNode | MessageNode;
-export class CloudNode extends vscode.TreeItem { constructor(public group: CloudGroup) { super(`${group.label}`, vscode.TreeItemCollapsibleState.Collapsed); this.description = `${group.cloud.toUpperCase()} · ${group.count}`; this.contextValue = "cloud"; this.iconPath = new vscode.ThemeIcon(CLOUD_ICON[group.cloud] ?? "cloud", new vscode.ThemeColor("terraducktel.accent")); this.id = `cloud:${group.cloud}:${group.key}`; } }
-export class RegionNode extends vscode.TreeItem { constructor(public group: CloudGroup, public region: RegionGroup) { super(region.region, vscode.TreeItemCollapsibleState.Expanded); this.description = String(region.count); this.contextValue = "region"; this.iconPath = new vscode.ThemeIcon("location"); this.id = `region:${group.cloud}:${group.key}:${region.region}`; } }
-export class FolderTreeNode extends vscode.TreeItem { constructor(public folder: FolderNode, public path: string) { super(folder.name, vscode.TreeItemCollapsibleState.Expanded); this.contextValue = "folder"; this.iconPath = vscode.ThemeIcon.Folder; this.id = `folder:${path}`; } }
+export type Node = BuNode | FilterHeaderNode | CloudNode | RegionNode | FolderTreeNode | WorkspaceNode | RunNode | StepNode | MessageNode;
+/** Top-level node of both trees: one per visible business unit. Every descendant carries `bu`
+ *  (the slug), so actions can bind a client to the BU the node lives in. */
+export class BuNode extends vscode.TreeItem {
+  constructor(public readonly buUnit: BusinessUnit, description: string, expanded: boolean) {
+    super(buUnit.name || buUnit.slug, expanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
+    this.id = `bu:${buUnit.slug}`; this.contextValue = "bu"; this.description = description; this.iconPath = new vscode.ThemeIcon("organization", new vscode.ThemeColor("terraducktel.accent"));
+    this.tooltip = `${buUnit.name} (${buUnit.slug})`;
+  }
+  get bu() { return this.buUnit.slug; }
+}
+/** First row of the Workspaces tree while some BUs are filtered out; click opens the filter picker. */
+export class FilterHeaderNode extends vscode.TreeItem {
+  constructor(visible: number, total: number) {
+    super(`Showing ${visible} of ${total} business units — Filter…`, vscode.TreeItemCollapsibleState.None);
+    this.contextValue = "filterHeader"; this.iconPath = new vscode.ThemeIcon("filter");
+    this.command = { command: "terraducktel.filterBusinessUnits", title: "Filter business units" };
+  }
+}
+export class CloudNode extends vscode.TreeItem { constructor(public bu: string, public group: CloudGroup) { super(`${group.label}`, vscode.TreeItemCollapsibleState.Collapsed); this.description = `${group.cloud.toUpperCase()} · ${group.count}`; this.contextValue = "cloud"; this.iconPath = new vscode.ThemeIcon(CLOUD_ICON[group.cloud] ?? "cloud", new vscode.ThemeColor("terraducktel.accent")); this.id = `cloud:${bu}:${group.cloud}:${group.key}`; } }
+export class RegionNode extends vscode.TreeItem { constructor(public bu: string, public group: CloudGroup, public region: RegionGroup) { super(region.region, vscode.TreeItemCollapsibleState.Expanded); this.description = String(region.count); this.contextValue = "region"; this.iconPath = new vscode.ThemeIcon("location"); this.id = `region:${bu}:${group.cloud}:${group.key}:${region.region}`; } }
+export class FolderTreeNode extends vscode.TreeItem { constructor(public bu: string, public folder: FolderNode, public path: string) { super(folder.name, vscode.TreeItemCollapsibleState.Expanded); this.contextValue = "folder"; this.iconPath = vscode.ThemeIcon.Folder; this.id = `folder:${bu}:${path}`; } }
 export class WorkspaceNode extends vscode.TreeItem {
-  constructor(public ws: Workspace, leaf: string, last: Run | undefined, runCount: number) {
+  constructor(public bu: string, public ws: Workspace, leaf: string, last: Run | undefined, runCount: number) {
     super(leaf, runCount ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     this.id = `ws:${ws.id}`; this.contextValue = "workspace"; this.description = workspaceDescription(ws, last);
     this.iconPath = statusIcon(last?.status);
@@ -33,12 +51,13 @@ export class WorkspaceNode extends vscode.TreeItem {
   }
 }
 export class RunNode extends vscode.TreeItem {
+  readonly bu: string;
   /** `collapsible` is opt-in: in the Runs view a run expands to its steps, but as a child of a
    *  workspace in the Workspaces view it is a leaf (that tree does not fetch steps). */
-  constructor(public run: Run, opts: { showWorkspace?: string; collapsible?: boolean } = {}) {
+  constructor(public run: Run, opts: { bu: string; showWorkspace?: string; collapsible?: boolean }) {
     super(opts.showWorkspace ? `${opts.showWorkspace} · ${run.command}` : run.command,
       opts.collapsible ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-    this.id = `run:${run.id}`; this.contextValue = runContextValue(run); this.description = describeRun(run).replace(/^[^·]+· /, "");
+    this.bu = opts.bu; this.id = `run:${run.id}`; this.contextValue = runContextValue(run); this.description = describeRun(run).replace(/^[^·]+· /, "");
     this.iconPath = statusIcon(run.status); this.tooltip = `${run.command} ${run.status}\n${run.id}\nbranch ${run.branch ?? "-"}\ncreated ${run.created_at ?? "-"}`;
     this.command = { command: "terraducktel.watchRun", title: "Watch run", arguments: [this] };
   }
