@@ -13,7 +13,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Import all models so Base.metadata is fully populated
-from app.db import Base  # noqa: E402
+from app.db import Base, to_sync_url  # noqa: E402
 import app.models.config  # noqa: E402, F401
 import app.models.state_lock  # noqa: E402, F401
 import app.models.workspace  # noqa: F401
@@ -30,10 +30,11 @@ target_metadata = Base.metadata
 # Alembic uses a sync engine; DATABASE_URL is normally asyncpg for the API.
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
-    sync_url = database_url.replace(
-        "postgresql+asyncpg://", "postgresql+psycopg2://"
-    )
-    config.set_main_option("sqlalchemy.url", sync_url)
+    # asyncpg → psycopg2, translating ?ssl=… to libpq's ?sslmode=….
+    sync_url = to_sync_url(database_url)
+    # ConfigParser interpolation: a literal '%' (e.g. URL-encoded password)
+    # must be doubled.
+    config.set_main_option("sqlalchemy.url", sync_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

@@ -1270,3 +1270,116 @@ async def list_slack_channels(
         SlackChannelOut(id=c.id, name=c.name, is_private=c.is_private)
         for c in channels
     ]
+
+
+# ─── Fallback S3 state store (platform-global) ──────────────────────────────
+#
+# Key pair for the shared state bucket every non-AWS workspace uses
+# (S3_STATE_BUCKET at S3_ENDPOINT_URL). Deployment-wide, not per BU, so reads
+# need admin and writes need a superadmin (same rule as /runtime-config).
+
+
+class StateStoreStatus(BaseModel):
+    configured: bool
+    # Exactly one half of the pair is stored: state requests for non-AWS
+    # workspaces fail with 503 until both are set (or both cleared).
+    partial: bool = False
+    access_key_id_tail: Optional[str] = None
+    secret_access_key_tail: Optional[str] = None
+    # Non-secret, env-side (S3_STATE_BUCKET / S3_ENDPOINT_URL / S3_USE_LOCALSTACK).
+    bucket: str
+    endpoint_url: Optional[str] = None
+    use_localstack: bool = False
+    # S3_ENDPOINT_URL is plaintext http:// to a non-local host.
+    insecure_endpoint: bool = False
+    # state_store.s3.require_tls: refuse (503) rather than warn about it.
+    require_tls: bool = False
+
+
+class StateStoreCredentialsSet(BaseModel):
+    # Each field is optional so the TLS toggle can change without re-entering
+    # the key pair; the pair itself is still all-or-nothing (checked in PUT).
+    access_key_id: Optional[str] = Field(None, max_length=256)
+    secret_access_key: Optional[str] = Field(None, max_length=512)
+    require_tls: Optional[bool] = None
+
+
+def _require_superadmin_for_global(current_user: User) -> None:
+    if not bool(getattr(current_user, "is_superadmin", False)):
+        raise HTTPException(
+            status_code=403,
+            detail="Only a superadmin can change the platform-global state store",
+        )
+
+
+async def _state_store_status(db: AsyncSession) -> StateStoreStatus:
+    from app.routers.state import fallback_store_settings
+    from app.services import state_store_config
+
+    creds = await state_store_config.load(db)
+    return StateStoreStatus(
+        configured=creds.configured,
+        partial=creds.partial,
+        access_key_id_tail=_mask_tail(creds.access_key_id) if creds.access_key_id else None,
+        secret_access_key_tail=(
+            _mask_tail(creds.secret_access_key) if creds.secret_access_key else None
+        ),
+        require_tls=await state_store_config.load_require_tls(db),
+        **fallback_store_settings(),
+    )
+
+
+@router.get("/state-store", response_model=StateStoreStatus)
+async def get_state_store(
+    current_user: User = Depends(require_role(Role.admin)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fallback state-bucket settings. Never returns the key pair itself —
+    only `configured` and a masked tail of each half."""
+    return await _state_store_status(db)
+
+
+@router.put("/state-store", response_model=StateStoreStatus)
+async def set_state_store(
+    body: StateStoreCredentialsSet,
+    current_user: User = Depends(require_role(Role.admin)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Store both halves of the fallback-bucket key pair (encrypted) and/or the
+    `require_tls` flag. Key halves are required together so a half-updated pair
+    can never be written; omit both to change only `require_tls`."""
+    from app.services import state_store_config
+
+    _require_superadmin_for_global(current_user)
+    has_keys = body.access_key_id is not None or body.secret_access_key is not None
+    if not has_keys and body.require_tls is None:
+        raise HTTPException(status_code=422, detail="Nothing to update")
+    if has_keys:
+        try:
+            await state_store_config.save(
+                db, body.access_key_id or "", body.secret_access_key or "",
+                updated_by=current_user.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+    if body.require_tls is not None:
+        await state_store_config.save_require_tls(
+            db, body.require_tls, updated_by=current_user.id
+        )
+    await db.commit()
+    return await _state_store_status(db)
+
+
+@router.delete("/state-store", status_code=204)
+async def delete_state_store(
+    current_user: User = Depends(require_role(Role.admin)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear the key pair: the fallback bucket goes back to boto3's default
+    chain (or LocalStack's test/test when S3_USE_LOCALSTACK=true and no
+    S3_ENDPOINT_URL is set)."""
+    from app.services import state_store_config
+
+    _require_superadmin_for_global(current_user)
+    await state_store_config.clear(db)
+    await db.commit()

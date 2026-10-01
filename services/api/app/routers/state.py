@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,17 +36,103 @@ from app.services.secret_scanner import scan_terraform_state_json
 from app.services import aws_account_service as accs
 from app.services import azure_subscription_service as azsvc
 from app.services import gcp_project_service as gcpsvc
+from app.services import state_store_config
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/state", tags=["state"])
 
 _USE_LOCALSTACK = os.environ.get("S3_USE_LOCALSTACK", "false").lower() in ("true", "1", "yes")
-# Fallback bucket name only used when a workspace has no configured AWS account
-# (e.g. legacy workspaces created before phase-8). New workspaces should reach
-# their per-account bucket via AwsAccount.state_bucket.
+# Fallback bucket only used when a workspace has no configured AWS account —
+# i.e. every non-AWS workspace (Azure/GCP/Proxmox with `aws_account_id="global"`)
+# and legacy pre-phase-8 workspaces. AWS workspaces reach their per-account
+# bucket via AwsAccount.state_bucket.
 _FALLBACK_BUCKET = os.environ.get("S3_STATE_BUCKET", "terraducktel-state")
 _S3_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+# Any S3-compatible store for the fallback bucket (Garage/MinIO/…). Empty
+# string == unset so compose can pass `${S3_ENDPOINT_URL:-}` through. Not a
+# secret, so it stays an env var; the key pair for it lives in the encrypted
+# `config` table (see services/state_store_config.py, Settings → State store).
+_S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL", "").strip() or None
+
+# Hosts where plaintext http:// to the state store is expected (dev/LocalStack).
+_LOCAL_S3_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "localstack"})
+_insecure_endpoint_warned: set[str] = set()
+
+
+def is_insecure_endpoint(endpoint_url: str | None) -> bool:
+    """True for a plaintext http:// endpoint on a non-local host."""
+    if not endpoint_url:
+        return False
+    parsed = urlparse(endpoint_url)
+    if parsed.scheme.lower() != "http":
+        return False
+    return (parsed.hostname or "").lower() not in _LOCAL_S3_HOSTS
+
+
+def _warn_if_insecure_endpoint(endpoint_url: str | None) -> None:
+    """Log one WARNING per process when state (and the key pair signing every
+    request to it) would travel over plaintext http:// to a non-local host."""
+    if endpoint_url in _insecure_endpoint_warned or not is_insecure_endpoint(endpoint_url):
+        return
+    _insecure_endpoint_warned.add(endpoint_url)
+    logger.warning(
+        "S3_ENDPOINT_URL %s uses plaintext http:// to a non-local host: Terraform "
+        "state (which can contain secrets) and request signatures travel "
+        "unencrypted. Use https:// for any store reachable over a network.",
+        endpoint_url,
+    )
+
+
+def warn_if_insecure_fallback_endpoint() -> None:
+    """Startup hook (app.main lifespan) for the configured S3_ENDPOINT_URL."""
+    _warn_if_insecure_endpoint(_S3_ENDPOINT_URL)
+
+
+def fallback_store_settings() -> dict:
+    """Non-secret env-side settings of the fallback bucket (for Settings)."""
+    return {
+        "bucket": _FALLBACK_BUCKET,
+        "endpoint_url": _S3_ENDPOINT_URL,
+        "use_localstack": _USE_LOCALSTACK,
+        "insecure_endpoint": is_insecure_endpoint(_S3_ENDPOINT_URL),
+    }
+
+
+async def _fallback_s3_store(db: AsyncSession) -> S3StateService:
+    """Shared-bucket store for workspaces without an AwsAccount.
+
+    Endpoint: S3_ENDPOINT_URL (any S3-compatible store) → LocalStack
+    (S3_USE_LOCALSTACK=true) → real AWS. Credentials: the key pair from the
+    `config` table (read through ConfigService's TTL cache, so a change in
+    Settings applies within ~60s) → otherwise boto3's default chain, or
+    LocalStack's `test`/`test` which S3StateService injects for the bundled
+    LocalStack endpoint only. Exactly one half of the key pair configured is
+    refused (→ 503) rather than silently falling back to ambient creds.
+    """
+    creds = await state_store_config.load(db)
+    if creds.partial:
+        raise state_store_config.PartialS3CredentialsError(
+            "Fallback S3 state-store credentials are half-configured: set both "
+            "the access key ID and the secret access key (Settings → State "
+            "store), or clear both."
+        )
+    if is_insecure_endpoint(_S3_ENDPOINT_URL) and await state_store_config.load_require_tls(db):
+        raise state_store_config.InsecureStateEndpointError(
+            "The fallback S3 state-store endpoint uses plaintext http:// to a "
+            "non-local host and TLS is required (Settings → State store → "
+            "'Require TLS', config key state_store.s3.require_tls). Point "
+            "S3_ENDPOINT_URL at an https:// endpoint or turn the setting off."
+        )
+    _warn_if_insecure_endpoint(_S3_ENDPOINT_URL)
+    return S3StateService(
+        bucket=_FALLBACK_BUCKET,
+        use_localstack=_USE_LOCALSTACK,
+        region=_S3_REGION,
+        endpoint_url=_S3_ENDPOINT_URL,
+        access_key_id=creds.access_key_id,
+        secret_access_key=creds.secret_access_key,
+    )
 
 
 def _state_key_for(ws: Workspace) -> str:
@@ -81,9 +168,7 @@ async def _s3_store_for(ws: Workspace, db: AsyncSession) -> StateStore:
             access_key_id=access_key,
             secret_access_key=secret_key,
         )
-    return S3StateService(
-        bucket=_FALLBACK_BUCKET, use_localstack=_USE_LOCALSTACK, region=_S3_REGION
-    )
+    return await _fallback_s3_store(db)
 
 
 async def _azure_store_for(ws: Workspace, db: AsyncSession) -> StateStore:
@@ -139,6 +224,27 @@ async def _service_for(ws: Workspace, db: AsyncSession) -> tuple[StateStore, str
     return store, _state_key_for(ws)
 
 
+async def _store_or_503(ws: Workspace, db: AsyncSession) -> tuple[StateStore, str]:
+    """`_service_for`, with any failure to *build* the store mapped to 503.
+
+    A store that cannot be built (half-configured key pair, missing linkage)
+    is "backend unavailable" for reads and writes alike; only a failed
+    transfer to a store that was built is a write error.
+    """
+    try:
+        return await _service_for(ws, db)
+    except state_store_config.InsecureStateEndpointError as exc:
+        # The message is operator guidance (no secrets, no URL), safe to return.
+        logger.error("State store refused for workspace %s: %s", ws.id, exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except Exception:
+        logger.exception("State store unavailable for workspace %s", ws.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="State backend unavailable",
+        )
+
+
 @router.get("/{workspace_id}")
 async def get_state(
     workspace_id: str,
@@ -163,8 +269,8 @@ async def get_state(
     if ws is None:
         raise HTTPException(status_code=404, detail="State not found")
 
+    svc, key = await _store_or_503(ws, db)
     try:
-        svc, key = await _service_for(ws, db)
         # StateStore is a *sync* contract (see services/state_store.py) backed by
         # boto3 / azure-blob / gcs clients. Called inline it parks the event loop
         # for the whole round trip — a cross-account GetObject plus a full-body
@@ -232,8 +338,8 @@ async def put_state(
     if ws is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
+    svc, key = await _store_or_503(ws, db)
     try:
-        svc, key = await _service_for(ws, db)
         # Same reasoning as the GET path — an upload of the full state body must
         # not block every other request while it is in flight.
         await asyncio.to_thread(svc.put_state_at, key, body)

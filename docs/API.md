@@ -941,6 +941,22 @@ The bot needs `chat:write`, plus `channels:read` to surface public
 channels and `groups:read` to surface private ones. The bot must be
 invited to the target channel before posts will land.
 
+### State store (fallback S3 bucket, platform-global)
+
+The key pair for the shared state bucket used by every workspace without a
+linked AWS account (`S3_STATE_BUCKET` at `S3_ENDPOINT_URL`). Unlike the rest
+of this section it is **not** BU-scoped — no `X-Business-Unit` needed — and
+lives under the global config keys `state_store.s3.access_key_id` /
+`state_store.s3.secret_access_key` (`is_secret=true`). The endpoint, bucket
+and LocalStack flag stay env vars (not secret) and are echoed read-only.
+Changes apply within ~60s (ConfigService TTL cache).
+
+| Method | Path | Description | Role |
+|---|---|---|---|
+| GET | `/integrations/state-store` | `{configured, partial, access_key_id_tail, secret_access_key_tail, bucket, endpoint_url, use_localstack, insecure_endpoint, require_tls}`. Never returns either key. `partial=true` = only one half stored (state requests for non-AWS workspaces 503 until fixed); `insecure_endpoint=true` = `S3_ENDPOINT_URL` is plaintext `http://` to a non-local host; `require_tls` = config key `state_store.s3.require_tls`, when true such an endpoint is refused (state GET/PUT 503) instead of only warned about. | admin |
+| PUT | `/integrations/state-store` | Body `{access_key_id?, secret_access_key?, require_tls?}` — the two keys are all-or-nothing (stored together); send only `require_tls` to toggle TLS enforcement without touching the keys; empty body 422. 403 unless superadmin. | superadmin |
+| DELETE | `/integrations/state-store` | Clear both keys: the bucket falls back to boto3's default chain (or LocalStack's `test`/`test` for the bundled LocalStack endpoint). 403 unless superadmin. | superadmin |
+
 Notifications post on:
 
 - **Auto-approve fired** (run was auto-approved on a 0/0/0 plan).

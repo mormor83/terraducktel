@@ -83,6 +83,11 @@ async def lifespan(app: FastAPI):
         logger.error(
             "TERRADUCKTEL_INTERNAL_TOKEN is not configured; internal endpoints will return 503"
         )
+    # Plaintext http:// to a remote fallback state store: say so at boot, not
+    # only when the first non-AWS workspace touches its state.
+    from app.routers.state import warn_if_insecure_fallback_endpoint
+
+    warn_if_insecure_fallback_endpoint()
 
     worker_task = asyncio.create_task(worker_loop(AsyncSessionLocal), name="run-worker")
     reaper_task = asyncio.create_task(reaper_loop(AsyncSessionLocal), name="run-reaper")

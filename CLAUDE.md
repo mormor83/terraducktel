@@ -84,7 +84,11 @@ Login URL: http://localhost:3001  ·  API: http://localhost:8001  ·  Forgejo: h
   the only component that touches the object store, selecting the backend in
   `routers/state.py:_service_for` (S3/Azure Blob/GCS implement the `StateStore`
   protocol in `services/state_store.py`). `s3` uses a bucket dedicated to the
-  workspace's AWS account (LocalStack in dev); `azureblob` reuses the linked
+  workspace's AWS account (LocalStack in dev); the fallback bucket for
+  non-AWS workspaces can live on any S3-compatible store via the
+  `S3_ENDPOINT_URL` env var (not secret), with its key pair in the encrypted
+  `config` table (`state_store.s3.*`, Settings → State store,
+  `/integrations/state-store`); `azureblob` reuses the linked
   Azure SP against a storage account/container; `gcs` reuses the linked GCP
   project's SA key against a bucket. Locking is DB-side (`pg_advisory_xact_lock`),
   backend-independent — not DynamoDB.

@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, Suspense, lazy, useEffect, useMemo, useState } fr
 import CloudProviders from "./CloudProviders";
 import ApiKeysSection from "../components/settings/ApiKeysSection";
 import GitWriteSection from "../components/settings/GitWriteSection";
+import StateStoreSection from "../components/settings/StateStoreSection";
 // Lazy — pulls in the Monaco rego editor; keep it out of the main bundle so it
 // only loads when an admin opens the Policies tab.
 const PoliciesSection = lazy(() => import("../components/settings/PoliciesSection"));
@@ -2357,6 +2358,7 @@ function LoggedInView() {
     { id: "persistent", label: "Persistent login", icon: <Icon d={ICON.persistent} />, render: () => <PersistentLoginSection /> },
     { id: "github", label: "GitHub", icon: <Icon d={ICON.github} />, roleGate: "admin" as UserRole, render: () => <div className="space-y-6"><GitHubSection /><GitWriteSection /><InfraRepoSection /></div> },
     { id: "cloud", label: "Cloud resources", icon: <Icon d={ICON.cloud} />, roleGate: "admin" as UserRole, render: () => <CloudProviders /> },
+    { id: "state-store", label: "State store", icon: <Icon d={ICON.cloud} />, roleGate: "admin" as UserRole, render: () => <StateStoreSection /> },
     { id: "variables", label: "Variables", icon: <Icon d={ICON.variables} />, roleGate: "admin" as UserRole, render: () => <VariablesSection canWrite={hasMinRole(user, "admin")} /> },
     { id: "modules", label: "Terraform modules", icon: <Icon d={ICON.modules} />, roleGate: "admin" as UserRole, render: () => <ModulesSection /> },
     { id: "security", label: "Security", icon: <Icon d={ICON.security} />, roleGate: "admin" as UserRole, render: () => <SecuritySection /> },

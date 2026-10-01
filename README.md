@@ -215,6 +215,7 @@ Everything is driven by `.env`; nothing is hardcoded. See
 | `TERRADUCKTEL_LOCAL_REPOS_HOST_DIR`| Host path bind-mounted into the API for the dev-mode "scan local folder" import.  |
 | `TERRADUCKTEL_LOCAL_REPOS_DIR`     | Container-side mount target for the line above (default `/mnt/local-repos`).      |
 | `S3_USE_LOCALSTACK`            | `true` for dev; the fallback bucket then lives in LocalStack.                      |
+| `S3_ENDPOINT_URL`              | Optional S3-compatible endpoint (`https://…`) for the fallback bucket (Garage, MinIO…). Empty = LocalStack/AWS. Its key pair is set in **Settings → State store** (encrypted config table), not in `.env`. |
 | `GITHUB_TOKEN`                 | Optional env-var override for the GitHub PAT (otherwise stored in the DB via UI).  |
 
 > **Crypto invariant.** `CREDENTIAL_ENCRYPTION_KEY` MUST stay stable across

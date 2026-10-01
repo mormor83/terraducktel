@@ -396,7 +396,27 @@ behind the API.
   `GcsStateService` (reuses the linked GCP SA key). The HTTP interface, the
   404-vs-503 error mapping, and locking are identical across all three.
 - **S3 persistence**: bytes live in S3 — LocalStack in dev, real AWS S3 in
-  production. **Per-account bucket isolation**: each onboarded `AwsAccount`
+  production, or any S3-compatible store (Garage, MinIO) for the fallback
+  bucket (`routers/state.py::_fallback_s3_store`, async). The endpoint is the
+  `S3_ENDPOINT_URL` env var (not secret; custom endpoints always use
+  path-style addressing, and a plaintext `http://` endpoint on a non-local
+  host logs a WARNING once per process, at API startup; set the non-secret
+  config key `state_store.s3.require_tls=true` (Settings → State store →
+  **Require TLS**, default off) to make the store refuse to build instead —
+  state GET/PUT then return 503 with an explanatory detail). Any failure to
+  build the store (half-configured pair, require_tls violation, missing
+  Azure/GCP linkage) is 503 for both GET and PUT. The key pair is a secret, so it
+  lives in the encrypted `config` table (`state_store.s3.access_key_id` /
+  `state_store.s3.secret_access_key`, `is_secret=true`, global rather than
+  per-BU) and is read through a fresh `ConfigService` on each store construction
+  (no cache, so a change applies on the next state request); superadmins set it in Settings → **State
+  store** (`/api/v1/integrations/state-store`, GET returns only
+  `configured` + masked tails). With exactly one half configured the store
+  refuses to build (→ 503) rather than fall back to ambient credentials. No
+  key pair → boto3's default chain, or `test`/`test` which
+  `S3StateService` injects only for the bundled LocalStack endpoint (never
+  for a custom `S3_ENDPOINT_URL`, even with `S3_USE_LOCALSTACK=true`).
+  **Per-account bucket isolation**: each onboarded `AwsAccount`
   owns its own dedicated `state_bucket`, so one account's state is never
   physically co-located with another's. Non-`s3` workspaces resolve to the
   linked Azure subscription's container / GCP project's bucket instead. (The
@@ -594,6 +614,15 @@ GitHub, and `local` auth mode needs zero configuration. `make seed-db`
 inserts three dev users (`admin@test.com` / `operator@test.com` /
 `viewer@test.com`, all password `password123`). See the `Makefile` for the
 full command list.
+
+### External database + object store (compose)
+
+`deploy/docker-compose.external-db.yml` runs the same compose stack against an
+external Postgres and an external S3-compatible state store (see
+`docs/ONBOARDING.md`), e.g. Postgres + Garage on their own hosts. Use TLS for
+both: `?ssl=require` on the asyncpg `DATABASE_URL` (alembic's psycopg2 URL
+gets the equivalent `sslmode=require` via `app.db.to_sync_url`) and an
+`https://` `S3_ENDPOINT_URL`.
 
 ### AWS ECS production path (optional)
 
