@@ -217,6 +217,23 @@ async def _service_for(ws: Workspace, db: AsyncSession) -> tuple[StateStore, str
     return store, _state_key_for(ws)
 
 
+async def _store_or_503(ws: Workspace, db: AsyncSession) -> tuple[StateStore, str]:
+    """`_service_for`, with any failure to *build* the store mapped to 503.
+
+    A store that cannot be built (half-configured key pair, missing linkage)
+    is "backend unavailable" for reads and writes alike; only a failed
+    transfer to a store that was built is a write error.
+    """
+    try:
+        return await _service_for(ws, db)
+    except Exception:
+        logger.exception("State store unavailable for workspace %s", ws.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="State backend unavailable",
+        )
+
+
 @router.get("/{workspace_id}")
 async def get_state(
     workspace_id: str,
@@ -310,8 +327,8 @@ async def put_state(
     if ws is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
+    svc, key = await _store_or_503(ws, db)
     try:
-        svc, key = await _service_for(ws, db)
         # Same reasoning as the GET path — an upload of the full state body must
         # not block every other request while it is in flight.
         await asyncio.to_thread(svc.put_state_at, key, body)
