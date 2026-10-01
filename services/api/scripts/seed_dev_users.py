@@ -84,11 +84,16 @@ def _build_dev_users() -> tuple[tuple[tuple[str, str, str], ...], frozenset[str]
       (printed once).
     - neither: the documented dev `password123` for everyone.
 
-    Both at once, or a SEED_PASSWORD shorter than SEED_PASSWORD_MIN_LEN, is
+    Both at once, a SEED_PASSWORD shorter than SEED_PASSWORD_MIN_LEN, or one with
+    leading/trailing whitespace (never stripped), is
     refused with a non-zero exit.
     """
-    fixed = os.environ.get("SEED_PASSWORD", "").strip()
+    fixed = os.environ.get("SEED_PASSWORD", "")
     if fixed:
+        if fixed != fixed.strip():
+            # Stripping would silently set a password the provisioner doesn't
+            # hold; refuse so the mistake is visible.
+            _fail("SEED_PASSWORD has leading or trailing whitespace — remove it.")
         if _random_passwords_enabled():
             _fail(
                 "SEED_PASSWORD and SEED_RANDOM_PASSWORDS are mutually exclusive — "

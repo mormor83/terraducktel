@@ -90,11 +90,26 @@ def test_short_seed_password_exits_nonzero(monkeypatch, capsys):
     assert "too-short-15chr" not in captured.out + captured.err
 
 
-def test_blank_seed_password_is_ignored(monkeypatch):
-    monkeypatch.setenv("SEED_PASSWORD", "   ")
+def test_empty_seed_password_is_ignored(monkeypatch):
+    monkeypatch.setenv("SEED_PASSWORD", "")
     mod = _import_fresh()
     assert {pw for _e, pw, _r in mod.DEV_USERS} == {"password123"}
     assert mod.GENERATED_PASSWORD_EMAILS == frozenset()
+
+
+@pytest.mark.parametrize("padded", [f" {FIXED}", f"{FIXED} ", f"{FIXED}\n", f"\t{FIXED}", "   "])
+def test_seed_password_with_surrounding_whitespace_is_rejected_not_stripped(
+    monkeypatch, capsys, padded
+):
+    """Silently stripping would set a different password than the provisioner
+    holds (and then lock them out), so refuse instead."""
+    monkeypatch.setenv("SEED_PASSWORD", padded)
+    with pytest.raises(SystemExit) as exc:
+        _import_fresh()
+    assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert "whitespace" in captured.err
+    assert FIXED not in captured.out + captured.err
 
 
 def _seed_into_sqlite(tmp_path, monkeypatch, mod):
