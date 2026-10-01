@@ -61,3 +61,25 @@ export function uiUrlFor(p: Profile): string { return p.uiUrl ?? p.url.replace(/
 export function pickActive(profiles: Profile[], activeName: string | undefined): Profile | undefined {
   return profiles.find((p) => p.name === activeName) ?? profiles[0];
 }
+
+function isLoopbackHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h === "localhost" || h === "[::1]" || /^127(\.\d{1,3}){3}$/.test(h);
+}
+
+/** True for `http://` to anything other than localhost / 127.0.0.0/8 / ::1 — passwords and
+ *  refresh tokens would cross the network in clear text. */
+export function isPlainHttpToRemote(url: string): boolean {
+  let u: URL;
+  try { u = new URL(url); } catch { return false; }
+  return u.protocol === "http:" && !isLoopbackHost(u.hostname);
+}
+
+/** Warn (never refuse) about cleartext HTTP to a remote host, once per profile+url in `seen`. */
+export function warnOnPlainHttp(profile: Pick<Profile, "name" | "url">, seen: Set<string>, show: (message: string) => unknown): void {
+  if (!isPlainHttpToRemote(profile.url)) return;
+  const key = `${profile.name}\n${profile.url}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  show(`Terraducktel: profile '${profile.name}' uses plain http:// to ${new URL(profile.url).host}. Passwords and tokens will be sent unencrypted; use https:// unless this is a trusted private network.`);
+}

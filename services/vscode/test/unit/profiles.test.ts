@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickActive, readProfiles, uiUrlFor } from "../../src/auth/profiles";
+import { isPlainHttpToRemote, pickActive, readProfiles, uiUrlFor, warnOnPlainHttp } from "../../src/auth/profiles";
 
 describe("readProfiles", () => {
   it("returns [] for non-array input", () => {
@@ -119,5 +119,44 @@ describe("pickActive", () => {
   });
   it("returns undefined when there are no profiles", () => {
     expect(pickActive([], "prod")).toBeUndefined();
+  });
+});
+
+describe("isPlainHttpToRemote", () => {
+  it.each(["http://tdt.example.com", "http://10.0.0.5:8001/api", "http://192.168.1.2", "http://[2001:db8::1]:8001", "HTTP://tdt.example.com", "http://localhost.evil.com", "http://127.0.0.1.evil.com"])("flags %s", (u) => {
+    expect(isPlainHttpToRemote(u)).toBe(true);
+  });
+  it.each(["https://tdt.example.com", "https://localhost", "http://localhost", "http://localhost:8001/api", "http://127.0.0.1:8001", "http://127.5.6.7", "http://[::1]:8001", "http://LOCALHOST:8001"])("does not flag %s", (u) => {
+    expect(isPlainHttpToRemote(u)).toBe(false);
+  });
+  it("does not flag unparseable input (it is rejected elsewhere)", () => {
+    expect(isPlainHttpToRemote("not a url")).toBe(false);
+  });
+});
+
+describe("warnOnPlainHttp", () => {
+  const remote = { name: "prod", url: "http://tdt.example.com" };
+  const local = { name: "dev", url: "http://localhost:8001" };
+  it("warns for plain http to a non-loopback host, naming the profile and host", () => {
+    const shown: string[] = [];
+    warnOnPlainHttp(remote, new Set(), (m) => shown.push(m));
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toContain("prod");
+    expect(shown[0]).toContain("tdt.example.com");
+  });
+  it("stays silent for loopback http and for https", () => {
+    const shown: string[] = [];
+    warnOnPlainHttp(local, new Set(), (m) => shown.push(m));
+    warnOnPlainHttp({ name: "x", url: "https://tdt.example.com" }, new Set(), (m) => shown.push(m));
+    expect(shown).toEqual([]);
+  });
+  it("warns only once per profile+url (reload() runs on every settings change)", () => {
+    const shown: string[] = [];
+    const seen = new Set<string>();
+    warnOnPlainHttp(remote, seen, (m) => shown.push(m));
+    warnOnPlainHttp(remote, seen, (m) => shown.push(m));
+    expect(shown).toHaveLength(1);
+    warnOnPlainHttp({ ...remote, url: "http://other.example.com" }, seen, (m) => shown.push(m));
+    expect(shown).toHaveLength(2);
   });
 });

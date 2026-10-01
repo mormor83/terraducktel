@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { TdtClient } from "./api/client";
 import type { AuthConfig, TokenPair } from "./api/types";
 import { TokenManager } from "./auth/tokenManager";
-import { pickActive, uiUrlFor, type Profile } from "./auth/profiles";
+import { pickActive, uiUrlFor, warnOnPlainHttp, type Profile } from "./auth/profiles";
 import { ignoredWorkspaceOverrides, readUserProfiles, userLevel } from "./auth/trustedConfig";
 import { runLoopbackLogin } from "./auth/sso";
 import type { SecretStore } from "./auth/secrets";
@@ -55,6 +55,7 @@ export class Session implements vscode.Disposable {
         if (e.affectsConfiguration("terraducktel.refreshIntervalSeconds") && this.profile) this.store.start(this.pollIntervalMs());
       }));
   }
+  private readonly plainHttpWarned = new Set<string>();
   private cfg() { return vscode.workspace.getConfiguration("terraducktel"); }
   private pollIntervalMs() { return Math.max(5, this.cfg().get<number>("refreshIntervalSeconds", 30)) * 1000; }
   uiUrl() { return this.profile ? uiUrlFor(this.profile) : undefined; }
@@ -81,6 +82,7 @@ export class Session implements vscode.Disposable {
     this.hasProfiles = profiles.length > 0;
     const next = pickActive(profiles, await this.resolveActiveProfileName(profiles));
     this.profile = next;
+    if (next) warnOnPlainHttp(next, this.plainHttpWarned, (m) => { void vscode.window.showWarningMessage(m); });
     if (!next) { this.tokens = undefined; this.client = undefined; this.bu = ""; this.store.clear(); await this.publishContexts(); return; }
     // Per-folder choice (workspaceState) wins, then the cross-window choice `setBu()` also
     // records in globalState, then whatever the legacy per-profile `bu` setting carried (migrated
