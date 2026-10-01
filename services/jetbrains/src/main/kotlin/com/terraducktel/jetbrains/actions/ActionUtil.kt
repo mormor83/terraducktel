@@ -7,6 +7,7 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.text.StringUtil
 import com.terraducktel.jetbrains.api.ApiError
 import java.io.IOException
 
@@ -44,10 +45,15 @@ object ActionUtil {
     /** Shows a balloon in the "Terraducktel" notification group, optionally with one or more
      *  actions (label -> callback). */
     fun notify(project: Project?, text: String, type: NotificationType = NotificationType.INFORMATION, vararg actions: Pair<String, () -> Unit>) {
-        val notification = NotificationGroupManager.getInstance().getNotificationGroup(GROUP_ID).createNotification(text, type)
+        val notification = NotificationGroupManager.getInstance().getNotificationGroup(GROUP_ID).createNotification(body(text), type)
         for ((label, action) in actions) {
             notification.addAction(NotificationAction.createSimpleExpiring(label) { action() })
         }
         notification.notify(project)
     }
+
+    /** The platform renders a balloon body as HTML, and callers interpolate server-controlled text
+     *  (API error messages, workspace names, run commands) into [text] — escape it, the same way
+     *  [com.terraducktel.jetbrains.notifications.ApprovalNotifier.body] does. */
+    internal fun body(text: String): String = StringUtil.escapeXmlEntities(text)
 }
