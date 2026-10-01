@@ -25,15 +25,16 @@ class SetBranchAction : AnAction() {
 
     override fun update(e: AnActionEvent) {
         val ws = e.getData(TdtDataKeys.WORKSPACE)
-        e.presentation.isEnabledAndVisible = ws != null && TdtSession.getInstance().canWrite()
+        e.presentation.isEnabledAndVisible = ws != null && TdtSession.getInstance().isSignedIn()
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val ws = e.getData(TdtDataKeys.WORKSPACE) ?: return
+        val bu = e.getData(TdtDataKeys.BU) ?: return
 
         ActionUtil.runBackground(project, "TDT: loading branches for ${ws.name}…") {
-            val client = TdtSession.getInstance().requireClient()
+            val client = TdtSession.getInstance().requireClient(bu)
             val branches = try {
                 client.listBranches(ws.id)
             } catch (e: CancellationException) {
@@ -45,16 +46,16 @@ class SetBranchAction : AnAction() {
             // ModalityState.any() + a disposal condition: this must not queue up behind a modal
             // dialog, nor fire after the project is gone.
             ApplicationManager.getApplication().invokeLater(
-                { pickBranch(project, ws, branches) },
+                { pickBranch(project, bu, ws, branches) },
                 ModalityState.any(),
             ) { project.isDisposed }
         }
     }
 
-    private fun pickBranch(project: Project, ws: Workspace, branches: Branches) {
+    private fun pickBranch(project: Project, bu: String, ws: Workspace, branches: Branches) {
         if (branches.branches.isEmpty()) {
             val ref = Messages.showInputDialog(project, "Tracked branch for ${ws.name}", "Set Tracked Branch", Messages.getQuestionIcon(), ws.repo_ref, null)
-            applyBranch(project, ws, ref)
+            applyBranch(project, bu, ws, ref)
             return
         }
         val other = "Other…"
@@ -73,23 +74,26 @@ class SetBranchAction : AnAction() {
                     ApplicationManager.getApplication().invokeLater(
                         {
                             val ref = Messages.showInputDialog(project, "Branch / ref", "Set Tracked Branch", Messages.getQuestionIcon(), ws.repo_ref, null)
-                            applyBranch(project, ws, ref)
+                            applyBranch(project, bu, ws, ref)
                         },
                         ModalityState.any(),
                     ) { project.isDisposed }
                 } else {
-                    applyBranch(project, ws, byLabel[picked])
+                    applyBranch(project, bu, ws, byLabel[picked])
                 }
             }
             .createPopup()
             .showCenteredInCurrentWindow(project)
     }
 
-    private fun applyBranch(project: Project, ws: Workspace, ref: String?) {
-        if (ref.isNullOrBlank() || ref == ws.repo_ref) return
-        ActionUtil.runBackground(project, "TDT: updating tracked branch for ${ws.name}…") {
-            TdtSession.getInstance().requireClient().updateWorkspace(ws.id, ref)
-            Store.getInstance().refreshAndWait()
+    companion object {
+        /** Pins [ws] to [ref] through the client of [bu] — the workspace's own business unit. */
+        internal fun applyBranch(project: Project, bu: String, ws: Workspace, ref: String?) {
+            if (ref.isNullOrBlank() || ref == ws.repo_ref) return
+            ActionUtil.runBackground(project, "TDT: updating tracked branch for ${ws.name}…") {
+                TdtSession.getInstance().requireClient(bu).updateWorkspace(ws.id, ref)
+                Store.getInstance().refreshAndWait()
+            }
         }
     }
 }

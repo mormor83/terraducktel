@@ -169,8 +169,8 @@ class TdtToolWindowFactoryTest : BasePlatformTestCase() {
         val consoles = RunConsoles.getInstance(project)
         consoles.tailStarterForTest = { runId -> started += runId }
 
-        consoles.watch("abcdef1234", "vpc")
-        consoles.watch("abcdef1234", "vpc") // still following: just reveals the existing tab
+        consoles.watch("abcdef1234", "vpc", "infra")
+        consoles.watch("abcdef1234", "vpc", "infra") // still following: just reveals the existing tab
 
         val contents = runWindow.contentManager.contents
         assertEquals(1, contents.size)

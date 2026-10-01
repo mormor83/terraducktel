@@ -1,6 +1,8 @@
 package com.terraducktel.jetbrains.editor
 
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.Workspace
+import com.terraducktel.jetbrains.state.WorkspaceRef
 import java.net.URI
 import java.net.URISyntaxException
 import java.nio.file.Paths
@@ -10,6 +12,9 @@ import java.nio.file.Paths
  * decide which workspace a file on disk belongs to with plain-JUnit test coverage.
  */
 data class Match(val ws: Workspace, val exact: Boolean)
+
+/** [Match] plus the business unit the workspace lives in. */
+data class BuMatch(val ws: Workspace, val bu: BusinessUnit, val exact: Boolean)
 
 private val SCP_LIKE = Regex("""^(?:[\w.-]+@)?((?:[\w.-]{2,}|[\w.-]*\.[\w.-]*)):(?!//)(\S+)$""")
 private val TRAILING_SLASHES = Regex("/+$")
@@ -85,6 +90,18 @@ object Mapping {
 
     private fun normalizeWd(wd: String?): String =
         (wd ?: "").replace(LEADING_DOT_SLASHES, "").replace(LEADING_OR_TRAILING_SLASHES, "")
+
+    /** The workspaces a file maps to across business units: the usual [matchWorkspace] rule
+     *  (longest `tf_working_dir` prefix, repo must match) applied to each BU's workspaces on their
+     *  own, so a path that two BUs both cover yields one match per BU — the caller asks the user
+     *  which. A BU whose own candidates are ambiguous contributes nothing, as before. Sorted by BU
+     *  name so a chooser lists them stably. */
+    fun matchAcrossBus(refs: List<WorkspaceRef>, relativeDir: String, remoteUrl: String?): List<BuMatch> =
+        refs.groupBy { it.bu.slug }.values
+            .mapNotNull { group ->
+                matchWorkspace(group.map { it.ws }, relativeDir, remoteUrl)?.let { BuMatch(it.ws, group.first().bu, it.exact) }
+            }
+            .sortedWith(compareBy({ it.bu.name.lowercase() }, { it.bu.slug }))
 
     /** Longest `tf_working_dir` prefix among workspaces whose repo matches. */
     fun matchWorkspace(workspaces: List<Workspace>, relativeDir: String, remoteUrl: String?): Match? {

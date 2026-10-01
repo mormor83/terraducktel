@@ -1,5 +1,6 @@
 package com.terraducktel.jetbrains.editor
 
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.Workspace
 import org.junit.Assert.assertEquals
@@ -18,7 +19,7 @@ class StatusTextTest {
     private fun runOf(status: String) = Run(id = "r1", workspace_id = "w1", command = "plan", status = status)
 
     private fun curFor(git: GitInfo? = null, exact: Boolean = true, path: String = "/repo/envs/prod/main.tf") =
-        CurrentFile(ws, git, exact, path)
+        CurrentFile(ws, BusinessUnit("1", "infra", "Infra"), git, exact, path)
 
     @Test fun `a failed last run is ERROR severity with the status suffixed onto the text`() {
         val view = StatusText.mapped(curFor(), runOf("failed"))
@@ -70,5 +71,13 @@ class StatusTextTest {
         val view = StatusText.unmapped(null)
         assertEquals("TDT: not imported", view.text)
         assertTrue(view.tooltip.startsWith("Not inside a git checkout"))
+    }
+
+    @Test fun `several workspaces in different business units show a count and ask the user to choose`() {
+        val view = StatusText.ambiguous(2)
+        assertEquals("TDT: 2 workspaces", view.text)
+        assertEquals(StatusText.Severity.NONE, view.severity)
+        assertTrue(view.tooltip.contains("business units"))
+        assertTrue(view.tooltip.endsWith("Click to choose"))
     }
 }

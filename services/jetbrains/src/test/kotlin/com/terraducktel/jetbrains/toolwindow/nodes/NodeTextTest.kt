@@ -1,8 +1,10 @@
 package com.terraducktel.jetbrains.toolwindow.nodes
 
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.RunStep
 import com.terraducktel.jetbrains.api.Workspace
+import com.terraducktel.jetbrains.state.BuState
 import com.terraducktel.jetbrains.state.Cloud
 import com.terraducktel.jetbrains.state.CloudGroup
 import org.junit.Assert.assertEquals
@@ -45,5 +47,20 @@ class NodeTextTest {
 
     @Test fun `cloud description is the provider and workspace count`() {
         assertEquals("AWS · 2", NodeText.cloudDescription(CloudGroup(Cloud.AWS, "k", "123", emptyList(), 2)))
+    }
+
+    @Test
+    fun `business unit descriptions use the singular for exactly one`() {
+        val bu = BusinessUnit(id = "b1", slug = "infra", name = "Infra")
+        fun state(w: Int, r: Int) = BuState(
+            bu, workspaces = List(w) { Workspace(id = "w$it", name = "n$it") },
+            runs = List(r) { Run(id = "r$it", workspace_id = "w0", command = "plan", status = "planned") }, loaded = true,
+        )
+        assertEquals("infra · 1 workspace", NodeText.buDescription(bu, state(1, 1), workspaces = true))
+        assertEquals("infra · 1 run", NodeText.buDescription(bu, state(1, 1), workspaces = false))
+        assertEquals("infra · 0 workspaces", NodeText.buDescription(bu, state(0, 0), workspaces = true))
+        assertEquals("infra · 0 runs", NodeText.buDescription(bu, state(0, 0), workspaces = false))
+        assertEquals("infra · 2 workspaces", NodeText.buDescription(bu, state(2, 2), workspaces = true))
+        assertEquals("infra · 2 runs", NodeText.buDescription(bu, state(2, 2), workspaces = false))
     }
 }

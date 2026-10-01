@@ -32,6 +32,11 @@ object StatusText {
         return View(text, tooltip, severity)
     }
 
+    /** More than one workspace (in different business units) covers the active file; which one to
+     *  act on is asked when an action needs it. */
+    fun ambiguous(count: Int): View =
+        View("TDT: $count workspaces", "$count workspaces in different business units cover this path.\nClick to choose", Severity.NONE)
+
     /** No workspace covers the active file. [git] is non-null when the file is at least inside a
      *  git checkout Terraducktel could inspect (just none of the configured workspaces claim it). */
     fun unmapped(git: GitInfo?): View {

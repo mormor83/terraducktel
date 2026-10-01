@@ -33,7 +33,8 @@ object ApprovalNotifier {
      *  [com.terraducktel.jetbrains.api.RunGraph.summary] is non-nullable (an all-zero default) — so
      *  then show no counts at all rather than a misleading "+0 to add, ~0 to change, -0 to destroy". */
     internal fun body(n: ApprovalNotice): String {
-        val sentence = "TDT: ${StringUtil.escapeXmlEntities(n.workspaceName)} ${StringUtil.escapeXmlEntities(n.run.command)} awaits approval"
+        val sentence = "TDT: ${StringUtil.escapeXmlEntities(n.workspaceName)} (${StringUtil.escapeXmlEntities(n.bu.name)}) " +
+            "${StringUtil.escapeXmlEntities(n.run.command)} awaits approval"
         val counts = n.summary?.let { "<br>${Approvals.summaryText(it)}" } ?: ""
         return "<html>$sentence$counts</html>"
     }
@@ -60,13 +61,13 @@ object ApprovalNotifier {
         notification.addAction(
             NotificationAction.createSimpleExpiring("Approve…") {
                 val p = projectForAction()
-                if (p != null) Approvals.approve(p, n.run) else noProjectOpenError()
+                if (p != null) Approvals.approve(p, n.bu.slug, n.run) else noProjectOpenError()
             },
         )
         notification.addAction(
             NotificationAction.createSimpleExpiring("Reject…") {
                 val p = projectForAction()
-                if (p != null) RejectAction.reject(p, n.run) else noProjectOpenError()
+                if (p != null) RejectAction.reject(p, n.bu.slug, n.run) else noProjectOpenError()
             },
         )
         notification.addAction(

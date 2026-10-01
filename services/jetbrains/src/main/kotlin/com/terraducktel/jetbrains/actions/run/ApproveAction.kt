@@ -8,7 +8,7 @@ import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.toolwindow.TdtDataKeys
 
 /** Approves the selected run, after the gated confirmation modal ([Approvals.approve]). Visible
- *  only for a run that is actually `awaiting_approval` and only for a session that can write. Port
+ *  only for a run that is actually `awaiting_approval` and only while signed in. Port
  *  of VS Code's `terraducktel.approveRun`. */
 class ApproveAction : AnAction("Approve…") {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
@@ -16,12 +16,13 @@ class ApproveAction : AnAction("Approve…") {
     override fun update(e: AnActionEvent) {
         val run = e.getData(TdtDataKeys.RUN)
         e.presentation.isEnabledAndVisible =
-            run != null && run.status == "awaiting_approval" && TdtSession.getInstance().canWrite()
+            run != null && run.status == "awaiting_approval" && TdtSession.getInstance().isSignedIn()
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val run = e.getData(TdtDataKeys.RUN) ?: return
-        Approvals.approve(project, run)
+        val bu = e.getData(TdtDataKeys.BU) ?: return
+        Approvals.approve(project, bu, run)
     }
 }

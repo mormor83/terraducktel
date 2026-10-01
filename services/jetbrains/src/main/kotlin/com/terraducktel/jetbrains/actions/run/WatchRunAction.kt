@@ -22,17 +22,19 @@ class WatchRunAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val run = e.getData(TdtDataKeys.RUN)
-        if (run != null) {
-            RunActions.watch(project, run)
+        val bu = e.getData(TdtDataKeys.BU)
+        if (run != null && bu != null) {
+            RunActions.watch(project, bu, run)
             return
         }
-        val runs = Store.getInstance().runs
-        val labels = runs.map { "${RunActions.wsName(it)} · ${it.command} — ${it.status} · ${it.id.take(8)}" }
+        // No run selected (Tools menu / toolbar): choose among the runs of every visible BU.
+        val runs = Store.getInstance().allRuns()
+        val labels = RunActions.chooserLabels(runs)
         val byLabel = labels.zip(runs).toMap()
         JBPopupFactory.getInstance()
             .createPopupChooserBuilder(labels)
             .setTitle("Watch Run")
-            .setItemChosenCallback { label -> byLabel[label]?.let { RunActions.watch(project, it) } }
+            .setItemChosenCallback { label -> byLabel[label]?.let { RunActions.watch(project, it.bu.slug, it.run) } }
             .createPopup()
             .showCenteredInCurrentWindow(project)
     }

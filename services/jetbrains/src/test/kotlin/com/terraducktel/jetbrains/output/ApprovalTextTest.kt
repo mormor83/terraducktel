@@ -1,6 +1,7 @@
 package com.terraducktel.jetbrains.output
 
 import com.intellij.openapi.ui.Messages
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.GraphSummary
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.notifications.ApprovalNotice
@@ -33,13 +34,13 @@ class ApprovalTextTest {
     }
 
     @Test fun `balloon body is wrapping HTML - sentence, line break, summary`() {
-        val body = ApprovalNotifier.body(ApprovalNotice(run, "worker-pool", GraphSummary(2, 1, 2, 1)))
-        assertEquals("<html>TDT: worker-pool apply awaits approval<br>+2 to add, ~1 to change, -2 to destroy, ±1 to replace</html>", body)
+        val body = ApprovalNotifier.body(ApprovalNotice(run, "worker-pool", GraphSummary(2, 1, 2, 1), BusinessUnit("1", "infra", "Infra")))
+        assertEquals("<html>TDT: worker-pool (Infra) apply awaits approval<br>+2 to add, ~1 to change, -2 to destroy, ±1 to replace</html>", body)
         assertFalse(body.contains("nowrap"))
     }
 
     @Test fun `balloon body has no counts when the summary is unknown, and escapes the workspace name`() {
-        assertEquals("<html>TDT: a&lt;b&gt; apply awaits approval</html>", ApprovalNotifier.body(ApprovalNotice(run, "a<b>", null)))
+        assertEquals("<html>TDT: a&lt;b&gt; (Infra &amp; Co) apply awaits approval</html>", ApprovalNotifier.body(ApprovalNotice(run, "a<b>", null, BusinessUnit("2", "infra-co", "Infra & Co"))))
         assertEquals("Terraducktel approvals", ApprovalNotifier.TITLE)
     }
 }

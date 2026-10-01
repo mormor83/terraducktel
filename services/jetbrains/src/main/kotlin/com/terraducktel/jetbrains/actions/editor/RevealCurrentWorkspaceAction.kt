@@ -13,12 +13,11 @@ class RevealCurrentWorkspaceAction : AnAction() {
 
     override fun update(e: AnActionEvent) {
         val project = e.project
-        e.presentation.isEnabledAndVisible = project != null && EditorStatus.getInstance(project).current != null
+        e.presentation.isEnabledAndVisible = project != null && EditorStatus.getInstance(project).isMapped
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val ws = EditorStatus.getInstance(project).current?.ws ?: return
-        TdtToolWindowFactory.revealWorkspace(project, ws.id)
+        EditorStatus.getInstance(project).resolveCurrent { TdtToolWindowFactory.revealWorkspace(project, it.ws.id) }
     }
 }

@@ -33,6 +33,13 @@ class RunActionsTest {
         assertEquals("plan", plan.body.command)
     }
 
+    @Test fun `the awaiting-approval toast names the business unit`() {
+        assertEquals(
+            "TDT: prod-vpc (Infra) apply is awaiting approval.",
+            RunActions.awaitingText("prod-vpc", "Infra", "apply"),
+        )
+    }
+
     @Test fun `pin failure message reports both the pin and the trigger failure`() {
         val msg = RunActions.pinFailedMessage("feature-x", "apply", IllegalStateException("workspace is locked"))
         assertEquals("pinned to feature-x, but apply failed: workspace is locked", msg)

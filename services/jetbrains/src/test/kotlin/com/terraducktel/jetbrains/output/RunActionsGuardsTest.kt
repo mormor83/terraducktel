@@ -1,5 +1,7 @@
 package com.terraducktel.jetbrains.output
 
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationsManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.PlatformTestUtil
@@ -93,7 +95,7 @@ class RunActionsGuardsTest : BasePlatformTestCase() {
 
             RunActions.confirmDestroy = { _, _ -> false }
 
-            RunActions.trigger(project, ws(), "destroy")
+            RunActions.trigger(project, "infra", ws(), "destroy")
 
             assertNeverPosted(srv, "/api/v1/workspaces/w1/runs")
         }
@@ -110,7 +112,7 @@ class RunActionsGuardsTest : BasePlatformTestCase() {
 
             RunActions.confirmDestroy = { _, _ -> true }
 
-            RunActions.trigger(project, ws(), "destroy")
+            RunActions.trigger(project, "infra", ws(), "destroy")
 
             waitUntil { srv.calls("POST", "/api/v1/workspaces/w1/runs").isNotEmpty() }
         }
@@ -124,9 +126,68 @@ class RunActionsGuardsTest : BasePlatformTestCase() {
 
             RunActions.confirmApply = { _, _ -> false }
 
-            RunActions.trigger(project, ws(), "apply")
+            RunActions.trigger(project, "infra", ws(), "apply")
 
             assertNeverPosted(srv, "/api/v1/workspaces/w1/runs")
+        }
+    }
+
+    fun `test a confirmed trigger posts the run with the workspace's own business unit header`() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, "[]")
+            srv.json("POST", "/api/v1/workspaces/w1/runs", 200, """{"id":"r1","workspace_id":"w1","command":"destroy","status":"pending"}""")
+            setProfile(srv)
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+            RunActions.confirmDestroy = { _, _ -> true }
+
+            RunActions.trigger(project, "apps", ws(), "destroy")
+
+            waitUntil { srv.calls("POST", "/api/v1/workspaces/w1/runs").isNotEmpty() }
+            assertEquals("apps", srv.calls("POST", "/api/v1/workspaces/w1/runs").single().headers["x-business-unit"])
+        }
+    }
+
+    fun `test pinning a branch before the trigger also uses the workspace's business unit`() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, "[]")
+            srv.json("PUT", "/api/v1/workspaces/w1", 200, """{"id":"w1","name":"prod-vpc"}""")
+            srv.json("POST", "/api/v1/workspaces/w1/runs", 200, """{"id":"r1","workspace_id":"w1","command":"plan","status":"pending"}""")
+            setProfile(srv)
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+
+            RunActions.trigger(project, "apps", ws(), "plan", branch = "feature-x")
+
+            waitUntil { srv.calls("POST", "/api/v1/workspaces/w1/runs").isNotEmpty() }
+            assertEquals("apps", srv.calls("PUT", "/api/v1/workspaces/w1").single().headers["x-business-unit"])
+        }
+    }
+
+    /** Text of every "Terraducktel"-group balloon currently shown for the fixture project. */
+    private fun errorBalloons(): List<String> =
+        NotificationsManager.getNotificationsManager()
+            .getNotificationsOfType(Notification::class.java, project)
+            .filter { it.groupId == "Terraducktel" }
+            .map { it.content }
+
+    private fun expireBalloons() {
+        val manager = NotificationsManager.getNotificationsManager()
+        for (n in manager.getNotificationsOfType(Notification::class.java, project).filter { it.groupId == "Terraducktel" }) manager.expire(n)
+    }
+
+    fun `test a 403 on triggering a plan surfaces the server's own message`() {
+        StubServer().use { srv ->
+            srv.json("POST", "/api/v1/workspaces/w1/runs", 403, """{"detail":"Requires operator role in business unit infra"}""")
+            setProfile(srv)
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+            expireBalloons()
+
+            RunActions.trigger(project, "infra", ws(), "plan")
+
+            waitUntil { errorBalloons().any { it.contains("Requires operator role in business unit infra") } }
+            expireBalloons()
         }
     }
 }

@@ -11,6 +11,7 @@ import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.session.TdtSessionListener
 import com.terraducktel.jetbrains.settings.TdtSettings
 import com.terraducktel.jetbrains.settings.TdtSettingsListener
+import com.terraducktel.jetbrains.state.Store
 
 /** Registers [ProfileStatusBarWidget] (id `Terraducktel.Profile`) as a `statusBarWidgetFactory`,
  *  ordered before [TdtStatusBarWidgetFactory] — the profile widget sits to its left. */
@@ -26,7 +27,7 @@ class ProfileStatusBarWidgetFactory : StatusBarWidgetFactory {
 }
 
 /**
- * Compact status-bar item showing the active Terraducktel profile (and BU, once signed in) — a
+ * Compact status-bar item showing the active Terraducktel profile (and how many BUs are visible, once signed in) — a
  * port of `services/vscode/src/views/profileStatus.ts`'s `ProfileStatus`. Hidden entirely (via
  * [ProfileStatusBarWidgetFactory.isAvailable] and a null [getSelectedValue]) when no profile is
  * configured. Click reuses [SwitchProfileAction]'s own chooser popup.
@@ -40,13 +41,12 @@ class ProfileStatusBarWidget(private val project: Project) : StatusBarWidget, St
     override fun getSelectedValue(): String? {
         if (TdtSettings.getInstance().state.profiles.isEmpty()) return null
         val session = TdtSession.getInstance()
-        val name = session.profile?.name ?: "no profile"
-        val bu = session.bu.takeIf { session.isSignedIn() && it.isNotBlank() }
-        return if (bu != null) "$name · $bu" else name
+        val store = Store.getInstance()
+        return text(session.profile?.name ?: "no profile", session.isSignedIn(), store.visibleBus().size, store.businessUnits.size)
     }
 
     /** No own polling: the platform re-renders on [StatusBar.updateWidget], so this widget just
-     *  needs to be told when the profile, BU, sign-in state, or profile list changes. */
+     *  needs to be told when the profile, sign-in state, profile list, or BU filter changes. */
     override fun install(statusBar: StatusBar) {
         val connection = ApplicationManager.getApplication().messageBus.connect(this)
         connection.subscribe(
@@ -61,7 +61,15 @@ class ProfileStatusBarWidget(private val project: Project) : StatusBarWidget, St
                 override fun settingsChanged() = statusBar.updateWidget(ID())
             },
         )
+        Store.getInstance().addListener(this) { statusBar.updateWidget(ID()) }
     }
 
     override fun dispose() {}
+
+    companion object {
+        /** `<profile> · X/Y BUs` once signed in and the business-unit list is known (X visible of Y
+         *  accessible), just `<profile>` otherwise. */
+        fun text(profileName: String, signedIn: Boolean, visible: Int, total: Int): String =
+            if (signedIn && total > 0) "$profileName · $visible/$total BUs" else profileName
+    }
 }

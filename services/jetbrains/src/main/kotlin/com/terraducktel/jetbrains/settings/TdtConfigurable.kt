@@ -29,7 +29,7 @@ import javax.swing.DefaultComboBoxModel
  * this configurable treats as its "last known committed" baseline, refreshed in [reset] and after
  * a successful [apply]. [working]'s own mutable collections are always independently deep-copied
  * (see [deepCopyInto]) — `XmlSerializerUtil.copyBean` only shallow-copies fields, so without this a
- * caller mutating `working.profiles`/`buByProfile`/`notifiedRuns` in place would mutate the live
+ * caller mutating `working.profiles`/`buHiddenByProfile`/`notifiedRuns` in place would mutate the live
  * [TdtSettings] service's collections too, before `apply()` ever runs.
  *
  * The table itself edits [clone]d Profile instances, never [working]'s own — aliasing them would
@@ -38,7 +38,7 @@ import javax.swing.DefaultComboBoxModel
  * each cloned row's name as of the last [reset]/[apply] (by object identity), and [renameMap]
  * derives the `oldName -> newName` map from rows whose current name has since diverged — used both
  * to keep the active-profile combo following a rename ([rebuildActiveCombo]) and, in [apply], to
- * migrate that profile's stored credential and `buByProfile` entry to the new name.
+ * migrate that profile's stored credential and `buHiddenByProfile` entry to the new name.
  */
 class TdtConfigurable : BoundConfigurable("Terraducktel") {
 
@@ -131,13 +131,13 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
         profiles.map { Profile(it.name, it.url, it.uiUrl, it.insecureTls) }.toMutableList()
 
     /** Deep-copies [source] into [target]: `XmlSerializerUtil.copyBean` only shallow-copies
-     *  fields, so without this `target`'s `profiles`/`buByProfile`/`notifiedRuns` would be the SAME
+     *  fields, so without this `target`'s `profiles`/`buHiddenByProfile`/`notifiedRuns` would be the SAME
      *  collection (and, for `profiles`, the same [Profile] instances) as `source`'s — any in-place
      *  edit to `target` would then also mutate `source` before anyone called `apply()`. */
     private fun deepCopyInto(target: TdtSettings.State, source: TdtSettings.State) {
         XmlSerializerUtil.copyBean(source, target)
         target.profiles = clone(source.profiles)
-        target.buByProfile = HashMap(source.buByProfile)
+        target.buHiddenByProfile = HashMap(source.buHiddenByProfile)
         target.notifiedRuns = HashMap(source.notifiedRuns)
     }
 
@@ -224,7 +224,7 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
         val anyRemoved = removedProfiles.isNotEmpty()
         val shouldFire = activeUrlOrTlsChanged || activeRenamedOrRemoved || anyRemoved
 
-        val newBuByProfile = actual.buByProfile.toMutableMap()
+        val newBuByProfile = actual.buHiddenByProfile.toMutableMap()
 
         // Baseline (pre-rename) name for each removed row. A row renamed earlier in THIS apply
         // cycle already has its `.name` mutated in place, so the credential/BU key actually on
@@ -240,7 +240,7 @@ class TdtConfigurable : BoundConfigurable("Terraducktel") {
 
         working.profiles = newProfiles
         working.activeProfile = newActiveName
-        working.buByProfile = newBuByProfile
+        working.buHiddenByProfile = newBuByProfile
 
         settings.loadState(working)
         // Rebuild the working baseline from independent copies of what was just persisted (see

@@ -37,7 +37,7 @@ class TdtSessionTest : BasePlatformTestCase() {
         super.setUp()
         secretStore = InMemorySecretStore()
         session.secretStoreFactory = { secretStore }
-        // TdtSession.reload()/setBu()/signIn*() now kick off an async Store.refresh() against
+        // TdtSession.reload()/signIn*() now kick off an async Store.refresh() against
         // whatever client is current at the moment that coroutine actually runs — which races
         // arbitrarily against this test's own synchronous steps (e.g. a sign-in landing between
         // reload()'s launch and the refresh coroutine's read of the client). Neutering the client
@@ -101,23 +101,6 @@ class TdtSessionTest : BasePlatformTestCase() {
         }
     }
 
-    // (b) setBu persists to settings and is sent on subsequent requests.
-    fun testSetBuPersistsAndIsSentOnRequests() {
-        StubServer().use { srv ->
-            srv.json("GET", "/api/v1/workspaces", 200, "[]")
-            setProfile(srv)
-            offEdt { session.reload() }
-            offEdt { session.signInWithApiKey("tdt_x") }
-
-            offEdt { session.setBu("ops") }
-
-            assertEquals("ops", TdtSettings.getInstance().state.buByProfile["p"])
-            offEdt { session.client!!.listWorkspaces() }
-            val call = srv.calls("GET", "/api/v1/workspaces").last()
-            assertEquals("ops", call.headers["x-business-unit"])
-        }
-    }
-
     // (c) signOut clears the client and deletes the PasswordSafe entry.
     fun testSignOutClearsClientAndSecret() {
         StubServer().use { srv ->
@@ -130,29 +113,6 @@ class TdtSessionTest : BasePlatformTestCase() {
 
             assertNull(session.clientOrNull())
             assertNull(secretStore.get("terraducktel.cred.p"))
-        }
-    }
-
-    // (d) canWrite(): API key -> true; JWT viewer -> false; JWT operator -> true.
-    fun testCanWriteForApiKeyViewerAndOperator() {
-        StubServer().use { srv ->
-            setProfile(srv)
-            offEdt { session.reload() }
-
-            offEdt { session.signInWithApiKey("tdt_x") }
-            assertTrue(session.canWrite())
-            offEdt { session.signOut() }
-
-            srv.json("POST", "/api/v1/auth/token", 200, """{"access_token":"${fakeJwt("role" to "viewer")}","refresh_token":"r1"}""")
-            offEdt { session.signInWithPassword("a@b", "pw") }
-            assertFalse(session.canWrite())
-            offEdt { session.signOut() }
-
-            srv.on("POST", "/api/v1/auth/token") { _, ex ->
-                StubServer.respond(ex, 200, """{"access_token":"${fakeJwt("role" to "operator")}","refresh_token":"r2"}""")
-            }
-            offEdt { session.signInWithPassword("a@b", "pw") }
-            assertTrue(session.canWrite())
         }
     }
 
@@ -293,6 +253,7 @@ class TdtSessionTest : BasePlatformTestCase() {
     // refresh()), and signOut() clears it again.
     fun testReloadAndSignInPopulateTheStoreAndSignOutClearsIt() {
         StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, """[{"id":"b1","slug":"infra","name":"Infra"}]""")
             srv.json("GET", "/api/v1/workspaces", 200, """[{"id":"w1","name":"a"}]""")
             srv.json("GET", "/api/v1/runs", 200, "[]")
             Store.getInstance().clientProvider = { TdtSession.getInstance().clientOrNull() }

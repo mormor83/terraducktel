@@ -10,4 +10,8 @@ import com.terraducktel.jetbrains.api.Workspace
 object TdtDataKeys {
     val WORKSPACE: DataKey<Workspace> = DataKey.create("terraducktel.workspace")
     val RUN: DataKey<Run> = DataKey.create("terraducktel.run")
+
+    /** Slug of the business unit the selected workspace / run belongs to — every action issues its
+     *  request against this BU (`client.withBu(slug)`), never a global "current" one. */
+    val BU: DataKey<String> = DataKey.create("terraducktel.bu")
 }

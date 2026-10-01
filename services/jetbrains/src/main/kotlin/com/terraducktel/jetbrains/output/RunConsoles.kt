@@ -59,7 +59,7 @@ class RunConsoles(private val project: Project) : Disposable {
     /** Opens (or reveals) a console tab for [runId] and starts following it, unless a follow for
      *  this run is already active — in which case the existing tab is just revealed. Either way
      *  the Terraducktel Run window is opened and activated. Must be called on the EDT. */
-    fun watch(runId: String, title: String, onLanded: ((Run) -> Unit)? = null) {
+    fun watch(runId: String, title: String, bu: String, onLanded: ((Run) -> Unit)? = null) {
         ThreadingAssertions.assertEventDispatchThread()
         val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)
         if (toolWindow == null) {
@@ -80,7 +80,7 @@ class RunConsoles(private val project: Project) : Disposable {
             existing.console.print("─".repeat(20) + " re-attached " + "─".repeat(20) + "\n", ConsoleViewContentType.NORMAL_OUTPUT)
             existing.cancelled.set(false)
             existing.active.set(true)
-            startTail(runId, title, existing, onLanded)
+            startTail(runId, title, bu, existing, onLanded)
             return
         }
 
@@ -95,10 +95,10 @@ class RunConsoles(private val project: Project) : Disposable {
         toolWindow.contentManager.addContent(content)
         toolWindow.contentManager.setSelectedContent(content)
         toolWindow.activate(null)
-        startTail(runId, title, entry, onLanded)
+        startTail(runId, title, bu, entry, onLanded)
     }
 
-    private fun startTail(runId: String, title: String, entry: Entry, onLanded: ((Run) -> Unit)?) {
+    private fun startTail(runId: String, title: String, bu: String, entry: Entry, onLanded: ((Run) -> Unit)?) {
         tailStarterForTest?.let { it(runId); return }
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "TDT: watching $title — cancel to stop following", true) {
             override fun run(indicator: ProgressIndicator) {
@@ -117,7 +117,7 @@ class RunConsoles(private val project: Project) : Disposable {
                     ) { expired() }
                 }
                 try {
-                    val client = TdtSession.getInstance().requireClient()
+                    val client = TdtSession.getInstance().requireClient(bu)
                     val run = RunTail.tail(client, runId, sink, isCancelled = cancelled)
                     entry.active.set(false)
                     if (!cancelled()) {

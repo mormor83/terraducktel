@@ -25,8 +25,8 @@ import com.terraducktel.jetbrains.output.RunActions
 class TdtSessionStarter : ProjectActivity {
     override suspend fun execute(project: Project) {
         TdtSession.getInstance()
-        RunActions.showPlanHook = { p, r -> PlanDocument.open(p, r.id, RunActions.wsName(r)) }
-        RunActions.approveHook = { p, r -> Approvals.approve(p, r) }
+        RunActions.showPlanHook = { p, bu, r -> PlanDocument.open(p, bu, r.id, RunActions.wsName(r)) }
+        RunActions.approveHook = { p, bu, r -> Approvals.approve(p, bu, r) }
         RunActions.onAwaitingHook = { r -> ApprovalService.getInstance().markSeen(r.id) }
     }
 }

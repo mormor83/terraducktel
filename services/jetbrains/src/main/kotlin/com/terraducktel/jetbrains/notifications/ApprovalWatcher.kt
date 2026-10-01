@@ -1,6 +1,7 @@
 package com.terraducktel.jetbrains.notifications
 
 import com.intellij.openapi.Disposable
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.GraphSummary
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.TdtClient
@@ -25,7 +26,7 @@ interface SeenStore {
 
 /** One run awaiting approval the watcher decided to surface. [summary] is null when the graph
  *  fetch for this run failed — the notice still goes out, just without counts. */
-data class ApprovalNotice(val run: Run, val workspaceName: String, val summary: GraphSummary?)
+data class ApprovalNotice(val run: Run, val workspaceName: String, val summary: GraphSummary?, val bu: BusinessUnit)
 
 /**
  * Polls for runs awaiting approval and raises each one once (per 24h, across reloads/restarts). A
@@ -36,6 +37,8 @@ data class ApprovalNotice(val run: Run, val workspaceName: String, val summary: 
  */
 class ApprovalWatcher(
     private val client: () -> TdtClient?,
+    // The business units to watch (the ones the user has not hidden), evaluated on every poll.
+    private val businessUnits: () -> List<BusinessUnit>,
     private val workspaceName: (String) -> String,
     private val notify: (ApprovalNotice) -> Unit,
     // Called once per poll, after every fresh run in the batch has been offered to [notify] — never
@@ -50,11 +53,12 @@ class ApprovalWatcher(
     private val scope: CoroutineScope,
 ) : Disposable {
 
-    /** False until the current backlog has been recorded as seen. While false the watcher NEVER
-     *  notifies: it records whatever it fetched and flips to true. That covers both a [prime] that
-     *  failed (network down at wake-up) and a [poll] whose response lands before a concurrent
-     *  [prime]'s — either way the first thing a fresh session does is swallow the backlog. */
-    @Volatile private var primed = false
+    /** Slugs of the business units whose current backlog has been recorded as seen. Priming is
+     *  tracked PER BU (as in the VS Code extension): a BU not in this set never notifies — its
+     *  first successful fetch records the backlog silently and adds it. That covers a BU whose
+     *  [prime] failed, a BU that just became visible, and a [poll] that lands before a concurrent
+     *  [prime]. One BU that keeps failing therefore never silences the others. */
+    private val primedBus: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     // Single-flight guard for poll(): a second call while one is in flight joins the same
     // CompletableFuture rather than issuing a second request, mirroring the TS `inflight` promise.
@@ -91,37 +95,57 @@ class ApprovalWatcher(
         return seen.get().filterValues { it >= cutoff }
     }
 
-    private fun fetchAwaiting(): List<Run>? {
+    /** What one sweep over the visible business units found: every awaiting run with the BU it
+     *  belongs to, and the slugs of the BUs that actually answered. */
+    private class Sweep(val runs: List<Pair<BusinessUnit, Run>>, val answered: Set<String>)
+
+    /** One `/runs?status=awaiting_approval` request per visible BU, each with that BU's header.
+     *  Null when there is nothing to ask (no client, no BU known yet) or every BU failed. A BU that
+     *  fails alone is traced and skipped — the others still count. */
+    private fun fetchAwaiting(): Sweep? {
         val c = client() ?: return null
-        return try {
-            c.listRuns(limit = 100, status = listOf("awaiting_approval"))
-        } catch (e: Throwable) {
-            // Throwable, not just Exception — consistent with getGraph/notify below: an Error
-            // (e.g. the AssertionError IntelliJ's LOG.error throws in test/EAP builds) must not
-            // escape here either, or it takes down the poll loop that called this.
-            traceSafe("approvals poll failed: ${e.message ?: e}")
-            null
+        val bus = businessUnits()
+        if (bus.isEmpty()) return null
+        // A BU that is no longer visible forgets its priming, so it is swallowed again if it returns.
+        primedBus.retainAll(bus.map { it.slug }.toSet())
+        val found = mutableListOf<Pair<BusinessUnit, Run>>()
+        val answered = mutableSetOf<String>()
+        for (bu in bus) {
+            try {
+                val runs = c.withBu(bu.slug).listRuns(limit = 100, status = listOf("awaiting_approval"))
+                for (r in runs) found += bu to r
+                answered += bu.slug
+            } catch (e: Throwable) {
+                // Throwable, not just Exception — consistent with getGraph/notify below: an Error
+                // (e.g. the AssertionError IntelliJ's LOG.error throws in test/EAP builds) must not
+                // escape here either, or it takes down the poll loop that called this.
+                traceSafe("approvals poll failed for ${bu.slug}: ${e.message ?: e}")
+            }
         }
+        if (answered.isEmpty()) return null
+        return Sweep(found, answered)
     }
 
-    /** Record everything currently awaiting as seen, notifying nobody (first activation / sign-in). */
+    /** Record everything currently awaiting as seen, notifying nobody (first activation / sign-in /
+     *  filter change). Only the BUs that answered count as primed: a failing BU's backlog is still
+     *  unknown, so it is swallowed on its own first successful fetch instead. */
     fun prime() {
-        primed = false
-        val runs = fetchAwaiting() ?: return
-        recordSilently(runs)
+        primedBus.clear()
+        val sweep = fetchAwaiting() ?: return
+        recordSilently(sweep.runs.map { it.second }, sweep.answered)
     }
 
-    /** Swallow [runs] into the seen set and mark the watcher primed — but only once the write
+    /** Swallow [runs] into the seen set and mark [answered] BUs primed — but only once the write
      *  actually landed. A store we could not persist to would otherwise let the very next poll
      *  treat the whole backlog as fresh; and a rejecting store must never throw out of [prime]. */
-    private fun recordSilently(runs: List<Run>) {
+    private fun recordSilently(runs: List<Run>, answered: Set<String>) {
         synchronized(seenLock) {
             val map = seenSnapshot().toMutableMap()
             val t = now()
             for (r in runs) map.putIfAbsent(r.id, t)
             try {
                 seen.set(map)
-                primed = true
+                primedBus += answered
             } catch (e: Exception) {
                 traceSafe("approvals prime seen.set failed: ${e.message ?: e}")
             }
@@ -172,18 +196,21 @@ class ApprovalWatcher(
     }
 
     private fun doPoll() {
-        val runs = fetchAwaiting() ?: return
-        if (!primed) {
-            recordSilently(runs)
-            return
+        val sweep = fetchAwaiting() ?: return
+        val runs = sweep.runs
+        // Runs of BUs not yet primed are swallowed silently; only primed BUs can notify.
+        val unprimed = sweep.answered - primedBus
+        if (unprimed.isNotEmpty()) {
+            recordSilently(runs.filter { it.first.slug in unprimed }.map { it.second }, unprimed)
         }
-        val fresh: List<Run>
+        val candidates = runs.filter { it.first.slug !in unprimed }
+        val fresh: List<Pair<BusinessUnit, Run>>
         synchronized(seenLock) {
             val before = seen.get()
             val map = seenSnapshot().toMutableMap()
-            fresh = runs.filter { it.id !in map }
+            fresh = candidates.filter { it.second.id !in map }
             val t = now()
-            for (r in fresh) map[r.id] = t
+            for ((_, r) in fresh) map[r.id] = t
             if (fresh.isNotEmpty() || map.size != before.size) {
                 // A rejecting persistence call must not stop the runs below from being notified,
                 // nor take down the poll loop that called us.
@@ -195,7 +222,7 @@ class ApprovalWatcher(
             }
         }
         val c = client()
-        for (r in fresh) {
+        for ((bu, r) in fresh) {
             var summary: GraphSummary? = null
             if (c != null) {
                 // Catches Throwable, not just Exception: an Error (e.g. the AssertionError
@@ -203,7 +230,7 @@ class ApprovalWatcher(
                 // this run is about to be marked seen either way, so letting an Error propagate
                 // would both skip the rest of the batch AND make this run never get announced.
                 try {
-                    summary = c.getGraph(r.id).summary
+                    summary = c.withBu(bu.slug).getGraph(r.id).summary
                 } catch (e: Throwable) {
                     summary = null
                     traceSafe("approvals getGraph failed: ${e.message ?: e}")
@@ -213,7 +240,7 @@ class ApprovalWatcher(
             // firing in a test/EAP build) must not swallow the rest of this batch — each run gets
             // its own try/catch, over Throwable for the same reason as getGraph above.
             try {
-                notify(ApprovalNotice(r, workspaceName(r.workspace_id), summary))
+                notify(ApprovalNotice(r, workspaceName(r.workspace_id), summary, bu))
             } catch (e: Throwable) {
                 traceSafe("approvals notify failed: ${e.message ?: e}")
             }

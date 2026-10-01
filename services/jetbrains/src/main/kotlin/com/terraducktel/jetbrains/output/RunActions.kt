@@ -12,6 +12,7 @@ import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.TriggerRunBody
 import com.terraducktel.jetbrains.api.Workspace
 import com.terraducktel.jetbrains.session.TdtSession
+import com.terraducktel.jetbrains.state.RunRef
 import com.terraducktel.jetbrains.state.Store
 
 /**
@@ -32,27 +33,40 @@ object RunActions {
 
     /** Wired by [com.terraducktel.jetbrains.session.TdtSessionStarter] to [PlanDocument.open] /
      *  [Approvals.approve] — the awaiting-approval balloon's "Show plan"/"Approve…" actions. */
-    var showPlanHook: ((Project, Run) -> Unit)? = null
-    var approveHook: ((Project, Run) -> Unit)? = null
+    var showPlanHook: ((Project, String, Run) -> Unit)? = null
+    var approveHook: ((Project, String, Run) -> Unit)? = null
+
+    /** One popup row per run, labelled `<workspace> · <command> — <status> · <id> (<BU>)`. Every row
+     *  carries its BU name so runs of the same workspace name in two BUs stay distinguishable. */
+    fun chooserLabels(runs: List<RunRef>): List<String> =
+        runs.map { "${wsName(it.run)} · ${it.run.command} — ${it.run.status} · ${it.run.id.take(8)} (${it.bu.name})" }
+
+    /** The toast text for a run that reached the approval gate — names the BU, since the same
+     *  workspace name can exist in several business units. */
+    internal fun awaitingText(wsName: String, buName: String, command: String): String =
+        "TDT: $wsName ($buName) $command is awaiting approval."
+
+    /** Display name of the business unit with slug [slug]; the slug itself while it is unknown. */
+    private fun buName(slug: String): String = Store.getInstance().businessUnits.find { it.slug == slug }?.name ?: slug
 
     fun wsName(run: Run): String = Store.getInstance().workspace(run.workspace_id)?.name ?: run.workspace_id.take(8)
 
     /** Opens/reveals the console tab for [run] and starts (or resumes) following it. When it
      *  lands, refreshes the store and — for `awaiting_approval`/`failed` — surfaces a balloon.
      *  Must be called on the EDT. */
-    fun watch(project: Project, run: Run) {
+    fun watch(project: Project, bu: String, run: Run) {
         ThreadingAssertions.assertEventDispatchThread()
-        RunConsoles.getInstance(project).watch(run.id, wsName(run)) { landed ->
+        RunConsoles.getInstance(project).watch(run.id, wsName(run), bu) { landed ->
             Store.getInstance().refresh()
             when (landed.status) {
-                "awaiting_approval" -> announceAwaiting(project, landed)
+                "awaiting_approval" -> announceAwaiting(project, bu, landed)
                 "failed" -> ActionUtil.notify(project, "TDT: ${wsName(landed)} ${landed.command} failed — see the run output.", NotificationType.ERROR)
             }
         }
     }
 
     /** Must be called on the EDT (it shows a notification with actions). */
-    fun announceAwaiting(project: Project, run: Run) {
+    fun announceAwaiting(project: Project, bu: String, run: Run) {
         // Best-effort dedupe: if marking it seen fails we would rather show the balloon twice than
         // not at all, so a failure here never stops the balloon below.
         try {
@@ -62,10 +76,10 @@ object RunActions {
         }
         ActionUtil.notify(
             project,
-            "TDT: ${wsName(run)} ${run.command} is awaiting approval.",
+            awaitingText(wsName(run), buName(bu), run.command),
             NotificationType.INFORMATION,
-            "Show plan" to { showPlanHook?.invoke(project, run) },
-            "Approve…" to { approveHook?.invoke(project, run) },
+            "Show plan" to { showPlanHook?.invoke(project, bu, run) },
+            "Approve…" to { approveHook?.invoke(project, bu, run) },
         )
     }
 
@@ -115,14 +129,14 @@ object RunActions {
      * When [branch] differs from `ws.repo_ref` the workspace is pinned to it first. Must be called
      * on the EDT; the network calls run in a background task.
      */
-    fun trigger(project: Project, ws: Workspace, command: String, branch: String? = null) {
+    fun trigger(project: Project, bu: String, ws: Workspace, command: String, branch: String? = null) {
         ThreadingAssertions.assertEventDispatchThread()
         if (command == "apply" && !confirmApply(project, ws)) return
         if (command == "destroy" && !confirmDestroy(project, ws)) return
 
         val plan = triggerPlanFor(ws, command, branch)
         ActionUtil.runBackground(project, "TDT: $command ${ws.name}") {
-            val client = TdtSession.getInstance().requireClient()
+            val client = TdtSession.getInstance().requireClient(bu)
             if (plan.pin != null) client.updateWorkspace(ws.id, plan.pin)
             val run = try {
                 client.triggerRun(ws.id, plan.body)
@@ -136,7 +150,7 @@ object RunActions {
             ApplicationManager.getApplication().invokeLater(
                 {
                     ActionUtil.notify(project, "TDT: $command started on ${ws.name} (${run.id.take(8)}).")
-                    watch(project, run)
+                    watch(project, bu, run)
                 },
                 ModalityState.any(),
             ) { project.isDisposed }

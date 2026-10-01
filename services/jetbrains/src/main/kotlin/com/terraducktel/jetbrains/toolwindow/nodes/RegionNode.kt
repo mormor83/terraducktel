@@ -13,14 +13,15 @@ import com.terraducktel.jetbrains.state.RegionGroup
 class RegionNode(
     project: Project,
     parent: TdtNode?,
+    val bu: String,
     val group: CloudGroup,
     val region: RegionGroup,
 ) : TdtNode(project, parent) {
 
-    override val id: String = "region:${group.cloud}:${group.key}:${region.region}"
+    override val id: String = "$bu/region:${group.cloud}:${group.key}:${region.region}"
 
     override fun buildChildren(): List<TdtNode> =
-        folderChildren(project, this, region.root, "${group.key}/${region.region}")
+        folderChildren(project, this, bu, region.root, "$bu/${group.key}/${region.region}")
 
     override fun update(presentation: PresentationData) {
         presentation.addText(region.region, SimpleTextAttributes.REGULAR_ATTRIBUTES)

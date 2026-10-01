@@ -13,8 +13,8 @@ class PlanCurrentFileAction : AnAction() {
 
     override fun update(e: AnActionEvent) {
         val project = e.project
-        val mapped = project != null && EditorStatus.getInstance(project).current != null
-        e.presentation.isEnabledAndVisible = mapped && TdtSession.getInstance().canWrite()
+        val mapped = project != null && EditorStatus.getInstance(project).isMapped
+        e.presentation.isEnabledAndVisible = mapped && TdtSession.getInstance().isSignedIn()
     }
 
     override fun actionPerformed(e: AnActionEvent) {

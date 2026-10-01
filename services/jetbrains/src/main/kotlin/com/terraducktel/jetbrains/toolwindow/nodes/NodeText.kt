@@ -1,8 +1,10 @@
 package com.terraducktel.jetbrains.toolwindow.nodes
 
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.RunStep
 import com.terraducktel.jetbrains.api.Workspace
+import com.terraducktel.jetbrains.state.BuState
 import com.terraducktel.jetbrains.state.CloudGroup
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -29,6 +31,22 @@ object NodeText {
         val s = step.duration_seconds ?: return ""
         return if (s % 1.0 == 0.0) "${s.toLong()}s" else "${s}s"
     }
+
+    /** Grayed text after a business unit's name: `<slug> · N workspaces` / `<slug> · N runs`, or
+     *  `<slug> · error` when its last fetch failed; just the slug until it has loaded. */
+    fun buDescription(bu: BusinessUnit, state: BuState?, workspaces: Boolean): String {
+        val detail = when {
+            state?.error != null -> "error"
+            state == null || !state.loaded -> null
+            workspaces -> plural(state.workspaces.size, "workspace")
+            else -> plural(state.runs.size, "run")
+        }
+        return listOfNotNull(bu.slug, detail).joinToString(" · ")
+    }
+
+    private fun plural(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+
+    fun filterHeader(shown: Int, total: Int): String = "Showing $shown of $total business units — Filter…"
 
     fun cloudDescription(group: CloudGroup): String = "${group.cloud.name} · ${group.count}"
 

@@ -1,5 +1,6 @@
 package com.terraducktel.jetbrains.notifications
 
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.GraphSummary
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.TdtClient
@@ -94,7 +95,10 @@ class ApprovalWatcherTest {
         scope.cancel()
     }
 
-    private fun client(url: String): TdtClient = TdtClient(url, "default", FakeTokens())
+    private val infra = BusinessUnit("id-infra", "infra", "Infra")
+    private val apps = BusinessUnit("id-apps", "apps", "Apps")
+
+    private fun client(url: String): TdtClient = TdtClient(url, "", FakeTokens())
 
     private fun run(id: String, ws: String = "w1") =
         Run(id = id, workspace_id = ws, command = "apply", status = "awaiting_approval", created_at = "2026-09-12T10:00:00Z")
@@ -106,6 +110,7 @@ class ApprovalWatcherTest {
         notify: (ApprovalNotice) -> Unit,
     ): ApprovalWatcher = ApprovalWatcher(
         client = { c },
+        businessUnits = { listOf(infra) },
         workspaceName = { if (it == "w1") "vpc" else it },
         notify = notify,
         seen = seenStore,
@@ -251,6 +256,7 @@ class ApprovalWatcherTest {
             var calls = 0
             val w = ApprovalWatcher(
                 client = { c },
+                businessUnits = { listOf(infra) },
                 workspaceName = { if (it == "w1") "vpc" else it },
                 notify = { n -> calls++; if (calls == 1) throw RuntimeException("boom") else notices += n },
                 seen = MemSeenStore(),
@@ -418,6 +424,7 @@ class ApprovalWatcherTest {
             val notices = mutableListOf<ApprovalNotice>()
             val w = ApprovalWatcher(
                 client = { client(srv.url) },
+                businessUnits = { listOf(infra) },
                 workspaceName = { it },
                 notify = { notices += it },
                 seen = seen,
@@ -462,6 +469,7 @@ class ApprovalWatcherTest {
             val notices = mutableListOf<ApprovalNotice>()
             val w = ApprovalWatcher(
                 client = { null },
+                businessUnits = { listOf(infra) },
                 workspaceName = { it },
                 notify = { notices += it },
                 seen = MemSeenStore(),
@@ -526,6 +534,186 @@ class ApprovalWatcherTest {
             assertEquals(listOf("rOther"), notices.map { it.run.id })
             assertTrue(seen.value.containsKey("rOther"))
             assertTrue(seen.value.containsKey("rX"))
+        }
+    }
+
+    // ─── business units ─────────────────────────────────────────────────────────────
+
+    private fun mkBus(
+        c: TdtClient,
+        bus: () -> List<BusinessUnit>,
+        seenStore: SeenStore = MemSeenStore(),
+        trace: ((String) -> Unit)? = null,
+        notify: (ApprovalNotice) -> Unit,
+    ): ApprovalWatcher = ApprovalWatcher(
+        client = { c },
+        businessUnits = bus,
+        workspaceName = { it },
+        notify = notify,
+        seen = seenStore,
+        now = { now },
+        trace = trace,
+        scope = scope,
+    )
+
+    /** `/runs` answers per `X-Business-Unit`: [byBu] maps a slug to the runs awaiting there. */
+    private fun serveAwaiting(srv: StubServer, byBu: () -> Map<String, List<Run>>) {
+        srv.on("GET", "/api/v1/runs") { call, ex ->
+            val runs = byBu()[call.headers["x-business-unit"]] ?: emptyList()
+            StubServer.respond(ex, 200, TdtJson.encodeToString(runs))
+        }
+    }
+
+    @Test
+    fun `polls every visible business unit with its own header and notifies across all of them`() {
+        StubServer().use { srv ->
+            var awaiting = mapOf<String, List<Run>>()
+            serveAwaiting(srv) { awaiting }
+            for (id in listOf("r1", "r2")) srv.json("GET", "/api/v1/runs/$id/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            val notices = mutableListOf<ApprovalNotice>()
+            val w = mkBus(client(srv.url), { listOf(infra, apps) }) { notices += it }
+
+            w.prime()
+            awaiting = mapOf("infra" to listOf(run("r1")), "apps" to listOf(run("r2", "w2")))
+            w.poll()
+
+            assertEquals(setOf("r1", "r2"), notices.map { it.run.id }.toSet())
+            assertEquals("Infra", notices.single { it.run.id == "r1" }.bu.name)
+            assertEquals("Apps", notices.single { it.run.id == "r2" }.bu.name)
+            assertEquals(
+                setOf("infra", "apps"),
+                srv.calls("GET", "/api/v1/runs").map { it.headers["x-business-unit"] }.toSet(),
+            )
+            // the plan summary of a run is fetched through that run's own business unit
+            assertEquals("apps", srv.calls("GET", "/api/v1/runs/r2/graph").single().headers["x-business-unit"])
+            assertEquals("infra", srv.calls("GET", "/api/v1/runs/r1/graph").single().headers["x-business-unit"])
+        }
+    }
+
+    @Test
+    fun `a business unit that is not visible is never polled and its runs never notify`() {
+        StubServer().use { srv ->
+            var awaiting = mapOf<String, List<Run>>()
+            serveAwaiting(srv) { awaiting }
+            srv.json("GET", "/api/v1/runs/r2/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            val notices = mutableListOf<ApprovalNotice>()
+            val w = mkBus(client(srv.url), { listOf(infra) }) { notices += it }
+
+            w.prime()
+            awaiting = mapOf("apps" to listOf(run("r2", "w2")))
+            w.poll()
+
+            assertTrue(notices.isEmpty())
+            assertEquals(setOf("infra"), srv.calls("GET", "/api/v1/runs").map { it.headers["x-business-unit"] }.toSet())
+        }
+    }
+
+    @Test
+    fun `a failing business unit is traced and a healthy one's primed backlog stays quiet`() {
+        StubServer().use { srv ->
+            srv.on("GET", "/api/v1/runs") { call, ex ->
+                when (call.headers["x-business-unit"]) {
+                    "apps" -> StubServer.respond(ex, 500, """{"detail":"down"}""")
+                    else -> StubServer.respond(ex, 200, TdtJson.encodeToString(listOf(run("r-infra", "w1"))))
+                }
+            }
+            srv.json("GET", "/api/v1/runs/r-infra/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            val notices = mutableListOf<ApprovalNotice>()
+            val traces = mutableListOf<String>()
+            val w = mkBus(client(srv.url), { listOf(infra, apps) }, trace = { traces += it }) { notices += it }
+
+            w.prime() // infra answers (backlog recorded), apps fails
+            assertTrue(traces.any { it.contains("approvals poll failed") })
+            assertTrue("infra's backlog is swallowed at prime", notices.isEmpty())
+            w.poll()
+            w.poll()
+
+            assertTrue("infra's backlog was recorded at prime and stays quiet", notices.isEmpty())
+        }
+    }
+
+    @Test
+    fun `a new run in a healthy business unit is announced while another business unit is failing`() {
+        StubServer().use { srv ->
+            val infraRuns = mutableListOf<Run>()
+            srv.on("GET", "/api/v1/runs") { call, ex ->
+                when (call.headers["x-business-unit"]) {
+                    "apps" -> StubServer.respond(ex, 500, """{"detail":"down"}""")
+                    else -> StubServer.respond(ex, 200, TdtJson.encodeToString(infraRuns.toList()))
+                }
+            }
+            srv.json("GET", "/api/v1/runs/r-new/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            val notices = mutableListOf<ApprovalNotice>()
+            val w = mkBus(client(srv.url), { listOf(infra, apps) }) { notices += it }
+
+            w.prime()
+            infraRuns += run("r-new", "w1")
+            w.poll()
+
+            assertEquals(listOf("r-new"), notices.map { it.run.id })
+            assertEquals("infra", notices.single().bu.slug)
+        }
+    }
+
+    @Test
+    fun `a business unit whose prime failed has its backlog swallowed when it recovers, not announced`() {
+        StubServer().use { srv ->
+            val appsDown = AtomicBoolean(true)
+            srv.on("GET", "/api/v1/runs") { call, ex ->
+                val bu = call.headers["x-business-unit"]
+                when {
+                    bu == "apps" && appsDown.get() -> StubServer.respond(ex, 500, """{"detail":"down"}""")
+                    bu == "apps" -> StubServer.respond(ex, 200, TdtJson.encodeToString(listOf(run("r-old", "w2"))))
+                    else -> StubServer.respond(ex, 200, "[]")
+                }
+            }
+            srv.json("GET", "/api/v1/runs/r-old/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            val notices = mutableListOf<ApprovalNotice>()
+            val w = mkBus(client(srv.url), { listOf(infra, apps) }) { notices += it }
+
+            w.prime()
+            appsDown.set(false)
+            w.poll() // apps's first successful fetch: recorded silently
+            w.poll()
+
+            assertTrue("a backlog that predates a BU's first successful fetch must never be announced", notices.isEmpty())
+        }
+    }
+
+    @Test
+    fun `a newly visible business unit has its backlog recorded silently`() {
+        StubServer().use { srv ->
+            srv.on("GET", "/api/v1/runs") { call, ex ->
+                when (call.headers["x-business-unit"]) {
+                    "apps" -> StubServer.respond(ex, 200, TdtJson.encodeToString(listOf(run("r-apps-old", "w2"))))
+                    else -> StubServer.respond(ex, 200, TdtJson.encodeToString(listOf(run("r-infra-new", "w1"))))
+                }
+            }
+            srv.json("GET", "/api/v1/runs/r-infra-new/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            val visible = mutableListOf(infra)
+            val notices = mutableListOf<ApprovalNotice>()
+            val w = mkBus(client(srv.url), { visible.toList() }) { notices += it }
+
+            w.prime() // only infra visible: r-infra-new swallowed
+            visible += apps
+            w.poll()
+
+            assertTrue("apps' backlog must not be announced when it becomes visible", notices.none { it.run.id == "r-apps-old" })
+            assertTrue("infra's already-recorded run stays quiet", notices.isEmpty())
+        }
+    }
+
+    @Test
+    fun `with no business units to watch yet the watcher makes no request`() {
+        StubServer().use { srv ->
+            val notices = mutableListOf<ApprovalNotice>()
+            val w = mkBus(client(srv.url), { emptyList() }) { notices += it }
+
+            w.prime()
+            w.poll()
+
+            assertEquals(0, srv.calls.size)
+            assertTrue(notices.isEmpty())
         }
     }
 }

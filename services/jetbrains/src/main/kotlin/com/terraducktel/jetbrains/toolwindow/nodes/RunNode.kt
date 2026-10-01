@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class RunNode(
     project: Project,
     parent: TdtNode?,
+    val bu: String,
     val run: Run,
 ) : TdtNode(project, parent) {
 
@@ -60,7 +61,7 @@ class RunNode(
         val epoch = sessionEpoch.get()
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val client = TdtSession.getInstance().clientOrNull()
+                val client = TdtSession.getInstance().clientOrNull()?.withBu(bu)
                 if (client == null) return@executeOnPooledThread // no session (yet) — leave uncached, keep the placeholder
                 val steps = client.getSteps(runId, includeOutput = false).sortedBy { it.position }
                 if (epoch != sessionEpoch.get()) return@executeOnPooledThread // a session change landed mid-flight — drop this stale result
@@ -81,7 +82,7 @@ class RunNode(
     }
 
     override fun update(presentation: PresentationData) {
-        val wsName = Store.getInstance().workspace(run.workspace_id)?.name ?: run.workspace_id.take(8)
+        val wsName = Store.getInstance().findWorkspace(run.workspace_id)?.ws?.name ?: run.workspace_id.take(8)
         presentation.addText(NodeText.runLabel(run, wsName, underWorkspace = parent is WorkspaceNode), SimpleTextAttributes.REGULAR_ATTRIBUTES)
         presentation.addText("  ${NodeText.runDescription(run)}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
         presentation.setIcon(TreeIcons.runStatusIcon(run.status))
@@ -127,11 +128,11 @@ class RunNode(
          *  do) filter out terminal runs themselves. A run with no cache entry yet is not this
          *  function's job (that's the first-expand path in [fetchStepsAsync]); calling it for one
          *  is a harmless no-op. */
-        internal fun refreshIfChanged(runId: String, liveStatus: String): Boolean {
+        internal fun refreshIfChanged(runId: String, bu: String, liveStatus: String): Boolean {
             val previous = stepsCache[runId] ?: return false
             if (previous is StepsState.Loaded && previous.final) return false
             val epoch = sessionEpoch.get()
-            val client = TdtSession.getInstance().clientOrNull() ?: return false
+            val client = TdtSession.getInstance().clientOrNull()?.withBu(bu) ?: return false
             if (!refreshing.add(runId)) return false
             try {
                 val steps = try {

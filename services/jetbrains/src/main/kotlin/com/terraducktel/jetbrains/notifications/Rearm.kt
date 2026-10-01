@@ -88,4 +88,13 @@ class Rearm(
             start()
         }
     }
+
+    companion object {
+        /** The prime-once-per-key identity of an approval-watching session: the profile plus the
+         *  sorted slugs of the business units that are visible, so a change of filter (or of which
+         *  BUs the user can access) re-primes — swallowing the newly watched BUs' backlog instead of
+         *  announcing it. Null while there is no profile (signed out). */
+        fun keyFor(profile: String?, visibleBuSlugs: List<String>): String? =
+            profile?.let { "$it:${visibleBuSlugs.sorted().joinToString(",")}" }
+    }
 }

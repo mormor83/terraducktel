@@ -201,4 +201,46 @@ class RearmTest {
             loop!!.cancelled.get(),
         )
     }
+
+    // ─── the key the approval service re-primes on ──────────────────────────────────
+
+    @Test
+    fun `key is the profile plus the sorted visible business unit slugs`() {
+        assertEquals("prod:apps,infra", Rearm.keyFor("prod", listOf("infra", "apps")))
+        assertEquals(Rearm.keyFor("prod", listOf("apps", "infra")), Rearm.keyFor("prod", listOf("infra", "apps")))
+    }
+
+    @Test
+    fun `a filter change changes the key, so the next rearm re-primes instead of announcing the backlog`() {
+        val calls = mutableListOf<String>()
+        var visible = listOf("infra", "apps")
+        val rearm = Rearm(
+            key = { Rearm.keyFor("prod", visible) },
+            prime = { calls += "prime" },
+            start = { calls += "start" },
+            stop = { calls += "stop" },
+        )
+
+        rearm.invoke()
+        assertEquals(listOf("stop", "prime", "start"), calls)
+
+        calls.clear()
+        rearm.invoke() // same filter: no re-prime
+        assertEquals(listOf("start"), calls)
+
+        calls.clear()
+        visible = listOf("infra") // the user hid "apps"
+        rearm.invoke()
+        assertEquals(listOf("stop", "prime", "start"), calls)
+
+        calls.clear()
+        visible = listOf("infra", "apps") // ... and showed it again: its backlog must be swallowed too
+        rearm.invoke()
+        assertEquals(listOf("stop", "prime", "start"), calls)
+    }
+
+    @Test
+    fun `no profile means no key`() {
+        assertEquals(null, Rearm.keyFor(null, listOf("infra")))
+    }
 }

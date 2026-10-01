@@ -1,5 +1,7 @@
 package com.terraducktel.jetbrains.output
 
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationsManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -92,7 +94,7 @@ class ApprovalsTest : BasePlatformTestCase() {
             val confirmed = AtomicBoolean(false)
             Approvals.confirm = { _, _, _ -> confirmed.set(true); Messages.CANCEL }
 
-            Approvals.approve(project, run)
+            Approvals.approve(project, "infra", run)
 
             waitUntil { confirmed.get() }
             // Give a (wrongly) queued approve POST a moment to actually land before asserting its
@@ -118,7 +120,7 @@ class ApprovalsTest : BasePlatformTestCase() {
             val confirmed = AtomicBoolean(false)
             Approvals.confirm = { _, _, _ -> confirmed.set(true); Messages.NO }
 
-            Approvals.approve(project, run)
+            Approvals.approve(project, "infra", run)
 
             waitUntil { confirmed.get() }
             val deadline = System.currentTimeMillis() + 300
@@ -127,6 +129,57 @@ class ApprovalsTest : BasePlatformTestCase() {
                 Thread.sleep(10)
             }
             assertTrue("approve must never be POSTed after Show plan", srv.calls("POST", "/api/v1/runs/r1/approve").isEmpty())
+        }
+    }
+
+    fun `test approving sends every request with the run's own business unit header`() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/runs/r1/graph", 200, """{"nodes":[],"edges":[],"summary":{"add":1,"change":0,"destroy":0,"replace":0}}""")
+            srv.json("POST", "/api/v1/runs/r1/approve", 200, "{}")
+            srv.json("GET", "/api/v1/business-units", 200, "[]")
+            setProfile(srv)
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+            Approvals.confirm = { _, _, _ -> Messages.YES }
+
+            Approvals.approve(project, "apps", run)
+
+            val deadline = System.currentTimeMillis() + 5_000
+            while (srv.calls("POST", "/api/v1/runs/r1/approve").isEmpty() && System.currentTimeMillis() < deadline) {
+                PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+                Thread.sleep(10)
+            }
+            assertEquals("apps", srv.calls("GET", "/api/v1/runs/r1/graph").single().headers["x-business-unit"])
+            assertEquals("apps", srv.calls("POST", "/api/v1/runs/r1/approve").single().headers["x-business-unit"])
+        }
+    }
+
+    /** Text of every "Terraducktel"-group balloon currently shown for the fixture project. */
+    private fun errorBalloons(): List<String> =
+        NotificationsManager.getNotificationsManager()
+            .getNotificationsOfType(Notification::class.java, project)
+            .filter { it.groupId == "Terraducktel" }
+            .map { it.content }
+
+    private fun expireBalloons() {
+        val manager = NotificationsManager.getNotificationsManager()
+        for (n in manager.getNotificationsOfType(Notification::class.java, project).filter { it.groupId == "Terraducktel" }) manager.expire(n)
+    }
+
+    fun `test a 403 on approve surfaces the server's own message`() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/runs/r1/graph", 200, """{"nodes":[],"edges":[],"summary":{"add":1,"change":0,"destroy":0,"replace":0}}""")
+            srv.json("POST", "/api/v1/runs/r1/approve", 403, """{"detail":"Requires operator role in business unit apps"}""")
+            setProfile(srv)
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+            Approvals.confirm = { _, _, _ -> Messages.YES }
+            expireBalloons()
+
+            Approvals.approve(project, "apps", run)
+
+            waitUntil { errorBalloons().any { it.contains("Requires operator role in business unit apps") } }
+            expireBalloons()
         }
     }
 }

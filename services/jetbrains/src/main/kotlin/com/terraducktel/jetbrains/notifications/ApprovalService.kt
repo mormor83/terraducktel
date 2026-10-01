@@ -45,7 +45,8 @@ class ApprovalService(val scope: CoroutineScope) : Disposable {
 
     private val watcher = ApprovalWatcher(
         client = { TdtSession.getInstance().clientOrNull() },
-        workspaceName = { id -> Store.getInstance().workspace(id)?.name ?: id.take(8) },
+        businessUnits = { Store.getInstance().visibleBus() },
+        workspaceName = { id -> Store.getInstance().findWorkspace(id)?.ws?.name ?: id.take(8) },
         notify = { notice -> ApprovalNotifier.show(activeProject(), notice) },
         // Once per poll that found fresh runs, not once per notice — see ApprovalWatcher's KDoc.
         onBatchNotified = { Store.getInstance().refresh() },
@@ -92,20 +93,35 @@ class ApprovalService(val scope: CoroutineScope) : Disposable {
                 override fun settingsChanged() = rearmAsync()
             },
         )
+        // The set of watched business units changes with the BU filter and with the user's
+        // memberships, both of which surface as a store change — re-arm (and so re-prime) exactly
+        // when the key moved, never on every poll tick: Rearm restarts the timer on each call, so
+        // re-arming per tick would keep resetting the approval poll before it ever fired.
+        Store.getInstance().addListener(this) {
+            val key = rearmKey()
+            if (key != lastObservedKey) {
+                lastObservedKey = key
+                rearmAsync()
+            }
+        }
         rearmAsync()
     }
+
+    /** The [rearmKey] as of the last store change this service reacted to. */
+    @Volatile private var lastObservedKey: String? = null
 
     private fun rearmAsync() {
         scope.launch(rearmDispatcher) { rearm() }
     }
 
-    /** `"<profile>:<bu>"` while signed in, else null — [Rearm]'s prime-once-per-key guard against
-     *  that same session (a profile/BU switch is a new key; signing out is no key at all). */
+    /** `"<profile>:<sorted visible BU slugs>"` while signed in, else null — [Rearm]'s
+     *  prime-once-per-key guard against that same session (a profile switch or a filter change is a
+     *  new key; signing out is no key at all). See [Rearm.keyFor]. */
     private fun rearmKey(): String? {
         val session = TdtSession.getInstance()
         if (!session.isSignedIn()) return null
         val profile = session.profile ?: return null
-        return "${profile.name}:${session.bu}"
+        return Rearm.keyFor(profile.name, Store.getInstance().visibleBus().map { it.slug })
     }
 
     /** `0` disables the poll entirely; any positive value is floored at 15s (see [minIntervalMs]
@@ -132,6 +148,13 @@ class ApprovalService(val scope: CoroutineScope) : Disposable {
     /** Blocking: primes (if the session key changed) then (re)starts or stops the poll loop
      *  depending on [rearmKey] / [intervalMs]. Safe to call from any non-EDT thread; see [Rearm]. */
     fun rearm() = rearmController.invoke()
+
+    /** Test seam: blocks until every rearm already queued by a session / settings / store change
+     *  has run — those fire asynchronously, so a test that then calls [rearm] itself would
+     *  otherwise race the queued one for who primes. */
+    internal fun awaitPendingRearms() {
+        kotlinx.coroutines.runBlocking { scope.launch(rearmDispatcher) { }.join() }
+    }
 
     /** Test seam: drives one poll synchronously off whatever thread the caller is on, exactly like
      *  [ApprovalWatcher.poll] — bypassing the real timer so a test doesn't have to wait on it. */

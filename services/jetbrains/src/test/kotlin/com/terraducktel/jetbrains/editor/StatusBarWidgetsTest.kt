@@ -6,11 +6,13 @@ import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.TdtClient
 import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.settings.Profile
 import com.terraducktel.jetbrains.settings.TdtSettings
+import com.terraducktel.jetbrains.state.BuState
 import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.testutil.InMemorySecretStore
 import java.util.concurrent.TimeUnit
@@ -114,7 +116,7 @@ class StatusBarWidgetsTest : BasePlatformTestCase() {
         assertEquals(com.intellij.icons.AllIcons.General.Error, widget.getIcon())
     }
 
-    // --- ProfileStatusBarWidget: "<profile> · <bu>" once signed in with a BU, else "<profile>" ----
+    // --- ProfileStatusBarWidget: "<profile>" only while signed out ----
 
     fun testProfileWidgetTextIsJustTheProfileNameWhenNotSignedIn() {
         TdtSettings.getInstance().state.profiles = mutableListOf(Profile(name = "acme", url = "https://example.test"))
@@ -125,15 +127,47 @@ class StatusBarWidgetsTest : BasePlatformTestCase() {
         assertEquals("acme", widget.getSelectedValue())
     }
 
-    fun testProfileWidgetTextIsProfileAndBuOnceSignedInWithABu() {
+    fun testProfileWidgetShowsHowManyBusinessUnitsAreVisibleOnceSignedIn() {
         TdtSettings.getInstance().state.profiles = mutableListOf(Profile(name = "acme", url = "https://example.test"))
         TdtSettings.getInstance().state.activeProfile = "acme"
         offEdt { session.reload() }
         offEdt { session.signInWithApiKey("tdt_x") }
-        offEdt { session.setBu("infra") }
+        offEdt { Store.getInstance().refreshAndWait() } // flush the sign-in's own (no-op) refresh before seeding
+        val originalHidden = Store.getInstance().hiddenProvider
+        try {
+            Store.getInstance().setSnapshotForTest(
+                listOf(
+                    BuState(BusinessUnit("1", "infra", "Infra")),
+                    BuState(BusinessUnit("2", "apps", "Apps")),
+                    BuState(BusinessUnit("3", "data", "Data")),
+                ),
+            )
+            val widget = ProfileStatusBarWidget(project)
+            assertEquals("acme · 3/3 BUs", widget.getSelectedValue())
 
-        val widget = ProfileStatusBarWidget(project)
-        assertEquals("acme · infra", widget.getSelectedValue())
+            Store.getInstance().hiddenProvider = { setOf("apps") }
+            assertEquals("acme · 2/3 BUs", widget.getSelectedValue())
+        } finally {
+            Store.getInstance().hiddenProvider = originalHidden
+            Store.getInstance().setSnapshotForTest(emptyList(), emptyList())
+        }
+    }
+
+    fun testProfileWidgetShowsOnlyTheNameUntilTheBusinessUnitListHasLoaded() {
+        TdtSettings.getInstance().state.profiles = mutableListOf(Profile(name = "acme", url = "https://example.test"))
+        TdtSettings.getInstance().state.activeProfile = "acme"
+        offEdt { session.reload() }
+        offEdt { session.signInWithApiKey("tdt_x") }
+        offEdt { Store.getInstance().refreshAndWait() }
+
+        assertEquals("acme", ProfileStatusBarWidget(project).getSelectedValue())
+    }
+
+    fun testProfileWidgetTextFormatting() {
+        assertEquals("acme", ProfileStatusBarWidget.text("acme", signedIn = false, visible = 2, total = 3))
+        assertEquals("acme", ProfileStatusBarWidget.text("acme", signedIn = true, visible = 0, total = 0))
+        assertEquals("acme · 2/3 BUs", ProfileStatusBarWidget.text("acme", signedIn = true, visible = 2, total = 3))
+        assertEquals("acme · 1/1 BUs", ProfileStatusBarWidget.text("acme", signedIn = true, visible = 1, total = 1))
     }
 
     fun testProfileWidgetIsHiddenWithNoProfilesConfigured() {

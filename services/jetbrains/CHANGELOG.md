@@ -4,6 +4,34 @@ All notable changes to the Terraducktel JetBrains plugin are documented here.
 
 ## Unreleased
 
+Business units are the top level of both trees.
+
+- **BU tree**: Workspaces and Runs list every business unit you can access as a
+  top-level row (sorted by name, `<slug> · N workspaces|runs` or `· error`). The
+  cloud → region → folder grouping is unchanged, computed per BU. A lone visible
+  BU is expanded by default; an empty BU shows "No workspaces" / "No recent
+  runs"; a failing BU shows its error above its last good data and never blanks
+  the others.
+- Write actions (plan, apply, destroy, approve, reject, cancel, sync, set branch)
+  are available whenever you are signed in; they are no longer hidden by the
+  token's global role, since roles are per business unit. The server decides, and
+  a refusal shows its message. BU rows read `1 workspace` / `1 run` in the singular.
+- **Filter Business Units…** replaces *Switch Business Unit*: tick which BUs to
+  show (toolbar, Tools menu, the Workspaces header, or the "Showing X of Y
+  business units — Filter…" row). Remembered per profile as the list of hidden
+  BUs, so a BU added later is visible by default; at least one must stay ticked.
+- Data is fetched per visible BU on every poll (workspaces and runs with that
+  BU's `X-Business-Unit` header, at most four requests in flight). Every action
+  on a workspace or run is issued against that node's own BU.
+- Approval notifications span the visible BUs and name the BU
+  (`<workspace> (<BU>) <command> awaits approval`); changing the filter
+  re-primes them, so newly shown BUs never burst their backlog.
+- The current-file status item resolves across BUs; when workspaces in several
+  BUs cover the file, "Plan this leaf" / "Reveal" ask `workspace — BU` first.
+- The profile status item reads `<profile> · X/Y BUs` once signed in.
+
+Brand redesign (earlier in this release).
+
 Brand redesign. Every action, gate and API call is unchanged; only how things
 look and where run output opens.
 

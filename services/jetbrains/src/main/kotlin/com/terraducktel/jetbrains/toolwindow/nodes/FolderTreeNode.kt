@@ -14,13 +14,14 @@ import com.terraducktel.jetbrains.state.FolderNode
 class FolderTreeNode(
     project: Project,
     parent: TdtNode?,
+    val bu: String,
     val folder: FolderNode,
     val path: String,
 ) : TdtNode(project, parent) {
 
     override val id: String = "folder:$path"
 
-    override fun buildChildren(): List<TdtNode> = folderChildren(project, this, folder, path)
+    override fun buildChildren(): List<TdtNode> = folderChildren(project, this, bu, folder, path)
 
     override fun update(presentation: PresentationData) {
         presentation.addText(folder.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
@@ -30,8 +31,8 @@ class FolderTreeNode(
 
 /** Shared by [RegionNode] and [FolderTreeNode]: subfolders (sorted, via [FolderNode.folders]'s
  *  `SortedMap` backing) first, then the workspaces directly in this folder. */
-internal fun folderChildren(project: Project, parent: TdtNode, folder: FolderNode, path: String): List<TdtNode> {
-    val folders = folder.folders.values.map { FolderTreeNode(project, parent, it, "$path/${it.name}") }
-    val leaves = folder.workspaces.map { (ws, leaf) -> WorkspaceNode(project, parent, ws, leaf) }
+internal fun folderChildren(project: Project, parent: TdtNode, bu: String, folder: FolderNode, path: String): List<TdtNode> {
+    val folders = folder.folders.values.map { FolderTreeNode(project, parent, bu, it, "$path/${it.name}") }
+    val leaves = folder.workspaces.map { (ws, leaf) -> WorkspaceNode(project, parent, bu, ws, leaf) }
     return folders + leaves
 }

@@ -73,10 +73,10 @@ object Approvals {
      *  here would also swallow `ProcessCanceledException` (and any other
      *  [com.intellij.openapi.progress.ProcessCanceledException]/`ControlFlowException`), silently
      *  breaking cooperative cancellation instead of letting it propagate. */
-    fun approve(project: Project, run: Run) {
+    fun approve(project: Project, bu: String, run: Run) {
         val wsName = RunActions.wsName(run)
         ActionUtil.runBackground(project, "TDT: loading plan summary…") {
-            val client = TdtSession.getInstance().requireClient()
+            val client = TdtSession.getInstance().requireClient(bu)
             val summary = try {
                 client.getGraph(run.id).summary
             } catch (e: ApiError) {
@@ -92,8 +92,8 @@ object Approvals {
             ApplicationManager.getApplication().invokeLater(
                 {
                     when (confirm(project, run, summary)) {
-                        Messages.YES -> doApprove(project, run, wsName)
-                        Messages.NO -> PlanDocument.open(project, run.id, wsName)
+                        Messages.YES -> doApprove(project, bu, run, wsName)
+                        Messages.NO -> PlanDocument.open(project, bu, run.id, wsName)
                         else -> Unit
                     }
                 },
@@ -102,13 +102,13 @@ object Approvals {
         }
     }
 
-    private fun doApprove(project: Project, run: Run, wsName: String) {
+    private fun doApprove(project: Project, bu: String, run: Run, wsName: String) {
         ActionUtil.runBackground(project, "TDT: approving…") {
-            TdtSession.getInstance().requireClient().approve(run.id)
+            TdtSession.getInstance().requireClient(bu).approve(run.id)
             ActionUtil.notify(project, "TDT: approved $wsName ${run.command}.")
             Store.getInstance().refreshAndWait()
             ApplicationManager.getApplication().invokeLater(
-                { RunActions.watch(project, run) },
+                { RunActions.watch(project, bu, run) },
                 ModalityState.any(),
             ) { project.isDisposed }
         }

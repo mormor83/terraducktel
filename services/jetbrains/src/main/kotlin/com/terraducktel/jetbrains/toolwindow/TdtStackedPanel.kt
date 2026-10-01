@@ -32,10 +32,11 @@ class TdtStackedPanel(project: Project, parentDisposable: Disposable) : SimpleTo
     private var pinned = false
 
     private val refresh = ActionManager.getInstance().getAction("Terraducktel.Refresh")
+    private val filter = ActionManager.getInstance().getAction("Terraducktel.FilterBusinessUnits")
 
     val workspacesSection = CollapsibleSection(
         project, "Workspaces", workspaces, WORKSPACES_COLLAPSED_KEY,
-        listOfNotNull(refresh, object : DumbAwareAction("Collapse All", null, AllIcons.Actions.Collapseall) {
+        listOfNotNull(filter, refresh, object : DumbAwareAction("Collapse All", null, AllIcons.Actions.Collapseall) {
             override fun actionPerformed(e: AnActionEvent) { workspaces.collapseAll() }
         }),
     ) { layoutSections() }

@@ -13,7 +13,7 @@ import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.toolwindow.TdtDataKeys
 
 /** Rejects the selected run after an optional reason prompt. Visible only for a run that is
- *  `awaiting_approval` and only for a session that can write. Port of VS Code's
+ *  `awaiting_approval` and only while signed in. Port of VS Code's
  *  `terraducktel.rejectRun`. */
 class RejectAction : AnAction("Reject…") {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
@@ -21,13 +21,14 @@ class RejectAction : AnAction("Reject…") {
     override fun update(e: AnActionEvent) {
         val run = e.getData(TdtDataKeys.RUN)
         e.presentation.isEnabledAndVisible =
-            run != null && run.status == "awaiting_approval" && TdtSession.getInstance().canWrite()
+            run != null && run.status == "awaiting_approval" && TdtSession.getInstance().isSignedIn()
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val run = e.getData(TdtDataKeys.RUN) ?: return
-        reject(project, run)
+        val bu = e.getData(TdtDataKeys.BU) ?: return
+        reject(project, bu, run)
     }
 
     companion object {
@@ -35,7 +36,7 @@ class RejectAction : AnAction("Reject…") {
          *  balloon's own "Reject…" action ([com.terraducktel.jetbrains.notifications.
          *  ApprovalNotifier]) — one implementation, one dialog, rather than each caller popping its
          *  own prompt. Must be called on the EDT; the network call runs in a background task. */
-        fun reject(project: Project, run: Run) {
+        fun reject(project: Project, bu: String, run: Run) {
             val wsName = RunActions.wsName(run)
             val reason = Messages.showInputDialog(
                 project,
@@ -43,9 +44,14 @@ class RejectAction : AnAction("Reject…") {
                 "Reject run",
                 null,
             ) ?: return // cancelled
+            submit(project, bu, run, reason)
+        }
 
+        /** The rejection itself, issued through the client of [bu] — the run's own business unit. */
+        internal fun submit(project: Project, bu: String, run: Run, reason: String) {
+            val wsName = RunActions.wsName(run)
             ActionUtil.runBackground(project, "TDT: rejecting…") {
-                val client = TdtSession.getInstance().requireClient()
+                val client = TdtSession.getInstance().requireClient(bu)
                 client.reject(run.id, reason.takeIf { it.isNotBlank() })
                 Store.getInstance().refreshAndWait()
                 ActionUtil.notify(project, "TDT: rejected $wsName ${run.command}.")

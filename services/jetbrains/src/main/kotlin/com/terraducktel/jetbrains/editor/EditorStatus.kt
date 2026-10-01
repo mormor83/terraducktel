@@ -21,6 +21,7 @@ import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager
 import com.terraducktel.jetbrains.TdtLog
 import com.terraducktel.jetbrains.actions.ActionUtil
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.Run
 import com.terraducktel.jetbrains.api.Workspace
 import com.terraducktel.jetbrains.output.PlanDocument
@@ -41,7 +42,7 @@ import java.util.concurrent.atomic.AtomicInteger
 private val TF_EXTENSIONS = setOf("tf", "tfvars", "hcl")
 
 /** The workspace the active file currently resolves to — a port of `status.ts`'s `CurrentFile`. */
-data class CurrentFile(val ws: Workspace, val git: GitInfo?, val exact: Boolean, val resolvedPath: String)
+data class CurrentFile(val ws: Workspace, val bu: BusinessUnit, val git: GitInfo?, val exact: Boolean, val resolvedPath: String)
 
 /**
  * Tracks which Terraducktel workspace (if any) the active editor's file belongs to — a coroutine
@@ -63,6 +64,18 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
 
     @Volatile var view: StatusText.View? = null
         private set
+
+    /** Every workspace (one per business unit at most) the active file maps to; [current] is the
+     *  one to act on when there is exactly one. */
+    @Volatile var candidates: List<CurrentFile> = emptyList()
+        private set
+
+    /** Test seam: how the user picks among several [candidates]; production shows a popup. */
+    internal var workspaceChooser: (List<CurrentFile>, (CurrentFile) -> Unit) -> Unit =
+        { options, onChosen -> showWorkspaceChoice(options, onChosen) }
+
+    /** Whether the active file maps to at least one workspace (see [candidates]). */
+    val isMapped: Boolean get() = candidates.isNotEmpty()
 
     /** Test seam: sets [view] directly, bypassing [refresh]'s whole file/git/workspace resolution
      *  pipeline — for a widget test that just needs a known [StatusText.View] to render (or none),
@@ -140,13 +153,12 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         val git = gitProbe.info(resolvedPath)
         if (!isCurrent(my)) return
 
-        val match = git?.let { g ->
+        val matches = git?.let { g ->
             Mapping.relativeDir(g.root, resolvedPath)?.let { rel ->
-                Mapping.matchWorkspace(Store.getInstance().workspaces, rel, g.remoteUrl)
+                Mapping.matchAcrossBus(Store.getInstance().allWorkspaces(), rel, g.remoteUrl)
             }
-        }
-        val cur = match?.let { CurrentFile(it.ws, git, it.exact, resolvedPath) }
-        show(my, cur, git)
+        } ?: emptyList()
+        show(my, matches.map { CurrentFile(it.ws, it.bu, git, it.exact, resolvedPath) }, git)
     }
 
     /** Disabled / no active Terraform file / signed out — the widget disappears entirely.
@@ -157,6 +169,7 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
     private fun hide(my: Int) {
         if (!isCurrent(my)) return
         current = null
+        candidates = emptyList()
         view = null
         updateWidgetOnEdt()
     }
@@ -166,10 +179,16 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
      *  the item still shows so the user can act on it). [my] is re-checked immediately before the
      *  assignment — see [hide]'s doc for why that final check (not just the earlier ones in
      *  [doRefresh]) matters. */
-    private fun show(my: Int, cur: CurrentFile?, git: GitInfo?) {
+    private fun show(my: Int, matches: List<CurrentFile>, git: GitInfo?) {
         if (!isCurrent(my)) return
+        candidates = matches
+        val cur = matches.singleOrNull()
         current = cur
-        view = if (cur != null) StatusText.mapped(cur, Store.getInstance().runsFor(cur.ws.id).firstOrNull()) else StatusText.unmapped(git)
+        view = when {
+            cur != null -> StatusText.mapped(cur, Store.getInstance().runsFor(cur.ws.id).firstOrNull())
+            matches.isNotEmpty() -> StatusText.ambiguous(matches.size)
+            else -> StatusText.unmapped(git)
+        }
         updateWidgetOnEdt()
     }
 
@@ -212,12 +231,32 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
      *  here would pin the WRONG branch server-side) before deciding whether to ask which branch to
      *  plan on. Safe to call from the EDT; the git re-probe and the actual trigger both hop off/
      *  onto the EDT as needed via [ActionUtil.runBackground]. */
-    fun planCurrent() {
-        val cur = current
-        if (cur == null) {
-            ActionUtil.notify(project, "Terraducktel: the active file is not inside an imported workspace.")
-            return
+    fun planCurrent() = resolveCurrent { preparePlan(it) }
+
+    /** Hands [then] the workspace to act on: the only candidate, or — when several business units
+     *  each have one for the active file — the one the user picks from [workspaceChooser]. Must be
+     *  called on the EDT. With no candidate at all it says so instead. */
+    fun resolveCurrent(then: (CurrentFile) -> Unit) {
+        val options = candidates
+        when {
+            options.isEmpty() -> ActionUtil.notify(project, "Terraducktel: the active file is not inside an imported workspace.")
+            options.size == 1 -> then(options.single())
+            else -> workspaceChooser(options, then)
         }
+    }
+
+    private fun showWorkspaceChoice(options: List<CurrentFile>, onChosen: (CurrentFile) -> Unit) {
+        val labels = options.map { chooserLabel(it) }
+        val byLabel = labels.zip(options).toMap()
+        JBPopupFactory.getInstance()
+            .createPopupChooserBuilder(labels)
+            .setTitle("Which workspace?")
+            .setItemChosenCallback { label -> byLabel[label]?.let(onChosen) }
+            .createPopup()
+            .showCenteredInCurrentWindow(project)
+    }
+
+    private fun preparePlan(cur: CurrentFile) {
         val ws = cur.ws
         ActionUtil.runBackground(project, "TDT: preparing plan…") {
             var git = cur.git
@@ -229,9 +268,9 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
             ApplicationManager.getApplication().invokeLater(
                 {
                     if (branch != null && branch != ws.repo_ref) {
-                        branchChooser(branch, ws.repo_ref) { chosen -> triggerPlanSafely(ws, chosen) }
+                        branchChooser(branch, ws.repo_ref) { chosen -> triggerPlanSafely(cur.bu.slug, ws, chosen) }
                     } else {
-                        triggerPlanSafely(ws, null)
+                        triggerPlanSafely(cur.bu.slug, ws, null)
                     }
                 },
                 ModalityState.any(),
@@ -264,7 +303,7 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
     /** [RunActions.trigger] itself must run on the EDT (it shows the Apply/Destroy confirmation
      *  dialogs synchronously); wrapping it here — rather than leaving a raw throw to reach the
      *  platform as an uncaught exception — mirrors `status.ts`'s `pick.act().catch(...)`. */
-    private fun triggerPlanSafely(ws: Workspace, branch: String?) = safely { RunActions.trigger(project, ws, "plan", branch) }
+    private fun triggerPlanSafely(bu: String, ws: Workspace, branch: String?) = safely { RunActions.trigger(project, bu, ws, "plan", branch) }
 
     private fun safely(action: () -> Unit) {
         try {
@@ -286,17 +325,18 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
         data class Item(val label: String, val act: () -> Unit)
         val cur = current
         val last = cur?.let { Store.getInstance().runsFor(it.ws.id).firstOrNull() }
-        val items = popupItems(cur, last).map { label ->
+        val ambiguous = candidates.size > 1
+        val items = popupItems(cur, last, ambiguous).map { label ->
             Item(label) {
                 when (label) {
                     "Plan this leaf" -> planCurrent()
-                    "Show last plan" -> PlanDocument.open(project, last!!.id, cur.ws.name)
-                    "Reveal in tool window" -> TdtToolWindowFactory.revealWorkspace(project, cur!!.ws.id)
+                    "Show last plan" -> PlanDocument.open(project, cur!!.bu.slug, last!!.id, cur.ws.name)
+                    "Reveal in tool window" -> resolveCurrent { TdtToolWindowFactory.revealWorkspace(project, it.ws.id) }
                     "Open in browser" -> openInBrowser()
                 }
             }
         }
-        val step = object : BaseListPopupStep<Item>(popupTitle(cur), items) {
+        val step = object : BaseListPopupStep<Item>(popupTitle(cur, candidates.size), items) {
             override fun getTextFor(value: Item): String = value.label
             override fun onChosen(selectedValue: Item, finalChoice: Boolean): PopupStep<*>? =
                 doFinalStep { safely(selectedValue.act) }
@@ -309,8 +349,12 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
      *  without driving a real Swing popup. Mirrors `status.ts`'s `actions()` branching: unmapped
      *  collapses to the single "Open in browser" item; "Show last plan" only when [lastRun] is
      *  non-null. */
-    internal fun popupItems(cur: CurrentFile?, lastRun: Run?): List<String> {
-        if (cur == null) return listOf("Open in browser")
+    internal fun popupItems(cur: CurrentFile?, lastRun: Run?, ambiguous: Boolean = false): List<String> {
+        if (cur == null) {
+            // Several business units each have a workspace for this file: every action that needs
+            // one asks which (no "Show last plan" — there is no single last run to show).
+            return if (ambiguous) listOf("Plan this leaf", "Reveal in tool window", "Open in browser") else listOf("Open in browser")
+        }
         return buildList {
             add("Plan this leaf")
             if (lastRun != null) add("Show last plan")
@@ -321,10 +365,11 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
 
     /** Pure decision behind [actionsPopup]'s title — same placeholder shape as `status.ts`'s
      *  `showQuickPick`: `<name> · <tf_working_dir>[ · branch <branch>]`; null when unmapped. */
-    internal fun popupTitle(cur: CurrentFile?): String? = cur?.let {
-        val branchSuffix = it.git?.branch?.let { b -> " · branch $b" } ?: ""
-        "${it.ws.name} · ${it.ws.tf_working_dir}$branchSuffix"
-    }
+    internal fun popupTitle(cur: CurrentFile?, ambiguousCount: Int = 0): String? =
+        cur?.let {
+            val branchSuffix = it.git?.branch?.let { b -> " · branch $b" } ?: ""
+            "${it.ws.name} · ${it.ws.tf_working_dir}$branchSuffix"
+        } ?: if (ambiguousCount > 1) "$ambiguousCount workspaces match this file" else null
 
     private fun openInBrowser() {
         val ui = TdtSession.getInstance().uiUrl() ?: return
@@ -335,6 +380,9 @@ class EditorStatus(private val project: Project, private val scope: CoroutineSco
 
     companion object {
         fun getInstance(project: Project): EditorStatus = project.service()
+
+        /** One chooser row: `<workspace> — <business unit>`. */
+        fun chooserLabel(cur: CurrentFile): String = "${cur.ws.name} — ${cur.bu.name}"
 
         /** Symlinked checkouts (a `~/code` symlink into another volume, a bind mount, …) can make
          *  the editor's path and `git rev-parse --show-toplevel`'s realpath output disagree on the

@@ -33,7 +33,10 @@ class TdtSettings : PersistentStateComponent<TdtSettings.State> {
     class State {
         var profiles: MutableList<Profile> = mutableListOf()
         var activeProfile: String = ""
-        var buByProfile: MutableMap<String, String> = mutableMapOf()
+        /** Per profile name: the business-unit slugs the user hid via the filter, comma-joined (the
+         *  platform's XML serializer has no reliable map-of-collections binding). Empty / absent =
+         *  every business unit visible, so a BU that appears later is shown by default. */
+        var buHiddenByProfile: MutableMap<String, String> = mutableMapOf()
         var refreshIntervalSeconds: Int = 30
         var runsLimit: Int = 200
         var approvalsPollSeconds: Int = 60
@@ -54,6 +57,16 @@ class TdtSettings : PersistentStateComponent<TdtSettings.State> {
      *  first profile by name (alphabetical, matching the VS Code extension's `pickActive`
      *  fallback), else null when there are no profiles at all. */
     fun activeProfile(): Profile? = profile(myState.activeProfile) ?: myState.profiles.minByOrNull { it.name }
+
+    /** The business-unit slugs the user hid for [profileName] via the filter; empty = all visible. */
+    fun hiddenBuSlugs(profileName: String): Set<String> =
+        myState.buHiddenByProfile[profileName]?.split(',')?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+
+    /** Replaces [profileName]'s hidden set; an empty set removes the entry so the state stays small. */
+    fun setHiddenBuSlugs(profileName: String, slugs: Set<String>) {
+        if (slugs.isEmpty()) myState.buHiddenByProfile.remove(profileName)
+        else myState.buHiddenByProfile[profileName] = slugs.sorted().joinToString(",")
+    }
 
     /** [Profile.uiUrl] when set, else [Profile.url] — either way with a trailing slash stripped. */
     fun uiUrlFor(p: Profile): String = p.uiUrl.ifBlank { p.url }.trimEnd('/')

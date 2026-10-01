@@ -28,15 +28,15 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Everything that depends on "which deployment / which BU / who am I". Rebuilt on every profile
+ * Everything that depends on "which deployment / who am I". Rebuilt on every profile
  * change ([reload]). Application-level light service — a blocking port of `services/vscode/src/
  * session.ts`'s `Session` class; every public method here is blocking (secret-store I/O, and
  * sometimes network I/O) and must be called off the EDT (actions do this via
  * [com.terraducktel.jetbrains.actions.ActionUtil.runBackground]).
  *
- * [reload] and [setBu] are `@Synchronized` on this instance: a whole reload cycle (settings read,
+ * [reload] is `@Synchronized` on this instance: a whole reload cycle (settings read,
  * [TokenManager.restore], client construction, cycle-listener swap) runs under the session's
- * monitor, so two cycles can never interleave their writes to [profile]/[tokens]/[client]/[bu]/
+ * monitor, so two cycles can never interleave their writes to [profile]/[tokens]/[client]/
  * the cycle listeners. Holding the lock across [TokenManager.restore] is fine — it's a local
  * PasswordSafe read — but it must never be held across network I/O or a listener callback; the
  * sign-out balloon and every [publish] are dispatched via `invokeLater`, i.e. AFTER the method
@@ -50,7 +50,6 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
     @Volatile var profile: Profile? = null; private set
     @Volatile var tokens: TokenManager? = null; private set
     @Volatile var client: TdtClient? = null; private set
-    @Volatile var bu: String = ""; private set
 
     /** Bumped by every [reload]. A cycle that finds itself superseded mid-call bails out rather
      *  than publishing its (now stale) profile/client over a newer one's. */
@@ -87,22 +86,6 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
 
     fun isSignedIn(): Boolean = tokens?.isSignedIn() == true
 
-    /** Test seam: overrides [canWrite]'s real computation — swapped by action-gating tests that
-     *  need a deterministic RBAC answer without driving a real sign-in (password/API key/SSO,
-     *  each with its own claims-derived role) just to flip one boolean. Defaults to the actual
-     *  computation. */
-    internal var canWriteProvider: () -> Boolean = { defaultCanWrite() }
-
-    /** Port of `session.ts`'s `canWrite()`. */
-    fun canWrite(): Boolean = canWriteProvider()
-
-    private fun defaultCanWrite(): Boolean {
-        val tm = tokens ?: return false
-        if (!tm.isSignedIn()) return false
-        val claims = tm.claims() ?: return tm.kind() == "api_key"
-        return claims.is_superadmin == true || claims.role == "operator" || claims.role == "admin"
-    }
-
     fun uiUrl(): String? = profile?.let { TdtSettings.getInstance().uiUrlFor(it) }
 
     /** null unless signed in — the gate any poller/store must use before issuing requests. */
@@ -120,7 +103,11 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         return c
     }
 
-    /** Rebuilds [profile]/[tokens]/[client]/[bu] from [TdtSettings]. Blocking — call off the EDT.
+    /** [requireClient] bound to business unit [bu] — every request about a workspace or run is
+     *  issued through the BU that workspace/run lives in, never a session-wide "current" one. */
+    fun requireClient(bu: String): TdtClient = requireClient().withBu(bu)
+
+    /** Rebuilds [profile]/[tokens]/[client] from [TdtSettings]. Blocking — call off the EDT.
      *  `@Synchronized`: see the class doc for the concurrency invariants this maintains. */
     @Synchronized
     fun reload() {
@@ -142,19 +129,17 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
             profile = null
             tokens = null
             client = null
-            bu = ""
             Store.getInstance().clear()
             publish()
             return
         }
-        val nextBu = settings.state.buByProfile[next.name] ?: ""
         val tm = TokenManager(secretStoreFactory(), next.name)
         tm.restore() // local PasswordSafe read; the lock is held across this by design (see class doc)
         if (gen != reloadGen.get()) return // second line of defence — see class doc
 
         val newClient = TdtClient(
             baseUrl = next.url,
-            bu = nextBu,
+            bu = "", // business units are never scoped session-wide: each request picks its BU via withBu()
             tokens = tm,
             insecureTls = next.insecureTls,
             trace = { line -> if (TdtSettings.getInstance().state.trace) TdtLog.trace(line) },
@@ -162,13 +147,12 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
         tm.attach(newClient)
 
         profile = next
-        bu = nextBu
         tokens = tm
         client = newClient
 
         // Captured so a listener firing late (after a LATER reload() replaced tokens/client
         // wholesale) can tell that it belongs to a superseded cycle and ignore itself. Not
-        // guarded against `setBu()`, which intentionally keeps the same TokenManager/auth session.
+        // guarded by business-unit selection: switching BU keeps the same TokenManager/auth session.
         val cycleTokens = tm
         val removeSignedOut = newClient.onSignedOut {
             if (tokens !== cycleTokens) return@onSignedOut
@@ -198,23 +182,6 @@ class TdtSession(private val scope: CoroutineScope) : Disposable {
     fun setActiveProfile(name: String) {
         TdtSettings.getInstance().state.activeProfile = name
         reload()
-    }
-
-    /** Swaps in a `withBu()` clone of the SAME client/auth session — deliberately NOT a [reload],
-     *  so the sign-out listener and token-change listener installed this cycle keep firing.
-     *  `@Synchronized` so it can never interleave with an in-flight [reload] rebuilding the same
-     *  fields. */
-    @Synchronized
-    fun setBu(slug: String) {
-        val p = profile ?: return
-        val c = client ?: return
-        TdtSettings.getInstance().state.buByProfile[p.name] = slug
-        bu = slug
-        val newClient = c.withBu(slug)
-        client = newClient
-        tokens?.attach(newClient)
-        publish()
-        Store.getInstance().refresh()
     }
 
     fun signInWithPassword(email: String, password: String) {

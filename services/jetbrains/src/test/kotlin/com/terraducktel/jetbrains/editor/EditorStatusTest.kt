@@ -5,12 +5,14 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.TdtClient
 import com.terraducktel.jetbrains.api.Workspace
 import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.settings.Profile
 import com.terraducktel.jetbrains.settings.TdtSettings
+import com.terraducktel.jetbrains.state.BuState
 import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.testutil.InMemorySecretStore
 import com.terraducktel.jetbrains.testutil.StubServer
@@ -287,6 +289,90 @@ class EditorStatusTest : BasePlatformTestCase() {
 
             waitUntil { srv.calls("POST", "/api/v1/workspaces/w1/runs").isNotEmpty() }
             assertTrue("must not pin when the tracked branch was chosen", srv.calls("PUT", "/api/v1/workspaces/w1").isEmpty())
+        }
+    }
+
+    private val infra = BusinessUnit("id-infra", "infra", "Infra")
+    private val apps = BusinessUnit("id-apps", "apps", "Apps")
+
+    private fun prodWorkspace(id: String) = Workspace(
+        id = id, name = "prod", tf_working_dir = "envs/prod", repo_url = "https://github.com/acme/infra", repo_ref = "main",
+    )
+
+    fun testTheWorkspaceIsResolvedAcrossBusinessUnitsAndCarriesItsOwn() {
+        StubServer().use { srv ->
+            val root = initRepo()
+            signIn(srv)
+            Store.getInstance().setSnapshotForTest(
+                listOf(
+                    BuState(infra, listOf(Workspace(id = "x", name = "elsewhere", tf_working_dir = "other/dir", repo_url = "https://github.com/acme/infra")), loaded = true),
+                    BuState(apps, listOf(prodWorkspace("w-apps")), loaded = true),
+                ),
+            )
+            openInEditor(File(root, "envs/prod/main.tf"))
+
+            val status = EditorStatus.getInstance(project)
+            offEdt { status.refresh() }
+            waitUntil { status.current?.ws?.id == "w-apps" }
+
+            assertEquals("w-apps", status.current?.ws?.id)
+            assertEquals("apps", status.current?.bu?.slug)
+            assertEquals(1, status.candidates.size)
+        }
+    }
+
+    fun testWorkspacesInSeveralBusinessUnitsAskWhichOneBeforePlanning() {
+        StubServer().use { srv ->
+            val root = initRepo()
+            signIn(srv)
+            Store.getInstance().setSnapshotForTest(
+                listOf(
+                    BuState(infra, listOf(prodWorkspace("w-infra")), loaded = true),
+                    BuState(apps, listOf(prodWorkspace("w-apps")), loaded = true),
+                ),
+            )
+            srv.json("POST", "/api/v1/workspaces/w-apps/runs", 200, """{"id":"r1","workspace_id":"w-apps","command":"plan","status":"pending"}""")
+            openInEditor(File(root, "envs/prod/main.tf"))
+
+            val status = EditorStatus.getInstance(project)
+            offEdt { status.refresh() }
+            waitUntil { status.candidates.size == 2 }
+
+            assertEquals(2, status.candidates.size)
+            assertNull("no single workspace to act on until the user chooses", status.current)
+            assertEquals("TDT: 2 workspaces", status.view?.text)
+
+            val offered = mutableListOf<String>()
+            status.workspaceChooser = { options, onChosen ->
+                offered += options.map { EditorStatus.chooserLabel(it) }
+                onChosen(options.single { it.bu.slug == "apps" })
+            }
+            status.planCurrent()
+
+            waitUntil { srv.calls("POST", "/api/v1/workspaces/w-apps/runs").isNotEmpty() }
+            assertEquals(listOf("prod — Apps", "prod — Infra"), offered.sorted())
+            assertEquals("apps", srv.calls("POST", "/api/v1/workspaces/w-apps/runs").single().headers["x-business-unit"])
+            assertTrue(srv.calls("POST", "/api/v1/workspaces/w-infra/runs").isEmpty())
+        }
+    }
+
+    fun testASingleMatchPlansWithoutAskingAndUsesItsBusinessUnit() {
+        StubServer().use { srv ->
+            val root = initRepo()
+            signIn(srv)
+            Store.getInstance().setSnapshotForTest(listOf(BuState(infra, listOf(prodWorkspace("w-infra")), loaded = true)))
+            srv.json("POST", "/api/v1/workspaces/w-infra/runs", 200, """{"id":"r1","workspace_id":"w-infra","command":"plan","status":"pending"}""")
+            openInEditor(File(root, "envs/prod/main.tf"))
+            val status = EditorStatus.getInstance(project)
+            offEdt { status.refresh() }
+            waitUntil { status.current != null }
+
+            status.workspaceChooser = { _, _ -> fail("must not ask when exactly one workspace matches") }
+            status.branchChooser = { _, _, onChosen -> onChosen(null) }
+            status.planCurrent()
+
+            waitUntil { srv.calls("POST", "/api/v1/workspaces/w-infra/runs").isNotEmpty() }
+            assertEquals("infra", srv.calls("POST", "/api/v1/workspaces/w-infra/runs").single().headers["x-business-unit"])
         }
     }
 }

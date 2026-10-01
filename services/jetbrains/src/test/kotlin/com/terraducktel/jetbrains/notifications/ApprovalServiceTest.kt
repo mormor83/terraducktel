@@ -11,6 +11,7 @@ import com.terraducktel.jetbrains.auth.PasswordSafeSecretStore
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.settings.Profile
 import com.terraducktel.jetbrains.settings.TdtSettings
+import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.testutil.InMemorySecretStore
 import com.terraducktel.jetbrains.testutil.StubServer
 import kotlinx.serialization.encodeToString
@@ -92,6 +93,20 @@ class ApprovalServiceTest : BasePlatformTestCase() {
         return profile
     }
 
+    private companion object {
+        const val INFRA_ONLY = """[{"id":"b1","slug":"infra","name":"Infra"}]"""
+        const val INFRA_AND_APPS = """[{"id":"b1","slug":"infra","name":"Infra"},{"id":"b2","slug":"apps","name":"Apps"}]"""
+    }
+
+    private fun waitUntil(timeoutMs: Long = 5_000, reached: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (!reached() && System.currentTimeMillis() < deadline) {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            Thread.sleep(10)
+        }
+        return reached()
+    }
+
     private fun run(id: String, ws: String = "w1") =
         Run(id = id, workspace_id = ws, command = "apply", status = "awaiting_approval", created_at = "2026-09-13T10:00:00Z")
 
@@ -112,6 +127,7 @@ class ApprovalServiceTest : BasePlatformTestCase() {
 
     fun testANewAwaitingRunPostsExactlyOneStickyBalloonWithThreeActionsAndASecondPollIsSilent() {
         StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, INFRA_ONLY)
             srv.json("GET", "/api/v1/workspaces", 200, "[]")
             var awaiting = listOf<Run>()
             srv.on("GET", "/api/v1/runs") { _, ex -> StubServer.respond(ex, 200, TdtJson.encodeToString(awaiting)) }
@@ -119,6 +135,8 @@ class ApprovalServiceTest : BasePlatformTestCase() {
             setProfile(srv)
             offEdt { session.reload() }
             offEdt { session.signInWithApiKey("tdt_x") }
+            offEdt { Store.getInstance().refreshAndWait() } // the watcher polls the BUs the store knows about
+            offEdt { service.awaitPendingRearms() } // the store change queued a rearm of its own: let it settle
             offEdt { service.rearm() } // primes the (empty) backlog deterministically before the
             // assertions below, rather than racing the sign-in's own asynchronous rearm.
             assertTrue("expected no balloon for the empty backlog", approvalNotifications().isEmpty())
@@ -149,6 +167,7 @@ class ApprovalServiceTest : BasePlatformTestCase() {
 
     fun testAGraphFetchFailureStillPostsABalloonWithNoCountsRatherThanMisleadingZeroes() {
         StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, INFRA_ONLY)
             srv.json("GET", "/api/v1/workspaces", 200, "[]")
             var awaiting = listOf<Run>()
             srv.on("GET", "/api/v1/runs") { _, ex -> StubServer.respond(ex, 200, TdtJson.encodeToString(awaiting)) }
@@ -156,6 +175,8 @@ class ApprovalServiceTest : BasePlatformTestCase() {
             setProfile(srv)
             offEdt { session.reload() }
             offEdt { session.signInWithApiKey("tdt_x") }
+            offEdt { Store.getInstance().refreshAndWait() } // the watcher polls the BUs the store knows about
+            offEdt { service.awaitPendingRearms() } // the store change queued a rearm of its own: let it settle
             offEdt { service.rearm() }
 
             awaiting = listOf(run("r2"))
@@ -173,6 +194,7 @@ class ApprovalServiceTest : BasePlatformTestCase() {
 
     fun testMarkSeenBeforeThePollSuppressesTheNotice() {
         StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, INFRA_ONLY)
             srv.json("GET", "/api/v1/workspaces", 200, "[]")
             var awaiting = listOf<Run>()
             srv.on("GET", "/api/v1/runs") { _, ex -> StubServer.respond(ex, 200, TdtJson.encodeToString(awaiting)) }
@@ -180,6 +202,8 @@ class ApprovalServiceTest : BasePlatformTestCase() {
             setProfile(srv)
             offEdt { session.reload() }
             offEdt { session.signInWithApiKey("tdt_x") }
+            offEdt { Store.getInstance().refreshAndWait() } // the watcher polls the BUs the store knows about
+            offEdt { service.awaitPendingRearms() } // the store change queued a rearm of its own: let it settle
             offEdt { service.rearm() }
 
             service.markSeen("r9") // e.g. the run-output tail's own toast just announced it
@@ -196,6 +220,7 @@ class ApprovalServiceTest : BasePlatformTestCase() {
 
     fun testSignOutStopsTheWatcherNoFurtherRunsRequestsAcrossTwoIntervals() {
         StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, INFRA_ONLY)
             srv.json("GET", "/api/v1/workspaces", 200, "[]")
             srv.json("GET", "/api/v1/runs", 200, "[]")
             setProfile(srv)
@@ -203,6 +228,8 @@ class ApprovalServiceTest : BasePlatformTestCase() {
             // in production; service.minIntervalMs (50, set in setUp) keeps it at 1000ms here.
             offEdt { session.reload() }
             offEdt { session.signInWithApiKey("tdt_x") }
+            offEdt { Store.getInstance().refreshAndWait() } // the watcher polls the BUs the store knows about
+            offEdt { service.awaitPendingRearms() } // the store change queued a rearm of its own: let it settle
             // The sign-in above also fires TdtSessionListener asynchronously, but this explicit
             // call is what makes priming (and starting the loop on the 1000ms interval above)
             // deterministic before the assertions below, rather than racing a pooled-thread rearm.
@@ -222,6 +249,69 @@ class ApprovalServiceTest : BasePlatformTestCase() {
                 "no /runs request should land on the old timer after signOut()",
                 callsAtSignOut,
                 srv.calls("GET", "/api/v1/runs").size,
+            )
+        }
+    }
+
+    fun testTheBalloonNamesTheBusinessUnitOfTheRun() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, INFRA_ONLY)
+            srv.json("GET", "/api/v1/workspaces", 200, "[]")
+            var awaiting = listOf<Run>()
+            srv.on("GET", "/api/v1/runs") { _, ex -> StubServer.respond(ex, 200, TdtJson.encodeToString(awaiting)) }
+            srv.json("GET", "/api/v1/runs/r1/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            setProfile(srv)
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+            offEdt { Store.getInstance().refreshAndWait() }
+            offEdt { service.awaitPendingRearms() }
+            offEdt { service.rearm() }
+
+            awaiting = listOf(run("r1"))
+            offEdt { service.pollNow() }
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+
+            val posted = approvalNotifications()
+            assertEquals(1, posted.size)
+            assertTrue(posted[0].content, posted[0].content.contains("(Infra)"))
+        }
+    }
+
+    fun testShowingAHiddenBusinessUnitAgainReprimesInsteadOfAnnouncingItsBacklog() {
+        StubServer().use { srv ->
+            srv.json("GET", "/api/v1/business-units", 200, INFRA_AND_APPS)
+            srv.json("GET", "/api/v1/workspaces", 200, "[]")
+            // "apps" already has a run awaiting approval from before the user ever watched it.
+            srv.on("GET", "/api/v1/runs") { call, ex ->
+                val body = if (call.headers["x-business-unit"] == "apps") TdtJson.encodeToString(listOf(run("r-old", "w2"))) else "[]"
+                StubServer.respond(ex, 200, body)
+            }
+            srv.json("GET", "/api/v1/runs/r-old/graph", 200, """{"nodes":[],"edges":[],"summary":{}}""")
+            setProfile(srv)
+            TdtSettings.getInstance().setHiddenBuSlugs("p", setOf("apps"))
+            offEdt { session.reload() }
+            offEdt { session.signInWithApiKey("tdt_x") }
+            offEdt { Store.getInstance().refreshAndWait() }
+            offEdt { service.awaitPendingRearms() }
+            offEdt { service.rearm() } // primed with only "infra" visible
+            assertTrue(
+                "a hidden business unit must not be polled",
+                srv.calls("GET", "/api/v1/runs").none { it.headers["x-business-unit"] == "apps" },
+            )
+
+            TdtSettings.getInstance().setHiddenBuSlugs("p", emptySet()) // the user shows "apps" again
+            offEdt { Store.getInstance().refreshAndWait() }
+            // the store tick changes the visible set, which re-arms (and so re-primes) on its own
+            assertTrue(
+                "expected the service to re-prime against the newly visible business unit",
+                waitUntil { srv.calls("GET", "/api/v1/runs").any { it.headers["x-business-unit"] == "apps" } },
+            )
+            offEdt { service.pollNow() }
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+
+            assertTrue(
+                "the backlog of a business unit that just became visible must not burst out as notifications",
+                approvalNotifications().isEmpty(),
             )
         }
     }

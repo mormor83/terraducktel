@@ -49,7 +49,7 @@
       <action id="Terraducktel.SignIn" class="com.terraducktel.jetbrains.actions.auth.SignInAction" text="Sign In…" icon="AllIcons.Actions.Execute"/>
       <action id="Terraducktel.SignOut" class="com.terraducktel.jetbrains.actions.auth.SignOutAction" text="Sign Out"/>
       <action id="Terraducktel.SwitchProfile" class="com.terraducktel.jetbrains.actions.auth.SwitchProfileAction" text="Switch Profile…"/>
-      <action id="Terraducktel.SwitchBu" class="com.terraducktel.jetbrains.actions.auth.SwitchBusinessUnitAction" text="Switch Business Unit…"/>
+      <action id="Terraducktel.FilterBusinessUnits" class="com.terraducktel.jetbrains.actions.auth.FilterBusinessUnitsAction" text="Filter Business Units…"/>
       <action id="Terraducktel.Refresh" class="com.terraducktel.jetbrains.actions.RefreshAction" text="Refresh" icon="AllIcons.Actions.Refresh"/>
       <reference ref="Terraducktel.WatchRun"/>
     </group>
@@ -58,7 +58,7 @@
       <reference ref="Terraducktel.SignIn"/>
       <reference ref="Terraducktel.SignOut"/>
       <reference ref="Terraducktel.SwitchProfile"/>
-      <reference ref="Terraducktel.SwitchBu"/>
+      <reference ref="Terraducktel.FilterBusinessUnits"/>
       <separator/>
       <reference ref="Terraducktel.WatchRun"/>
       <separator/>

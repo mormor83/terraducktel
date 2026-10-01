@@ -42,7 +42,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
             Profile(name = "staging", url = "https://staging.tdt.example.com", uiUrl = "https://ui.staging.tdt.example.com", insecureTls = true),
         )
         activeProfile = "staging"
-        buByProfile = mutableMapOf("prod" to "platform", "staging" to "platform")
+        buHiddenByProfile = mutableMapOf("prod" to "platform", "staging" to "platform")
         refreshIntervalSeconds = 45
         runsLimit = 500
         approvalsPollSeconds = 15
@@ -66,7 +66,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
 
         assertEquals(source.state.profiles, target.state.profiles)
         assertEquals(source.state.activeProfile, target.state.activeProfile)
-        assertEquals(source.state.buByProfile, target.state.buByProfile)
+        assertEquals(source.state.buHiddenByProfile, target.state.buHiddenByProfile)
         assertEquals(source.state.refreshIntervalSeconds, target.state.refreshIntervalSeconds)
         assertEquals(source.state.runsLimit, target.state.runsLimit)
         assertEquals(source.state.approvalsPollSeconds, target.state.approvalsPollSeconds)
@@ -167,7 +167,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         TdtSettings.getInstance().loadState(TdtSettings.State().apply {
             profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"), Profile(name = "staging", url = "https://staging.example.com"))
             activeProfile = "prod"
-            buByProfile = mutableMapOf("prod" to "platform", "staging" to "platform")
+            buHiddenByProfile = mutableMapOf("prod" to "platform", "staging" to "platform")
         })
         PasswordSafeSecretStore().set("terraducktel.cred.prod", "s3cr3t")
 
@@ -179,7 +179,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         configurable.applyAndAwaitSecretWork()
 
         assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
-        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
+        assertFalse(TdtSettings.getInstance().state.buHiddenByProfile.containsKey("prod"))
         // The removed profile WAS the active one, so activeProfile must be cleared, not left
         // dangling on a name that no longer exists.
         assertEquals("", TdtSettings.getInstance().state.activeProfile)
@@ -189,7 +189,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         TdtSettings.getInstance().loadState(TdtSettings.State().apply {
             profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"), Profile(name = "staging", url = "https://staging.example.com"))
             activeProfile = "staging" // rename a profile that ISN'T the active one
-            buByProfile = mutableMapOf("prod" to "platform")
+            buHiddenByProfile = mutableMapOf("prod" to "platform")
         })
         PasswordSafeSecretStore().set("terraducktel.cred.prod", "s3cr3t")
 
@@ -207,8 +207,8 @@ class TdtSettingsTest : BasePlatformTestCase() {
 
         assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
         assertEquals("s3cr3t", PasswordSafeSecretStore().get("terraducktel.cred.prod-renamed"))
-        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
-        assertTrue(TdtSettings.getInstance().state.buByProfile.containsKey("prod-renamed"))
+        assertFalse(TdtSettings.getInstance().state.buHiddenByProfile.containsKey("prod"))
+        assertTrue(TdtSettings.getInstance().state.buHiddenByProfile.containsKey("prod-renamed"))
         assertNotNull(TdtSettings.getInstance().profile("prod-renamed"))
     }
 
@@ -216,7 +216,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         TdtSettings.getInstance().loadState(TdtSettings.State().apply {
             profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"), Profile(name = "staging", url = "https://staging.example.com"))
             activeProfile = "prod"
-            buByProfile = mutableMapOf("prod" to "platform")
+            buHiddenByProfile = mutableMapOf("prod" to "platform")
         })
         PasswordSafeSecretStore().set("terraducktel.cred.prod", "s3cr3t")
 
@@ -243,8 +243,8 @@ class TdtSettingsTest : BasePlatformTestCase() {
         assertEquals("prod-renamed", TdtSettings.getInstance().state.activeProfile)
         assertEquals("s3cr3t", PasswordSafeSecretStore().get("terraducktel.cred.prod-renamed"))
         assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
-        assertTrue(TdtSettings.getInstance().state.buByProfile.containsKey("prod-renamed"))
-        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
+        assertTrue(TdtSettings.getInstance().state.buHiddenByProfile.containsKey("prod-renamed"))
+        assertFalse(TdtSettings.getInstance().state.buHiddenByProfile.containsKey("prod"))
         assertEquals(1, fireCount.get())
     }
 
@@ -252,7 +252,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         TdtSettings.getInstance().loadState(TdtSettings.State().apply {
             profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"))
             activeProfile = "prod"
-            buByProfile = mutableMapOf("prod" to "platform")
+            buHiddenByProfile = mutableMapOf("prod" to "platform")
         })
         PasswordSafeSecretStore().set("terraducktel.cred.prod", "s3cr3t")
 
@@ -294,7 +294,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         TdtSettings.getInstance().loadState(TdtSettings.State().apply {
             profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"))
             activeProfile = "prod"
-            buByProfile = mutableMapOf("prod" to "platform")
+            buHiddenByProfile = mutableMapOf("prod" to "platform")
         })
         PasswordSafeSecretStore().set("terraducktel.cred.prod", "s3cr3t")
 
@@ -306,7 +306,7 @@ class TdtSettingsTest : BasePlatformTestCase() {
         // holds the Profile object whose `.name` field already reads "prod2" by the time it's
         // removed. Naively deleting by `removed.name` would look up a credential that was never
         // written ("terraducktel.cred.prod2") and leave the real one ("terraducktel.cred.prod")
-        // — and its `buByProfile` entry — orphaned forever.
+        // — and its `buHiddenByProfile` entry — orphaned forever.
         configurable.profiles.first { it.name == "prod" }.name = "prod2"
         configurable.fireProfilesChangedForTest()
         configurable.removeProfileForTest("prod2")
@@ -314,14 +314,14 @@ class TdtSettingsTest : BasePlatformTestCase() {
 
         assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod"))
         assertNull(PasswordSafeSecretStore().get("terraducktel.cred.prod2"))
-        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod"))
-        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("prod2"))
+        assertFalse(TdtSettings.getInstance().state.buHiddenByProfile.containsKey("prod"))
+        assertFalse(TdtSettings.getInstance().state.buHiddenByProfile.containsKey("prod2"))
     }
 
     fun testMutatingWorkingCollectionsInPlaceDoesNotAffectLiveSettingsUntilApply() {
         TdtSettings.getInstance().loadState(TdtSettings.State().apply {
             profiles = mutableListOf(Profile(name = "prod", url = "https://tdt.example.com"))
-            buByProfile = mutableMapOf("prod" to "platform")
+            buHiddenByProfile = mutableMapOf("prod" to "platform")
         })
 
         val configurable = TdtConfigurable()
@@ -332,9 +332,9 @@ class TdtSettingsTest : BasePlatformTestCase() {
         // shallow-copies fields, so without an explicit deep copy these mutations would leak
         // straight into the live TdtSettings service before Apply is ever pressed.
         configurable.working.profiles.add(Profile(name = "sneaky", url = "https://sneaky.example.com"))
-        configurable.working.buByProfile["sneaky"] = "ops"
+        configurable.working.buHiddenByProfile["sneaky"] = "ops"
 
         assertEquals(1, TdtSettings.getInstance().state.profiles.size)
-        assertFalse(TdtSettings.getInstance().state.buByProfile.containsKey("sneaky"))
+        assertFalse(TdtSettings.getInstance().state.buHiddenByProfile.containsKey("sneaky"))
     }
 }

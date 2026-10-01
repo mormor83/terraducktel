@@ -17,9 +17,12 @@ import com.intellij.ui.tree.TreeVisitor
 import com.intellij.ui.treeStructure.SimpleTreeStructure
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.tree.TreeUtil
+import com.terraducktel.jetbrains.actions.auth.FilterBusinessUnitsAction
 import com.terraducktel.jetbrains.session.TdtSession
 import com.terraducktel.jetbrains.session.TdtSessionListener
 import com.terraducktel.jetbrains.state.Store
+import com.terraducktel.jetbrains.toolwindow.nodes.BuNode
+import com.terraducktel.jetbrains.toolwindow.nodes.FilterHeaderNode
 import com.terraducktel.jetbrains.toolwindow.nodes.MessageNode
 import com.terraducktel.jetbrains.toolwindow.nodes.RunNode
 import com.terraducktel.jetbrains.toolwindow.nodes.StepNode
@@ -27,7 +30,12 @@ import com.terraducktel.jetbrains.toolwindow.nodes.TdtNode
 import com.terraducktel.jetbrains.toolwindow.nodes.WorkspaceNode
 import org.jetbrains.concurrency.Promise
 import java.util.concurrent.ConcurrentHashMap
+import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.JComponent
+import javax.swing.KeyStroke
+import javax.swing.SwingUtilities
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeExpansionListener
 import javax.swing.tree.TreePath
@@ -89,6 +97,24 @@ abstract class TreePanel(
         PopupHandler.installPopupMenu(tree, popupGroupId(), "TerraducktelTree")
         setContent(JBScrollPane(tree))
 
+        // "Showing X of Y business units — Filter…" opens the filter when activated.
+        tree.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (!SwingUtilities.isLeftMouseButton(e) || e.clickCount != 1) return
+                val path = tree.getPathForLocation(e.x, e.y) ?: return
+                if (TreeUtil.getLastUserObject(TdtNode::class.java, path) is FilterHeaderNode) FilterBusinessUnitsAction.show(project)
+            }
+        })
+        tree.registerKeyboardAction(
+            {
+                if (TreeUtil.getLastUserObject(TdtNode::class.java, tree.selectionPath) is FilterHeaderNode) {
+                    FilterBusinessUnitsAction.show(project)
+                }
+            },
+            KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0),
+            JComponent.WHEN_FOCUSED,
+        )
+
         tree.addTreeExpansionListener(object : TreeExpansionListener {
             override fun treeExpanded(event: TreeExpansionEvent) { runIdAt(event.path)?.let { expandedRunIds += it } }
             override fun treeCollapsed(event: TreeExpansionEvent) { runIdAt(event.path)?.let { expandedRunIds -= it } }
@@ -138,6 +164,24 @@ abstract class TreePanel(
         return head
     }
 
+    /** Root rows shared by both trees: the head messages, the filter row, one [BuNode] per visible BU. */
+    protected fun buRootChildren(root: TdtNode, view: BuNode.View): List<TdtNode> {
+        if (!signedInProvider()) return listOf(notReadyMessage(root))
+
+        val store = Store.getInstance()
+        val visible = store.visibleBus()
+        val total = store.businessUnits.size
+        val head = headMessages(root)
+        val filterRow = if (visible.size < total) listOf(FilterHeaderNode(project, root, visible.size, total)) else emptyList()
+        val autoExpand = shouldAutoExpand(visible.size)
+        val rows = visible.map { BuNode(project, root, it, view, autoExpand) }
+        return if (total == 0 && store.lastError == null) {
+            head + MessageNode(project, root, "No business units")
+        } else {
+            head + filterRow + rows
+        }
+    }
+
     /** The single row shown instead of any tree content while [signedInProvider] is false. */
     protected fun notReadyMessage(root: TdtNode): TdtNode =
         if (profileConfiguredProvider()) {
@@ -149,7 +193,41 @@ abstract class TreePanel(
     @Suppress("DEPRECATION") // Disposer.isDisposed(Disposable) has no non-deprecated replacement yet.
     private fun scheduleInvalidate() {
         ApplicationManager.getApplication().invokeLater {
-            if (!Disposer.isDisposed(this)) structureModel.invalidateAsync()
+            if (!Disposer.isDisposed(this)) structureModel.invalidateAsync().thenRun { expandLoneBu() }
+        }
+    }
+
+    /** The slug of the lone visible business unit this tree has already expanded by default —
+     *  expanded once per "this BU is the only one shown" episode, never again, so a user who then
+     *  collapses it (or whose own expansion the tree remembers) is not overridden on every tick. */
+    @Volatile private var autoExpandedSlug: String? = null
+
+    /** With exactly one business unit visible its row opens by default; with several, rows stay
+     *  collapsed. Runs after the structure was rebuilt, on a pooled thread, so it hops to the EDT. */
+    @Suppress("DEPRECATION")
+    private fun expandLoneBu() {
+        ApplicationManager.getApplication().invokeLater {
+            if (Disposer.isDisposed(this)) return@invokeLater
+            val visible = Store.getInstance().visibleBus()
+            if (!shouldAutoExpand(visible.size)) {
+                autoExpandedSlug = null
+                return@invokeLater
+            }
+            val slug = visible.single().slug
+            if (autoExpandedSlug == slug) return@invokeLater
+            autoExpandedSlug = slug
+            val targetId = "bu:$slug"
+            TreeUtil.promiseExpand(
+                tree,
+                // CONTINUE means "open this node and look inside it": the hidden root and the lone
+                // BU row are opened, everything below them is left as it is.
+                TreeVisitor { path ->
+                    when (val node = TreeUtil.getLastUserObject(TdtNode::class.java, path)) {
+                        is BuNode -> if (node.id == targetId) TreeVisitor.Action.CONTINUE else TreeVisitor.Action.SKIP_CHILDREN
+                        else -> if (path.pathCount == 1) TreeVisitor.Action.CONTINUE else TreeVisitor.Action.SKIP_CHILDREN
+                    }
+                },
+            )
         }
     }
 
@@ -178,12 +256,12 @@ abstract class TreePanel(
     internal fun refreshExpandedSteps() {
         val ids = expandedRunIds.toSet()
         if (ids.isEmpty()) return
-        val runsById = Store.getInstance().runs.associateBy { it.id }
+        val runsById = Store.getInstance().allRuns().associateBy { it.run.id }
         ApplicationManager.getApplication().executeOnPooledThread {
             var changed = false
             for (runId in ids) {
-                val run = runsById[runId] ?: continue // pruned separately, from the same store tick
-                if (RunNode.refreshIfChanged(runId, run.status)) changed = true
+                val ref = runsById[runId] ?: continue // pruned separately, from the same store tick
+                if (RunNode.refreshIfChanged(runId, ref.bu.slug, ref.run.status)) changed = true
             }
             if (changed) scheduleInvalidate()
         }
@@ -218,8 +296,8 @@ abstract class TreePanel(
     override fun uiDataSnapshot(sink: DataSink) {
         super.uiDataSnapshot(sink)
         when (val selected = TreeUtil.getLastUserObject(TdtNode::class.java, tree.selectionPath)) {
-            is WorkspaceNode -> sink[TdtDataKeys.WORKSPACE] = selected.ws
-            is RunNode -> sink[TdtDataKeys.RUN] = selected.run
+            is WorkspaceNode -> { sink[TdtDataKeys.WORKSPACE] = selected.ws; sink[TdtDataKeys.BU] = selected.bu }
+            is RunNode -> { sink[TdtDataKeys.RUN] = selected.run; sink[TdtDataKeys.BU] = selected.bu }
             else -> {}
         }
     }
@@ -227,6 +305,9 @@ abstract class TreePanel(
     override fun dispose() {}
 
     companion object {
+        /** A lone visible business unit is expanded by default; with several, rows start collapsed. */
+        internal fun shouldAutoExpand(visibleCount: Int): Boolean = visibleCount == 1
+
         /** Pure decision function behind [revealWorkspace]'s [TreeVisitor] — split out so it can
          *  be unit tested directly against plain [TdtNode] instances, without needing to drive a
          *  real [TreePath] through the async tree machinery. [node] is null for a path segment
@@ -235,8 +316,8 @@ abstract class TreePanel(
         internal fun revealAction(node: TdtNode?, targetId: String): TreeVisitor.Action = when {
             node == null -> TreeVisitor.Action.SKIP_CHILDREN
             node is WorkspaceNode -> if (node.id == targetId) TreeVisitor.Action.INTERRUPT else TreeVisitor.Action.SKIP_CHILDREN
-            node is RunNode || node is StepNode || node is MessageNode -> TreeVisitor.Action.SKIP_CHILDREN
-            else -> TreeVisitor.Action.CONTINUE // CloudGroupNode / RegionNode / FolderTreeNode / the hidden root
+            node is RunNode || node is StepNode || node is MessageNode || node is FilterHeaderNode -> TreeVisitor.Action.SKIP_CHILDREN
+            else -> TreeVisitor.Action.CONTINUE // BuNode / CloudGroupNode / RegionNode / FolderTreeNode / the hidden root
         }
     }
 }

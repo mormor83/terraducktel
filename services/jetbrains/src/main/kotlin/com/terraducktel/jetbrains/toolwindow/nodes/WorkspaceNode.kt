@@ -7,13 +7,15 @@ import com.terraducktel.jetbrains.api.Workspace
 import com.terraducktel.jetbrains.state.Store
 import com.terraducktel.jetbrains.toolwindow.TreeIcons
 
-/** A leaf of the Workspaces tree. [leaf] is the folder-relative display name computed by
+/** A leaf of the Workspaces tree ([bu] is the slug of the business unit it belongs to — the one
+ *  every action on it must be issued against). [leaf] is the folder-relative display name computed by
  *  [com.terraducktel.jetbrains.state.Grouping] and is the row's label (same as the VS Code tree);
  *  the full [Workspace.name] is in the tooltip. Children are the workspace's own runs, newest first
  *  (as returned by [Store.runsFor]). */
 class WorkspaceNode(
     project: Project,
     parent: TdtNode?,
+    val bu: String,
     val ws: Workspace,
     val leaf: String,
 ) : TdtNode(project, parent) {
@@ -21,7 +23,7 @@ class WorkspaceNode(
     override val id: String = "ws:${ws.id}"
 
     override fun buildChildren(): List<TdtNode> =
-        Store.getInstance().runsFor(ws.id).map { RunNode(project, this, it) }
+        Store.getInstance().runsFor(ws.id).map { RunNode(project, this, bu, it) }
 
     override fun update(presentation: PresentationData) {
         val lastRun = Store.getInstance().runsFor(ws.id).firstOrNull()

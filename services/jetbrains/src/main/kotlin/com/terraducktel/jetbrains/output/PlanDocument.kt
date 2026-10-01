@@ -56,9 +56,9 @@ object PlanDocument {
 
     /** Fetches the plan output for [runId] on a background task, then opens it on the EDT. Must be
      *  called on the EDT (starts a background task itself); the network call never runs on the EDT. */
-    fun open(project: Project, runId: String, label: String) {
+    fun open(project: Project, bu: String, runId: String, label: String) {
         ActionUtil.runBackground(project, "TDT: loading plan…") {
-            val client = TdtSession.getInstance().requireClient()
+            val client = TdtSession.getInstance().requireClient(bu)
             val text = client.getPlan(runId).plan_output ?: "(no plan output)"
             // A disposed-project guard: a project can close while this background fetch is in
             // flight, and FileEditorManager.getInstance(project) below must never run against a

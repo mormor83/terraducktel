@@ -1,6 +1,8 @@
 package com.terraducktel.jetbrains.editor
 
+import com.terraducktel.jetbrains.api.BusinessUnit
 import com.terraducktel.jetbrains.api.Workspace
+import com.terraducktel.jetbrains.state.WorkspaceRef
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -168,5 +170,61 @@ class MappingTest {
         val rootWs = listOf(ws(name = "root-ws", tfWorkingDir = "."))
         assertNull(Mapping.matchWorkspace(rootWs, "", "https://github.com/acme/infra.git"))
         assertNull(Mapping.matchWorkspace(rootWs, "account-1/eu-west-1/vpc", "https://github.com/acme/infra.git"))
+    }
+
+    // ─── matchAcrossBus ──────────────────────────────────────────────────────
+
+    private val infra = BusinessUnit("1", "infra", "Infra")
+    private val apps = BusinessUnit("2", "apps", "Apps")
+
+    @Test fun `matchAcrossBus finds the single workspace in the only business unit that has it`() {
+        val refs = listOf(
+            WorkspaceRef(ws("a", "envs/prod"), infra),
+            WorkspaceRef(ws("b", "envs/other"), apps),
+        )
+        val matches = Mapping.matchAcrossBus(refs, "envs/prod", "https://github.com/acme/infra")
+        assertEquals(listOf("a"), matches.map { it.ws.id })
+        assertEquals(listOf("infra"), matches.map { it.bu.slug })
+        assertTrue(matches.single().exact)
+    }
+
+    @Test fun `matchAcrossBus returns one match per business unit when several cover the file`() {
+        val refs = listOf(
+            WorkspaceRef(ws("in-apps", "envs/prod"), apps),
+            WorkspaceRef(ws("in-infra", "envs/prod"), infra),
+        )
+        val matches = Mapping.matchAcrossBus(refs, "envs/prod", "https://github.com/acme/infra")
+        // sorted by business unit name so the chooser is stable
+        assertEquals(listOf("apps", "infra"), matches.map { it.bu.slug })
+        assertEquals(listOf("in-apps", "in-infra"), matches.map { it.ws.id })
+    }
+
+    @Test fun `matchAcrossBus keeps the longest-prefix rule within each business unit`() {
+        val refs = listOf(
+            WorkspaceRef(ws("shallow", "envs"), infra),
+            WorkspaceRef(ws("deep", "envs/prod"), infra),
+            WorkspaceRef(ws("other", "envs/prod/nested"), apps),
+        )
+        val matches = Mapping.matchAcrossBus(refs, "envs/prod/nested/x", "https://github.com/acme/infra")
+        assertEquals(setOf("other", "deep"), matches.map { it.ws.id }.toSet())
+    }
+
+    @Test fun `matchAcrossBus ignores workspaces whose repo does not match the remote, in every business unit`() {
+        val refs = listOf(
+            WorkspaceRef(ws("a", "envs/prod", repoUrl = "https://github.com/acme/other.git"), infra),
+            WorkspaceRef(ws("b", "envs/prod"), apps),
+        )
+        val matches = Mapping.matchAcrossBus(refs, "envs/prod", "https://github.com/acme/infra")
+        assertEquals(listOf("b"), matches.map { it.ws.id })
+    }
+
+    @Test fun `matchAcrossBus is empty when nothing matches, and a business unit with an internal tie contributes nothing`() {
+        assertTrue(Mapping.matchAcrossBus(emptyList(), "envs/prod", null).isEmpty())
+        val tie = listOf(
+            WorkspaceRef(ws("one", "envs/prod", repoUrl = "https://github.com/acme/a.git"), infra),
+            WorkspaceRef(ws("two", "envs/prod", repoUrl = "https://github.com/acme/b.git"), infra),
+        )
+        // unknown remote + same path in two repos inside ONE business unit: ambiguous there, as before
+        assertTrue(Mapping.matchAcrossBus(tie, "envs/prod", null).isEmpty())
     }
 }

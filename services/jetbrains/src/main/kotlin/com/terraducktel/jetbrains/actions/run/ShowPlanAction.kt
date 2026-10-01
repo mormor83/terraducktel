@@ -24,17 +24,19 @@ class ShowPlanAction : AnAction("Show Plan") {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val run = e.getData(TdtDataKeys.RUN)
-        if (run != null) {
-            PlanDocument.open(project, run.id, RunActions.wsName(run))
+        val bu = e.getData(TdtDataKeys.BU)
+        if (run != null && bu != null) {
+            PlanDocument.open(project, bu, run.id, RunActions.wsName(run))
             return
         }
-        val runs = Store.getInstance().runs
-        val labels = runs.map { "${RunActions.wsName(it)} · ${it.command} — ${it.status} · ${it.id.take(8)}" }
+        // No run selected (Tools menu / toolbar): choose among the runs of every visible BU.
+        val runs = Store.getInstance().allRuns()
+        val labels = RunActions.chooserLabels(runs)
         val byLabel = labels.zip(runs).toMap()
         JBPopupFactory.getInstance()
             .createPopupChooserBuilder(labels)
             .setTitle("Show Plan")
-            .setItemChosenCallback { label -> byLabel[label]?.let { PlanDocument.open(project, it.id, RunActions.wsName(it)) } }
+            .setItemChosenCallback { label -> byLabel[label]?.let { PlanDocument.open(project, it.bu.slug, it.run.id, RunActions.wsName(it.run)) } }
             .createPopup()
             .showCenteredInCurrentWindow(project)
     }
