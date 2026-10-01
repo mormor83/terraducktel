@@ -23,7 +23,7 @@ d("GitProbe", () => {
 
   it("reports root, origin and branch for a file inside a checkout", async () => {
     const info = await new GitProbe().info(file);
-    expect(info?.root && path.resolve(info.root)).toBe(path.resolve(root));   // macOS tmp symlinks
+    expect(info?.root && realpathSync(info.root)).toBe(realpathSync(root));   // macOS: /var -> /private/var
     expect(info?.remoteUrl).toBe("git@github.com:acme/infra.git");
     expect(info?.branch).toBe("feat/x");
   });
