@@ -588,6 +588,32 @@ def test_tg_fields_escapes_values():
     assert "<b>Workspace</b>" in out
 
 
+def test_tg_fields_keeps_backticks_in_values():
+    # Only the account badge carries Slack's backtick markup; a branch, path
+    # or email that genuinely contains a backtick must render verbatim.
+    out = ns._tg_fields([("Branch", "fix/`foo`")])
+    assert "<b>Branch</b> fix/`foo`" in out
+
+
+@pytest.mark.asyncio
+async def test_telegram_account_label_drops_slack_backticks_only(
+    db_session, fake_telegram
+):
+    ws = await _ws_with_account(db_session)
+    await _configure_telegram(db_session)
+    await ns.send_telegram_run_awaiting_approval(
+        db_session,
+        workspace_id=ws.id,
+        workspace_name="coloured-ws",
+        run_id="run-bt",
+        branch="fix/`foo`",
+        command="plan",
+    )
+    text = fake_telegram.sent[0]["text"]
+    assert "<b>Account</b> Prod-Account (123456789012)" in text
+    assert "<b>Branch</b> fix/`foo`" in text
+
+
 @pytest.mark.asyncio
 async def test_telegram_awaiting_approval_renders_plan_and_link(
     db_session, fake_telegram, monkeypatch

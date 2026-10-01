@@ -663,10 +663,8 @@ def _tg_fields(pairs: list[tuple[str, str]]) -> str:
 
     The Telegram counterpart of `_fields_block`. Empty / falsy values are
     skipped so we don't emit "Branch" with nothing after it. Values are
-    HTML-escaped here; labels are ours and contain no markup.
-
-    Account labels arrive carrying Slack's backtick markup (`` Name (`123`) ``),
-    which means nothing in HTML mode — strip it rather than show it literally.
+    HTML-escaped here; labels are ours and contain no markup. Values are
+    otherwise verbatim — pass the account badge through `_tg_account_label`.
     """
     from app.services.telegram import _esc
 
@@ -674,8 +672,15 @@ def _tg_fields(pairs: list[tuple[str, str]]) -> str:
     for label, value in pairs:
         if not value:
             continue
-        lines.append(f"<b>{label}</b> {_esc(str(value).replace('`', ''))}")
+        lines.append(f"<b>{label}</b> {_esc(str(value))}")
     return "\n".join(lines)
+
+
+def _tg_account_label(badge: _AccountBadge) -> str:
+    """The account badge label without Slack's backtick markup
+    (`` Name (`123`) ``), which means nothing in HTML mode. Scoped to the
+    badge so a branch or path that really contains a backtick keeps it."""
+    return badge.label.replace("`", "")
 
 
 async def send_telegram_bot_notification(
@@ -747,7 +752,7 @@ async def send_telegram_run_auto_approved(
         head += "\n<i>apply phase skipped</i>"
     body = _tg_fields(
         [
-            ("Account", badge.label),
+            ("Account", _tg_account_label(badge)),
             ("Workspace", workspace_name or ""),
             ("Path", leaf),
             ("Region", region or ""),
@@ -793,7 +798,7 @@ async def send_telegram_run_awaiting_approval(
     ).lstrip()
     body = _tg_fields(
         [
-            ("Account", badge.label),
+            ("Account", _tg_account_label(badge)),
             ("Workspace", workspace_name or ""),
             ("Path", leaf),
             ("Region", region or ""),
@@ -838,7 +843,7 @@ async def send_telegram_run_failed(
     ).lstrip()
     body = _tg_fields(
         [
-            ("Account", badge.label),
+            ("Account", _tg_account_label(badge)),
             ("Workspace", workspace_name or ""),
             ("Path", leaf),
             ("Region", region or ""),
@@ -904,7 +909,7 @@ async def send_telegram_drift_detected(
     ).lstrip()
     body = _tg_fields(
         [
-            ("Account", badge.label),
+            ("Account", _tg_account_label(badge)),
             ("Workspace", workspace_name or ""),
             ("Path", leaf),
             ("Region", region or ""),
