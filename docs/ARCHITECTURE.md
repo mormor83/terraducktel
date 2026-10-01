@@ -408,8 +408,8 @@ behind the API.
   Azure/GCP linkage) is 503 for both GET and PUT. The key pair is a secret, so it
   lives in the encrypted `config` table (`state_store.s3.access_key_id` /
   `state_store.s3.secret_access_key`, `is_secret=true`, global rather than
-  per-BU) and is read through `ConfigService` on each store construction
-  (TTL cache, ~60s to apply); superadmins set it in Settings → **State
+  per-BU) and is read through a fresh `ConfigService` on each store construction
+  (no cache, so a change applies on the next state request); superadmins set it in Settings → **State
   store** (`/api/v1/integrations/state-store`, GET returns only
   `configured` + masked tails). With exactly one half configured the store
   refuses to build (→ 503) rather than fall back to ambient credentials. No

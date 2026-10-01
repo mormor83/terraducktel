@@ -43,6 +43,9 @@ Use TLS for both. `?ssl=require` is asyncpg's spelling (alembic's migration
 URL is translated to `sslmode=require` automatically); a plaintext `http://`
 `S3_ENDPOINT_URL` to a non-local host works but logs a WARNING, since state
 can contain secrets.
+To refuse such an endpoint instead (state reads/writes return 503), a
+superadmin can turn on **Require TLS** in **Settings → State store**
+(config key `state_store.s3.require_tls`).
 
 The S3 store's key pair is **not** an env var: once the API is up, sign in as
 a superadmin and set it in **Settings → State store** (stored encrypted in
