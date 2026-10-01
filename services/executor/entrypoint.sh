@@ -62,6 +62,21 @@ export GIT_TERMINAL_PROMPT="0"
 : "${GOOGLE_PROJECT:=}"
 : "${GOOGLE_REGION:=}"
 
+# Proxmox creds are SOFT defaults — only populated when the workspace is
+# linked to a proxmox_clusters row. The API sends one canonical TDT_PROXMOX_*
+# set; proxmox_wire_env() below fans it out to BOTH terraform providers'
+# vocabularies (bpg/proxmox PROXMOX_VE_*, Telmate/proxmox PM_*).
+: "${TDT_PROXMOX_ENDPOINT:=}"
+: "${TDT_PROXMOX_TOKEN_ID:=}"
+: "${TDT_PROXMOX_TOKEN_SECRET:=}"
+: "${TDT_PROXMOX_TLS_INSECURE:=false}"
+: "${TDT_PROXMOX_SSH_USERNAME:=}"
+: "${TDT_PROXMOX_SSH_PRIVATE_KEY:=}"
+: "${TDT_PROXMOX_CA_CERT_PEM:=}"
+# Overridable so the unit test can point at a fake bundle; the real path is
+# Alpine's (hashicorp/terraform base image).
+: "${TDT_SYSTEM_CA_BUNDLE:=/etc/ssl/certs/ca-certificates.crt}"
+
 # ---------------------------------------------------------------------------
 # report_status: PATCH the run-level status (running/planned/applied/failed).
 # ---------------------------------------------------------------------------
@@ -567,6 +582,65 @@ if [[ -n "${GCP_SA_KEY_JSON}" ]]; then
   export GOOGLE_CLOUD_PROJECT="${GOOGLE_PROJECT}"
   # Tail-only echo — never print the key JSON.
   echo "=== GCP SA auth wired: project ${GOOGLE_PROJECT:-<none>} (key at ${GOOGLE_APPLICATION_CREDENTIALS}) ==="
+fi
+
+# >>> proxmox_wire_env
+proxmox_wire_env() {
+  # bpg/proxmox: origin URL + combined "id=secret" token.
+  export PROXMOX_VE_ENDPOINT="${TDT_PROXMOX_ENDPOINT}"
+  export PROXMOX_VE_API_TOKEN="${TDT_PROXMOX_TOKEN_ID}=${TDT_PROXMOX_TOKEN_SECRET}"
+  export PROXMOX_VE_INSECURE="${TDT_PROXMOX_TLS_INSECURE}"
+  # Telmate/proxmox: URL includes the API path, token split in two.
+  export PM_API_URL="${TDT_PROXMOX_ENDPOINT}/api2/json"
+  export PM_API_TOKEN_ID="${TDT_PROXMOX_TOKEN_ID}"
+  export PM_API_TOKEN_SECRET="${TDT_PROXMOX_TOKEN_SECRET}"
+  export PM_TLS_INSECURE="${TDT_PROXMOX_TLS_INSECURE}"
+  local ssh_note="no"
+  if [[ -n "${TDT_PROXMOX_SSH_USERNAME:-}" && -n "${TDT_PROXMOX_SSH_PRIVATE_KEY:-}" ]]; then
+    export PROXMOX_VE_SSH_USERNAME="${TDT_PROXMOX_SSH_USERNAME}"
+    export PROXMOX_VE_SSH_PRIVATE_KEY="${TDT_PROXMOX_SSH_PRIVATE_KEY}"
+    ssh_note="yes (${TDT_PROXMOX_SSH_USERNAME})"
+  fi
+  local ca_note="no"
+  if [[ -n "${TDT_PROXMOX_CA_CERT_PEM:-}" ]]; then
+    # Go replaces (not extends) its root pool when SSL_CERT_FILE is set, so
+    # merge the system bundle + the custom CA into one file. Without the
+    # system bundle every non-Proxmox TLS call (registry, state) would break.
+    if [[ ! -r "${TDT_SYSTEM_CA_BUNDLE}" ]]; then
+      echo "ERROR: system CA bundle not found at ${TDT_SYSTEM_CA_BUNDLE}; cannot add the Proxmox custom CA" >&2
+      return 1
+    fi
+    mkdir -p ~/.proxmox
+    {
+      cat "${TDT_SYSTEM_CA_BUNDLE}"
+      printf '\n%s\n' "${TDT_PROXMOX_CA_CERT_PEM}"
+    } > ~/.proxmox/bundle.pem
+    chmod 600 ~/.proxmox/bundle.pem
+    TDT_PROXMOX_CA_BUNDLE="${HOME}/.proxmox/bundle.pem"
+    ca_note="yes"
+  fi
+  # Tail-only echo — never print the token secret or SSH key.
+  echo "=== Proxmox auth wired: ${TDT_PROXMOX_ENDPOINT} as ${TDT_PROXMOX_TOKEN_ID} (tls_insecure=${TDT_PROXMOX_TLS_INSECURE}, ssh=${ssh_note}, custom_ca=${ca_note}) ==="
+}
+
+# The custom CA is scoped to terraform (and the provider plugins it spawns)
+# rather than exported: curl callbacks to the API carry API_TOKEN and must
+# keep trusting only the system bundle.
+TDT_PROXMOX_CA_BUNDLE=""
+terraform() {
+  if [[ -n "${TDT_PROXMOX_CA_BUNDLE}" ]]; then
+    SSL_CERT_FILE="${TDT_PROXMOX_CA_BUNDLE}" command terraform "$@"
+  else
+    command terraform "$@"
+  fi
+}
+# <<< proxmox_wire_env
+
+if [[ -n "${TDT_PROXMOX_ENDPOINT}" ]]; then
+  if ! proxmox_wire_env; then
+    report_status "failed" "Proxmox: system CA bundle not found at ${TDT_SYSTEM_CA_BUNDLE}; cannot add the cluster's custom CA"
+    exit 1
+  fi
 fi
 
 report_status "running"

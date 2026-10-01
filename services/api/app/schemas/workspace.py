@@ -94,6 +94,8 @@ class WorkspaceCreate(BaseModel):
     # Optional GCP project FK. When set, the workspace targets the google
     # provider; the executor exports the linked project's SA-key credentials.
     gcp_project_id: Optional[str] = None
+    # Optional Proxmox cluster link (PK of proxmox_clusters). Same BU required.
+    proxmox_cluster_id: Optional[str] = None
     # Where Terraform state is stored: "s3" (default), "azureblob", or "gcs".
     state_backend: str = "s3"
     # Key/value tags, e.g. {"team": "payments"}. Keys are lowercased.
@@ -137,6 +139,8 @@ class WorkspaceUpdate(BaseModel):
     azure_subscription_id: Optional[str] = None
     # Same semantics as azure_subscription_id, for the GCP linkage.
     gcp_project_id: Optional[str] = None
+    # Same semantics as gcp_project_id: "" clears, a value must be in-BU.
+    proxmox_cluster_id: Optional[str] = None
     # Change where state is stored: "s3", "azureblob", or "gcs". The router
     # validates the required cloud linkage before applying the change.
     state_backend: Optional[str] = None
@@ -186,6 +190,8 @@ class WorkspaceResponse(BaseModel):
     azure_subscription_id: Optional[str] = None
     # The PK of the linked gcp_projects row, or null if not a GCP workspace.
     gcp_project_id: Optional[str] = None
+    # The PK of the linked proxmox_clusters row, or null.
+    proxmox_cluster_id: Optional[str] = None
     # Where Terraform state is stored: "s3" (default), "azureblob", or "gcs".
     state_backend: str = "s3"
     created_at: Optional[datetime] = None

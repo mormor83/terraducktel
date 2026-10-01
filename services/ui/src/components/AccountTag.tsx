@@ -7,7 +7,7 @@ import {
   type AccountColor,
   type AccountProvider,
 } from "./accountColors";
-import { AzureIcon, CloudIcon, ClusterIcon, GcpIcon } from "./workspace-tree/icons";
+import { AzureIcon, CloudIcon, ClusterIcon, GcpIcon, ProxmoxIcon } from "./workspace-tree/icons";
 import { cx } from "./ui";
 
 /**
@@ -20,6 +20,7 @@ const PROVIDER_GLYPH: Record<AccountProvider, (c: string) => JSX.Element> = {
   aws: (c) => <CloudIcon className={c} />,
   azure: (c) => <AzureIcon className={c} />,
   gcp: (c) => <GcpIcon className={c} />,
+  proxmox: (c) => <ProxmoxIcon className={c} />,
   k8s: (c) => <ClusterIcon className={c} />,
 };
 

@@ -31,13 +31,14 @@ export type AccountColor =
  * carry different colours — which reads as one account rendering inconsistently
  * unless the row also says which cloud each is.
  */
-export type AccountProvider = "aws" | "azure" | "gcp" | "k8s";
+export type AccountProvider = "aws" | "azure" | "gcp" | "proxmox" | "k8s";
 
 /** Tooltip/`aria-label` wording for each provider. */
 export const ACCOUNT_PROVIDER_LABELS: Record<AccountProvider, string> = {
   aws: "AWS account",
   azure: "Azure subscription",
   gcp: "GCP project",
+  proxmox: "Proxmox cluster",
   k8s: "Kubernetes cluster",
 };
 

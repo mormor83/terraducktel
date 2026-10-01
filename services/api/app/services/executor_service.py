@@ -331,6 +331,36 @@ class ExecutorService:
                     "GOOGLE_REGION": gcp_region,
                 })
 
+        # Proxmox: if the workspace is linked to a Proxmox cluster, pass a
+        # canonical TDT_PROXMOX_* set. The entrypoint fans it out to BOTH
+        # terraform providers' vocabularies (bpg PROXMOX_VE_*, Telmate PM_*)
+        # so one stored credential serves whichever provider the module uses.
+        proxmox_pk = getattr(workspace, "proxmox_cluster_id", None)
+        if proxmox_pk and db_session is not None:
+            try:
+                from app.services import proxmox_cluster_service as pmxsvc
+
+                pmx = await pmxsvc.get_cluster_credentials(db_session, proxmox_pk)
+            except Exception:
+                logger.warning(
+                    "Failed to load Proxmox creds for cluster %s — workspace %s will "
+                    "fall back to environment auth (likely fails).",
+                    proxmox_pk, workspace.id, exc_info=True,
+                )
+                pmx = None
+            if pmx is not None:
+                environment.update({
+                    "TDT_PROXMOX_ENDPOINT": pmx.endpoint,
+                    "TDT_PROXMOX_TOKEN_ID": pmx.token_id,
+                    "TDT_PROXMOX_TOKEN_SECRET": pmx.token_secret,
+                    "TDT_PROXMOX_TLS_INSECURE": "true" if pmx.tls_insecure else "false",
+                })
+                if pmx.ssh_username and pmx.ssh_private_key:
+                    environment["TDT_PROXMOX_SSH_USERNAME"] = pmx.ssh_username
+                    environment["TDT_PROXMOX_SSH_PRIVATE_KEY"] = pmx.ssh_private_key
+                if pmx.ca_cert_pem:
+                    environment["TDT_PROXMOX_CA_CERT_PEM"] = pmx.ca_cert_pem
+
         # Tell the executor entrypoint which provider mix to expect — composed
         # from whatever creds actually got wired in above. Unset only when the
         # workspace has no cloud creds at all (entrypoint then defaults to AWS).
@@ -341,6 +371,8 @@ class ExecutorService:
             _providers.append("azure")
         if environment.get("GCP_SA_KEY_JSON"):
             _providers.append("gcp")
+        if environment.get("TDT_PROXMOX_ENDPOINT"):
+            _providers.append("proxmox")
         if _providers:
             environment["TDT_CLOUD_PROVIDERS"] = ",".join(_providers)
 
