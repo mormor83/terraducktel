@@ -266,3 +266,114 @@ async def test_internal_drift_slack_failure_does_not_suppress_telegram(
     r = await _post_drift_report(auth_client, _setup_db)
     assert r.status_code == 200
     assert telegram_calls == ["telegram"]
+
+
+async def test_response_is_sent_before_slow_channel_finishes(
+    _setup_db, operator_token, monkeypatch
+):
+    """Notifications dispatch AFTER the response, so a slow channel (each has a
+    10 s timeout) can't stretch the executor's status callback. Observed at
+    the ASGI layer: the sender records whether the response had already been
+    emitted when it started."""
+    import asyncio
+
+    from httpx import ASGITransport, AsyncClient
+
+    from app.main import app
+    from app.models.run import RunStatus
+
+    response_started = asyncio.Event()
+    seen = {}
+
+    def _asgi_spy(inner):
+        async def _app(scope, receive, send):
+            async def _send(message):
+                if message["type"] == "http.response.start":
+                    response_started.set()
+                await send(message)
+
+            await inner(scope, receive, _send)
+
+        return _app
+
+    async def _slow_slack(session, **kw):
+        seen["slack_after_response"] = response_started.is_set()
+        await asyncio.sleep(0.2)
+
+    async def _telegram(session, **kw):
+        seen["telegram_after_response"] = response_started.is_set()
+
+    monkeypatch.setattr(ns, "send_slack_run_failed", _slow_slack)
+    monkeypatch.setattr(ns, "send_telegram_run_failed", _telegram)
+
+    run_id = await _make_run(_setup_db, RunStatus.RUNNING)
+    async with AsyncClient(
+        transport=ASGITransport(app=_asgi_spy(app)), base_url="http://test"
+    ) as client:
+        r = await client.patch(
+            f"/api/v1/runs/{run_id}",
+            json={"status": "failed"},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+    assert r.status_code == 200
+    assert seen == {"slack_after_response": True, "telegram_after_response": True}
+
+
+async def test_channels_run_on_separate_sessions(
+    auth_client, operator_token, _setup_db, monkeypatch
+):
+    """A shared AsyncSession can't be used concurrently, so each channel must
+    get its own."""
+    from app.models.run import RunStatus
+
+    sessions = {}
+
+    async def _slack(session, **kw):
+        sessions["slack"] = session
+
+    async def _telegram(session, **kw):
+        sessions["telegram"] = session
+
+    monkeypatch.setattr(ns, "send_slack_run_failed", _slack)
+    monkeypatch.setattr(ns, "send_telegram_run_failed", _telegram)
+
+    run_id = await _make_run(_setup_db, RunStatus.RUNNING)
+    r = await auth_client.patch(
+        f"/api/v1/runs/{run_id}",
+        json={"status": "failed"},
+        headers={"Authorization": f"Bearer {operator_token}"},
+    )
+    assert r.status_code == 200
+    assert sessions["slack"] is not sessions["telegram"]
+
+
+async def test_slow_channel_does_not_delay_the_other(
+    auth_client, operator_token, _setup_db, monkeypatch
+):
+    """Channels run concurrently: Telegram finishes while Slack is still waiting."""
+    import asyncio
+
+    from app.models.run import RunStatus
+
+    telegram_done = asyncio.Event()
+    order = []
+
+    async def _slack(session, **kw):
+        await asyncio.wait_for(telegram_done.wait(), timeout=2)
+        order.append("slack")
+
+    async def _telegram(session, **kw):
+        order.append("telegram")
+        telegram_done.set()
+
+    monkeypatch.setattr(ns, "send_slack_run_failed", _slack)
+    monkeypatch.setattr(ns, "send_telegram_run_failed", _telegram)
+
+    run_id = await _make_run(_setup_db, RunStatus.RUNNING)
+    r = await auth_client.patch(
+        f"/api/v1/runs/{run_id}",
+        json={"status": "failed"},
+        headers={"Authorization": f"Bearer {operator_token}"},
+    )
+    assert r.status_code == 200
+    assert order == ["telegram", "slack"]

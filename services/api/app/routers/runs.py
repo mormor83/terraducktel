@@ -1,11 +1,12 @@
 """Runs router: trigger, list, get details, patch status (executor / simulation)."""
+import asyncio
 import logging
 import os
 import smtplib
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -253,11 +254,79 @@ async def get_run(
 _VALID_POLICY_STATUS = {"not_run", "passed", "warned", "failed"}
 
 
+async def _dispatch_bot_events(run_id: str, bot_events: list[tuple[str, dict]]) -> None:
+    """Send Slack + Telegram notifications for a run transition (background task).
+
+    Each channel runs concurrently on its OWN AsyncSession (a single session
+    can't be shared across concurrent coroutines) and is wrapped on its own, so
+    one channel's outage — or a DB error that dirties its session — can't
+    suppress or fail the other. Never raises: it runs after the response, so
+    there is no caller to surface an error to; failures are logged.
+    """
+    from app.services.notification_service import (
+        send_slack_run_auto_approved,
+        send_slack_run_awaiting_approval,
+        send_slack_run_failed,
+        send_telegram_run_auto_approved,
+        send_telegram_run_awaiting_approval,
+        send_telegram_run_failed,
+    )
+
+    senders = {
+        "auto_approved": {
+            "slack": send_slack_run_auto_approved,
+            "telegram": send_telegram_run_auto_approved,
+        },
+        "awaiting_approval": {
+            "slack": send_slack_run_awaiting_approval,
+            "telegram": send_telegram_run_awaiting_approval,
+        },
+        "failed": {
+            "slack": send_slack_run_failed,
+            "telegram": send_telegram_run_failed,
+        },
+    }
+
+    async def _run_channel(channel: str) -> None:
+        try:
+            async with _db.AsyncSessionLocal() as ns_session:
+                for kind, payload in bot_events:
+                    send = senders.get(kind, {}).get(channel)
+                    if send is None:
+                        continue
+                    try:
+                        await send(ns_session, **payload)
+                    except Exception:  # noqa: BLE001 — best-effort
+                        logger.warning(
+                            "%s notification (%s) failed for run %s",
+                            channel, kind, run_id, exc_info=True,
+                        )
+                        # Senders swallow their own Slack/Telegram/httpx errors,
+                        # so this is an unexpected DB-level failure that can
+                        # leave the session dirty for this channel's next event.
+                        try:
+                            await ns_session.rollback()
+                        except Exception:  # noqa: BLE001 — defensive only
+                            logger.warning(
+                                "rollback after %s notification (%s) failure "
+                                "also failed for run %s",
+                                channel, kind, run_id, exc_info=True,
+                            )
+        except Exception:  # noqa: BLE001 — e.g. cannot open a session
+            logger.error(
+                "%s notification session failed for run %s",
+                channel, run_id, exc_info=True,
+            )
+
+    await asyncio.gather(_run_channel("slack"), _run_channel("telegram"))
+
+
 @router.patch("/api/v1/runs/{run_id}", response_model=RunResponse)
 async def patch_run(
     run_id: str,
     body: RunUpdate,
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(require_role(Role.operator)),
     bu: BUScope = Depends(current_bu),
     db: AsyncSession = Depends(get_db),
@@ -485,61 +554,11 @@ async def patch_run(
                 exc_info=True,
             )
 
-    # Bot-channel dispatch — separate session so it can't roll back the FSM
-    # transition. Each channel is wrapped on its own: a Telegram outage must
-    # not suppress the Slack message, and vice versa.
+    # Bot-channel dispatch runs AFTER the response is sent (see
+    # `_dispatch_bot_events`), so slow Slack/Telegram calls (10 s timeout each)
+    # never stretch the executor's status callback.
     if bot_events:
-        from app.services.notification_service import (
-            send_slack_run_auto_approved,
-            send_slack_run_awaiting_approval,
-            send_slack_run_failed,
-            send_telegram_run_auto_approved,
-            send_telegram_run_awaiting_approval,
-            send_telegram_run_failed,
-        )
-
-        senders = {
-            "auto_approved": (
-                ("slack", send_slack_run_auto_approved),
-                ("telegram", send_telegram_run_auto_approved),
-            ),
-            "awaiting_approval": (
-                ("slack", send_slack_run_awaiting_approval),
-                ("telegram", send_telegram_run_awaiting_approval),
-            ),
-            "failed": (
-                ("slack", send_slack_run_failed),
-                ("telegram", send_telegram_run_failed),
-            ),
-        }
-
-        async with _db.AsyncSessionLocal() as ns_session:
-            for kind, payload in bot_events:
-                for channel, send in senders.get(kind, ()):
-                    try:
-                        await send(ns_session, **payload)
-                    except Exception:  # noqa: BLE001 — best-effort
-                        logger.warning(
-                            "%s notification (%s) failed for run %s",
-                            channel, kind, run.id, exc_info=True,
-                        )
-                        # Each sender swallows its own SlackError/TelegramError/
-                        # httpx.RequestError, so anything landing here is an
-                        # unexpected DB-level failure (e.g. a read inside
-                        # _resolve_bu_slug_for_workspace / _account_badge) that
-                        # can leave the shared session dirty. Roll back before
-                        # the next channel runs so it fails (or succeeds) on
-                        # its own merits, not as a side effect of the first
-                        # channel's aborted transaction. Defensive: a rollback
-                        # failure here must not escape and take down the loop.
-                        try:
-                            await ns_session.rollback()
-                        except Exception:  # noqa: BLE001 — defensive only
-                            logger.warning(
-                                "rollback after %s notification (%s) failure "
-                                "also failed for run %s",
-                                channel, kind, run.id, exc_info=True,
-                            )
+        background_tasks.add_task(_dispatch_bot_events, run.id, bot_events)
 
     return run
 

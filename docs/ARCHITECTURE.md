@@ -581,7 +581,10 @@ all BUs by repo-URL substring.
   if `smtp.host` isn't set.
 
 All notification sends are best-effort — a Slack, Telegram, or SMTP failure
-never fails the underlying run.
+never fails the underlying run. For `PATCH /runs/{id}` the Slack and
+Telegram sends run as a FastAPI background task after the response, concurrently,
+each channel on its own DB session, so a slow channel never delays the
+executor's status callback.
 
 ### Audit log + hash chain
 
