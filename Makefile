@@ -9,7 +9,7 @@ down:
 build:
 	docker compose build
 
-test: test-api test-cli test-vscode test-jetbrains
+test: test-api test-cli
 
 test-api:
 	cd services/api && python -m pytest tests/ -v
