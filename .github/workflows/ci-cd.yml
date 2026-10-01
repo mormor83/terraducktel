@@ -109,6 +109,101 @@ jobs:
         working-directory: services/ui
         run: npm run test
 
+  # ── path filter for the IDE clients ────────────────────────────────────────
+  # Plain `git diff` (no third-party action). The IDE client jobs are slow and
+  # are deliberately NOT in any `needs:` list: a client build must not be able
+  # to block a server release. On manual dispatch, a tag push, a first push
+  # (all-zero "before" SHA) or an unreachable base, both run.
+  changes:
+    name: Detect IDE client changes
+    runs-on: ubuntu-latest
+    outputs:
+      vscode: ${{ steps.filter.outputs.vscode }}
+      jetbrains: ${{ steps.filter.outputs.jetbrains }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base=""
+          case "$EVENT" in
+            pull_request) base="$PR_BASE_SHA" ;;
+            push) base="$PUSH_BEFORE_SHA" ;;
+          esac
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "No usable base SHA (event=$EVENT); running both client jobs."
+            echo "vscode=true" >> "$GITHUB_OUTPUT"
+            echo "jetbrains=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$base" "$HEAD_SHA")"
+          echo "Changed files:"; echo "$files"
+          if echo "$files" | grep -qE '^(services/vscode/|services/api/tests/test_vscode_api_contract\.py$)'; then
+            echo "vscode=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "vscode=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$files" | grep -qE '^(services/jetbrains/|services/api/tests/test_jetbrains_api_contract\.py$)'; then
+            echo "jetbrains=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "jetbrains=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  vscode:
+    name: VS Code extension (type-check, unit tests, package)
+    needs: changes
+    if: needs.changes.outputs.vscode == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/vscode/package-lock.json
+      - name: Install dependencies
+        working-directory: services/vscode
+        run: npm ci
+      - name: Type-check + unit tests
+        working-directory: services/vscode
+        run: npm run typecheck && npm test
+      - name: Package
+        working-directory: services/vscode
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraducktel-vscode
+          path: services/vscode/terraducktel-vscode.vsix
+
+  jetbrains:
+    name: JetBrains plugin (unit + platform tests, build zip)
+    needs: changes
+    if: needs.changes.outputs.jetbrains == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test + build
+        working-directory: services/jetbrains
+        run: ./gradlew --console=plain --no-daemon test buildPlugin verifyPluginProjectConfiguration
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraducktel-jetbrains
+          path: services/jetbrains/build/distributions/*.zip
+
   release-version:
     name: Release version logic
     runs-on: ubuntu-latest

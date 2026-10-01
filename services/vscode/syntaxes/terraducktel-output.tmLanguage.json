@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Terraducktel run output",
+  "scopeName": "source.terraducktel-output",
+  "patterns": [
+    {
+      "comment": "Step / run header that landed OK",
+      "match": "^── (?:.* \\[(?:success|applied|planned)\\]|run (?:applied|planned))$",
+      "name": "markup.heading.header.terraducktel-output",
+      "captures": { "0": { "name": "markup.inserted.header.ok.terraducktel-output" } }
+    },
+    {
+      "comment": "Step / run header that failed or was cancelled",
+      "match": "^── (?:.* \\[(?:failed|cancelled)\\]|run (?:failed|cancelled))$",
+      "name": "markup.heading.header.terraducktel-output",
+      "captures": { "0": { "name": "markup.deleted.header.failed.terraducktel-output" } }
+    },
+    {
+      "comment": "Run header waiting at the approval gate",
+      "match": "^── (?:.* \\[awaiting_approval\\]|run awaiting_approval)$",
+      "name": "markup.heading.header.terraducktel-output",
+      "captures": { "0": { "name": "markup.changed.header.awaiting.terraducktel-output" } }
+    },
+    {
+      "comment": "Skipped step header",
+      "match": "^── .* \\[skipped\\]$",
+      "name": "markup.heading.header.terraducktel-output",
+      "captures": { "0": { "name": "comment.header.muted.terraducktel-output" } }
+    },
+    {
+      "comment": "Any other step / run header (pending, running, planning, applying, …)",
+      "match": "^── (?:.* \\[\\w+\\]|run \\w+)$",
+      "name": "markup.heading.header.terraducktel-output"
+    },
+    {
+      "comment": "Error the tail itself printed",
+      "match": "^✕ .*$",
+      "name": "markup.deleted.error.terraducktel-output"
+    }
+  ]
+}

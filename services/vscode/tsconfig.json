@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noImplicitReturns": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "rootDir": ".",
+    "outDir": "out",
+    "types": ["node", "vscode"]
+  },
+  "include": ["src/**/*.ts", "test/unit/**/*.ts", "test/fake-server.ts"],
+  "exclude": ["node_modules", "dist", "out", "out-test", ".vscode-test"]
+}
