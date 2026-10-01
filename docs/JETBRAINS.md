@@ -46,12 +46,12 @@ URL, insecure TLS) plus general preferences:
   maps to; click it (or **Tools → Terraducktel → Terraducktel Actions for
   Current File**) for a plan/show-last-plan/reveal-in-tool-window/open-in-
   browser popup. A second, smaller item to its left shows the active profile
-  (and BU, once signed in) — click to switch profiles.
+  (and `X/Y BUs`, once signed in) — click to switch profiles.
 - **Trace requests** — logs request/response metadata (never credentials) to
   `idea.log` under the `#com.terraducktel` logger.
 
 Renaming a profile in the table migrates its stored credential and
-remembered business unit to the new name; removing a profile deletes its
+business-unit filter to the new name; removing a profile deletes its
 stored credential. Nothing secret ever appears in this table or in
 `terraducktel.xml` — credentials live in the IDE's PasswordSafe, keyed
 `terraducktel.cred.<profile name>`.
@@ -75,13 +75,15 @@ Credentials live in the IDE's PasswordSafe, never in the settings XML or in
 Open the **Terraducktel** tool window (left-hand tool window bar). It shows
 two stacked, collapsible sections, the same layout as the VS Code sidebar:
 
-- **Workspaces** (top) — grouped like the web UI: provider (AWS account /
-  Azure subscription / GCP project / other) → region → folders → workspace.
+- **Workspaces** (top) — business unit → provider (AWS account /
+  Azure subscription / GCP project / other) → region → folders → workspace,
+  grouped like the web UI within each business unit (see **Business units**
+  below).
   A workspace row shows its leaf folder name, then `<last status | no runs> ·
   <branch>[ · drift]`; expand it to see its recent runs as child rows
   (labelled by command). Hovering the section header shows **Refresh** and
   **Collapse All**.
-- **Runs** (bottom) — every run in the current business unit, flat,
+- **Runs** (bottom) — grouped by business unit; within each, the runs
   most-actionable first: `awaiting_approval` on top, then in-flight
   (`pending` / `running` / `planning` / `applying`), then landed (`planned` /
   `applied` / `failed` / `cancelled`). Each row reads `<workspace> ·
@@ -102,11 +104,58 @@ the platform's animated spinner. Provider rows use the provider's glyph in
 the brand accent colour.
 
 The toolbar above both sections has Sign In…, Sign Out, Switch
-Profile…, Switch Business Unit…, Refresh, and Watch Run…. Right-click a
+Profile…, Filter Business Units…, Refresh, and Watch Run…. Right-click a
 workspace row for its context menu (Plan / Apply… / Destroy… / Set Tracked
 Branch… / Sync From Repo / Open in Browser / Copy Id); right-click a run row
 for its own (Show Plan / Approve… / Reject… / Cancel Run / Watch Run… / Open
 in Browser / Copy Id).
+
+The web UI keeps its business-unit selection in the browser, so **Open in
+Browser** opens the run or workspace in whichever BU the web UI currently has
+selected; if the page says not found, switch BU there.
+
+## Business units
+
+Business units are the top level of both sections:
+
+```
+▾ Payments            payments · 12 workspaces
+  ▾ AWS · 123456789012
+    ▾ eu-west-1
+      ▸ vpc
+▸ Platform            platform · 4 workspaces
+▸ Data                data · 7 workspaces
+```
+
+- Every business unit you can access is listed, sorted by name — all of them
+  for a superadmin, your memberships for everyone else. Each row reads
+  `slug · N workspaces` (or `slug · error` if that business unit failed to
+  load). Under it is the usual provider → region → folders → workspace
+  grouping, built from that business unit's workspaces only. An empty business
+  unit shows "No workspaces"; in the Runs section, one with no runs shows "No
+  recent runs".
+- If exactly one business unit is visible it starts expanded; otherwise they
+  start collapsed.
+- A business unit that fails to load shows its error on its own row; the other
+  business units keep their last good data. A business unit you lose access to
+  disappears on the next refresh.
+- **Filter Business Units…** (toolbar) replaces the old *Switch Business Unit…*
+  action (removed). It opens a checkbox list with the visible business units
+  checked; uncheck the ones you don't want. You can't hide all of them. While
+  some are hidden, the first row of the Workspaces section reads `Showing X of
+  Y business units — Filter…`; click it to reopen the list.
+- The filter is stored **per profile** (application-wide, in the plugin's
+  persistent state) as the list of *hidden* business units, so a business unit
+  you've never hidden — including one you're newly added to — is visible by
+  default. It applies to the Workspaces and Runs sections and to approval
+  notifications alike.
+- Every action on a workspace or run (plan, apply, destroy, approve, reject,
+  open in browser, show plan, …) is sent with **that workspace's own business
+  unit**, regardless of which others are visible. If you lack the role in that
+  business unit (e.g. a viewer) the server's message is shown.
+- **Request load scales with the number of visible business units**: each
+  refresh fetches workspaces and runs once per visible business unit (up to 4
+  requests in flight at once). If you belong to many, filter down to the ones you work in.
 
 ## Triggering runs
 
@@ -156,8 +205,9 @@ approval / failed / skipped).
 - **Cancel Run** requests cancellation of a run that is still cancellable
   (queued or in-flight).
 
-All of the above require write access (operator/admin in the active business
-unit) — the actions are hidden entirely for a read-only session.
+All of the above are available whenever you're signed in. The server enforces
+the per-BU role (operator/admin in that workspace's business unit) and, if it
+refuses (403), its message is shown.
 
 ## Current file → workspace
 
@@ -168,8 +218,8 @@ that file belongs to:
 
 - It resolves the file's git root and remote (`git remote get-url origin`,
   cached for ~10 seconds), takes the file's directory relative to that
-  root, and matches it against every known workspace's `tf_working_dir`,
-  preferring the **longest matching prefix** when more than one workspace's
+  root, and matches it against the `tf_working_dir` of every workspace in
+  every loaded business unit, preferring the **longest matching prefix** when more than one workspace's
   directory contains the file (e.g. a leaf workspace nested under a region
   workspace). A workspace whose `tf_working_dir` is `.` (the repo root) is
   **never matched** — a root-level workspace would otherwise silently claim
@@ -183,6 +233,8 @@ that file belongs to:
   one workspace ties on prefix length, the match is treated as ambiguous and
   nothing is shown — the plugin never guesses between two equally-plausible
   workspaces.
+- If workspaces in more than one business unit match the file, the actions
+  popup first asks you to choose from a list of `workspace — business unit`.
 - Local (`local://`) checkouts always match by path alone, regardless of any
   git remote.
 - When mapped, the item reads `TDT: <workspace>[ · <last run status>]`, with
@@ -192,8 +244,8 @@ that file belongs to:
   workspace claims the file, it reads `TDT: not imported` instead — the item
   still shows (so there's always something to click), it just says nothing
   is imported here yet.
-- A second, smaller item to its left shows the active profile (and business
-  unit, once signed in); click it to switch profiles.
+- A second, smaller item to its left shows the active profile (and `X/Y BUs`,
+  once signed in); click it to switch profiles.
 
 Click the item (or run **Tools → Terraducktel → Terraducktel Actions for
 Current File**, also on the editor's right-click menu as **Plan This Leaf**
@@ -216,14 +268,14 @@ Current File**, also on the editor's right-click menu as **Plan This Leaf**
 ## Approval notifications
 
 While signed in, the plugin polls `GET /runs?status=awaiting_approval` for
-the active business unit every **Approval poll seconds** (Settings → Tools
+every visible business unit every **Approval poll seconds** (Settings → Tools
 → Terraducktel; default 60; positive values below 15 are floored to 15;
 `0` disables the poll entirely). Polling runs regardless of which tool
 window is open, and stops while signed out.
 
 Each run newly seen awaiting approval raises a sticky balloon (notification
 group **Terraducktel approvals**) titled **Terraducktel approvals**. Its body
-is `TDT: <workspace> <command> awaits approval` and, on the next line when the
+is `TDT: <workspace> (<business unit>) <command> awaits approval` and, on the next line when the
 graph summary is known, `+N to add, ~N to change, -N to destroy, ±N to
 replace` (the body is HTML, so long names wrap instead of overflowing), with
 **Approve…**, **Reject…**, **Open**
@@ -238,7 +290,7 @@ A run you started (or are actively watching) is announced by its own
 is marked as seen the moment that balloon appears, so the background poll
 never raises a second notification for it.
 
-On sign-in (or a profile/business-unit switch) nothing fires for runs
+On sign-in, a profile switch, or a change to the business-unit filter nothing fires for runs
 already awaiting approval at that moment — they're recorded as seen
 immediately so you aren't sprayed with a backlog; the Runs section's count
 pill still reflects them. Only runs that newly enter `awaiting_approval`
@@ -322,12 +374,12 @@ IntelliJ Platform rather than an oversight:
    plugin's `TdtSettings` stores profiles as a list instead. The behaviour
    is identical either way — this is a settings-UI shape difference, not a
    feature difference.
-2. **The active business unit is remembered per profile, application-wide —
-   not per project/window.** VS Code keeps a separate BU override per open
-   window; the JetBrains plugin's session and polling store are
-   application-level services shared by every open project, so the BU lives
-   with the profile instead. Switching business unit switches it for every
-   open project at once.
+2. **The business-unit filter is remembered per profile, application-wide —
+   not per project/window.** VS Code keeps it in the extension's global state;
+   the JetBrains plugin's session and polling store are application-level
+   services shared by every open project, so the filter lives in the plugin's
+   persistent state, keyed by profile name. Changing the filter changes it for
+   every open project at once.
 3. **Run output is a console tab in the bottom Terraducktel Run tool
    window**, not an output-panel channel — the IntelliJ Platform's console
    view (`ConsoleView`) is the idiomatic equivalent of VS Code's
