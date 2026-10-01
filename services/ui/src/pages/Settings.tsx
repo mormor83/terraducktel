@@ -1872,7 +1872,7 @@ type TelegramTestResult = {
   chat_title?: string;
 };
 
-function TelegramSection() {
+export function TelegramSection() {
   const [status, setStatus] = useState<TelegramStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2000,6 +2000,10 @@ function TelegramSection() {
             <strong>run failed</strong>, and <strong>drift detected</strong> — the same
             four events as Slack, and both fire independently when both are configured.
             The token is encrypted at rest and never returned.
+          </p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Failed-run notifications include an excerpt of raw Terraform output, which is
+            sent to a third-party (Telegram) chat.
           </p>
 
           {loading ? (
