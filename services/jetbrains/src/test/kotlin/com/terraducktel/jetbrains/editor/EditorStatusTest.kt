@@ -2,6 +2,7 @@ package com.terraducktel.jetbrains.editor
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.terraducktel.jetbrains.api.TdtClient
@@ -91,6 +92,9 @@ class EditorStatusTest : BasePlatformTestCase() {
     /** A real checkout at `<root>/envs/prod/main.tf`, remote `origin` = `acme/infra`. */
     private fun initRepo(): File {
         val root = Files.createTempDirectory("tdt-editorstatus-").toFile()
+        // macOS: java.io.tmpdir is under /var, a symlink to /private/var. The VFS canonicalises it,
+        // and the test framework then rejects the /private/var path as "outside allowed roots".
+        VfsRootAccess.allowRootAccess(testRootDisposable, root.canonicalPath)
         repoRoot = root
         git("init", cwd = root)
         git("config", "user.email", "test@example.com", cwd = root)
