@@ -82,4 +82,33 @@ describe("Telegram drift routing", () => {
     expect(await screen.findByText(/chat not found/)).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
   });
+
+  it("renders a Pydantic 422 detail list as text instead of crashing", async () => {
+    // FastAPI rejects drift_chat_id > 64 chars before the handler runs, so
+    // `detail` is a list of error objects — not renderable as a JSX child.
+    vi.mocked(api.put).mockImplementation(() =>
+      Promise.reject({
+        response: {
+          status: 422,
+          data: {
+            detail: [
+              {
+                type: "string_too_long",
+                loc: ["body", "drift_chat_id"],
+                msg: "String should have at most 64 characters",
+                input: "x".repeat(65),
+              },
+            ],
+          },
+        },
+      }),
+    );
+    const onSaved = vi.fn();
+    render(<TelegramDriftRouting status={STATUS} onSaved={onSaved} />);
+    fireEvent.change(screen.getByLabelText("Drift alerts destination"), { target: { value: "other" } });
+    fireEvent.change(screen.getByLabelText("Drift chat id"), { target: { value: "-1".padEnd(66, "0") } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify & save" }));
+    expect(await screen.findByText(/at most 64 characters/)).toBeTruthy();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
 });

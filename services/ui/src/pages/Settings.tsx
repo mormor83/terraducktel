@@ -1811,7 +1811,7 @@ export function TelegramDriftRouting({
       });
       onSaved(r.data);
     } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e?.message ?? "Save failed");
+      setError(errText(e, "Save failed"));
     } finally {
       setSaving(false);
     }
