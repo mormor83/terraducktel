@@ -400,7 +400,12 @@ behind the API.
   bucket (`routers/state.py::_fallback_s3_store`, async). The endpoint is the
   `S3_ENDPOINT_URL` env var (not secret; custom endpoints always use
   path-style addressing, and a plaintext `http://` endpoint on a non-local
-  host logs a WARNING once per process, at API startup). The key pair is a secret, so it
+  host logs a WARNING once per process, at API startup; set the non-secret
+  config key `state_store.s3.require_tls=true` (Settings → State store →
+  **Require TLS**, default off) to make the store refuse to build instead —
+  state GET/PUT then return 503 with an explanatory detail). Any failure to
+  build the store (half-configured pair, require_tls violation, missing
+  Azure/GCP linkage) is 503 for both GET and PUT. The key pair is a secret, so it
   lives in the encrypted `config` table (`state_store.s3.access_key_id` /
   `state_store.s3.secret_access_key`, `is_secret=true`, global rather than
   per-BU) and is read through `ConfigService` on each store construction

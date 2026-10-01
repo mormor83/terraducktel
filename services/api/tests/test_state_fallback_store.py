@@ -239,3 +239,54 @@ async def test_api_startup_warns_for_plaintext_remote_endpoint(
         assert bool(warnings) is expect_warning
         if expect_warning:
             assert warnings[0].levelno == logging.WARNING
+
+
+# ─── optional TLS enforcement (state_store.s3.require_tls) ──────────────────
+
+
+async def _set_require_tls(session, value: bool):
+    await ssc.save_require_tls(session, value)
+    await session.commit()
+
+
+@pytest.mark.parametrize("url", ["http://garage.internal:3900", "HTTP://10.0.0.5:9000"])
+async def test_require_tls_refuses_plaintext_remote_endpoint(recorder, monkeypatch, _setup_db, url):
+    monkeypatch.setattr(state, "_USE_LOCALSTACK", False)
+    monkeypatch.setattr(state, "_S3_ENDPOINT_URL", url)
+    async with _setup_db() as s:
+        await _set_require_tls(s, True)
+        with pytest.raises(ssc.InsecureStateEndpointError, match="https://"):
+            await state._fallback_s3_store(s)
+
+
+@pytest.mark.parametrize(
+    "url", ["https://garage.internal:3900", "http://localhost:9000", "http://localstack:4566", None]
+)
+async def test_require_tls_allows_https_and_local(recorder, monkeypatch, _setup_db, url):
+    monkeypatch.setattr(state, "_USE_LOCALSTACK", False)
+    monkeypatch.setattr(state, "_S3_ENDPOINT_URL", url)
+    async with _setup_db() as s:
+        await _set_require_tls(s, True)
+        svc = await state._fallback_s3_store(s)
+    assert svc.kwargs["endpoint_url"] == url
+
+
+async def test_require_tls_defaults_off_so_plaintext_still_builds(recorder, monkeypatch, _setup_db):
+    monkeypatch.setattr(state, "_USE_LOCALSTACK", False)
+    monkeypatch.setattr(state, "_S3_ENDPOINT_URL", "http://garage.internal:3900")
+    async with _setup_db() as s:
+        assert await ssc.load_require_tls(s) is False
+        svc = await state._fallback_s3_store(s)
+    assert svc.kwargs["endpoint_url"] == "http://garage.internal:3900"
+
+
+async def test_require_tls_roundtrip_is_plain_config_not_secret(_setup_db):
+    from app.models.config import Config
+
+    async with _setup_db() as s:
+        await _set_require_tls(s, True)
+        assert await ssc.load_require_tls(s) is True
+        row = await s.get(Config, ssc.REQUIRE_TLS_KEY)
+        assert row.is_secret is False
+        await _set_require_tls(s, False)
+        assert await ssc.load_require_tls(s) is False

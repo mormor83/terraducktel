@@ -1292,11 +1292,16 @@ class StateStoreStatus(BaseModel):
     use_localstack: bool = False
     # S3_ENDPOINT_URL is plaintext http:// to a non-local host.
     insecure_endpoint: bool = False
+    # state_store.s3.require_tls: refuse (503) rather than warn about it.
+    require_tls: bool = False
 
 
 class StateStoreCredentialsSet(BaseModel):
-    access_key_id: str = Field(..., min_length=1, max_length=256)
-    secret_access_key: str = Field(..., min_length=1, max_length=512)
+    # Each field is optional so the TLS toggle can change without re-entering
+    # the key pair; the pair itself is still all-or-nothing (checked in PUT).
+    access_key_id: Optional[str] = Field(None, max_length=256)
+    secret_access_key: Optional[str] = Field(None, max_length=512)
+    require_tls: Optional[bool] = None
 
 
 def _require_superadmin_for_global(current_user: User) -> None:
@@ -1319,6 +1324,7 @@ async def _state_store_status(db: AsyncSession) -> StateStoreStatus:
         secret_access_key_tail=(
             _mask_tail(creds.secret_access_key) if creds.secret_access_key else None
         ),
+        require_tls=await state_store_config.load_require_tls(db),
         **fallback_store_settings(),
     )
 
@@ -1339,17 +1345,27 @@ async def set_state_store(
     current_user: User = Depends(require_role(Role.admin)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Store both halves of the fallback-bucket key pair (encrypted). Both are
-    required together so a half-updated pair can never be written."""
+    """Store both halves of the fallback-bucket key pair (encrypted) and/or the
+    `require_tls` flag. Key halves are required together so a half-updated pair
+    can never be written; omit both to change only `require_tls`."""
     from app.services import state_store_config
 
     _require_superadmin_for_global(current_user)
-    try:
-        await state_store_config.save(
-            db, body.access_key_id, body.secret_access_key, updated_by=current_user.id,
+    has_keys = body.access_key_id is not None or body.secret_access_key is not None
+    if not has_keys and body.require_tls is None:
+        raise HTTPException(status_code=422, detail="Nothing to update")
+    if has_keys:
+        try:
+            await state_store_config.save(
+                db, body.access_key_id or "", body.secret_access_key or "",
+                updated_by=current_user.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+    if body.require_tls is not None:
+        await state_store_config.save_require_tls(
+            db, body.require_tls, updated_by=current_user.id
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
     await db.commit()
     return await _state_store_status(db)
 

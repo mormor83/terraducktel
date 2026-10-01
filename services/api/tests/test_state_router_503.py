@@ -51,3 +51,24 @@ async def test_put_state_half_configured_keys_is_503_like_get(auth_client, _setu
     assert got.status_code == 503
     assert put.status_code == 503
     assert put.json()["detail"] == got.json()["detail"] == "State backend unavailable"
+
+
+async def test_require_tls_plaintext_endpoint_is_503_with_clear_detail_for_get_and_put(
+    auth_client, _setup_db, monkeypatch
+):
+    monkeypatch.setattr(state, "_USE_LOCALSTACK", False)
+    monkeypatch.setattr(state, "_S3_ENDPOINT_URL", "http://garage.internal:3900")
+    await _make_workspace(_setup_db)
+    async with _setup_db() as s:
+        await ssc.save_require_tls(s, True)
+        await s.commit()
+
+    got = await auth_client.get(f"/api/v1/state/{WS_ID}", headers=HEADERS)
+    put = await auth_client.post(
+        f"/api/v1/state/{WS_ID}", content=json.dumps({"version": 4, "resources": []}),
+        headers=HEADERS,
+    )
+    for r in (got, put):
+        assert r.status_code == 503
+        assert "https://" in r.json()["detail"]
+        assert "require_tls" in r.json()["detail"]

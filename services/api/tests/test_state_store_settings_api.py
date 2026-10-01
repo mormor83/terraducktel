@@ -128,3 +128,53 @@ async def test_get_flags_partial_pair(auth_client, admin_token, _setup_db):
     assert body["partial"] is True
     assert body["access_key_id_tail"] == "…WXYZ"
     assert body["secret_access_key_tail"] is None
+
+
+async def test_get_reports_require_tls_default_false(auth_client, admin_token):
+    body = (await auth_client.get(URL, headers=_h(admin_token))).json()
+    assert body["require_tls"] is False
+
+
+async def test_superadmin_toggles_require_tls_without_touching_keys(
+    auth_client, admin_token, _setup_db
+):
+    await _promote(_setup_db)
+    await auth_client.put(
+        URL, json={"access_key_id": AK, "secret_access_key": SK}, headers=_h(admin_token)
+    )
+    r = await auth_client.put(URL, json={"require_tls": True}, headers=_h(admin_token))
+    assert r.status_code == 200, r.text
+    assert r.json()["require_tls"] is True
+    assert r.json()["configured"] is True
+    async with _setup_db() as s:
+        creds = await ssc.load(s)
+        assert (creds.access_key_id, creds.secret_access_key) == (AK, SK)
+        assert await ssc.load_require_tls(s) is True
+
+    r = await auth_client.put(URL, json={"require_tls": False}, headers=_h(admin_token))
+    assert r.json()["require_tls"] is False
+
+
+async def test_put_keys_together_with_require_tls(auth_client, admin_token, _setup_db):
+    await _promote(_setup_db)
+    r = await auth_client.put(
+        URL,
+        json={"access_key_id": AK, "secret_access_key": SK, "require_tls": True},
+        headers=_h(admin_token),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["configured"] is True and r.json()["require_tls"] is True
+    assert AK not in r.text and SK not in r.text
+
+
+async def test_put_empty_body_is_422(auth_client, admin_token, _setup_db):
+    await _promote(_setup_db)
+    r = await auth_client.put(URL, json={}, headers=_h(admin_token))
+    assert r.status_code == 422
+
+
+async def test_non_superadmin_cannot_toggle_require_tls(auth_client, admin_token, _setup_db):
+    r = await auth_client.put(URL, json={"require_tls": True}, headers=_h(admin_token))
+    assert r.status_code == 403
+    async with _setup_db() as s:
+        assert await ssc.load_require_tls(s) is False

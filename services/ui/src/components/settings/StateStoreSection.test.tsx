@@ -17,7 +17,7 @@ import StateStoreSection from "./StateStoreSection";
 const UNCONFIGURED = {
   configured: false, partial: false, access_key_id_tail: null, secret_access_key_tail: null,
   bucket: "terraducktel-state", endpoint_url: "https://s3.example.internal:3900",
-  use_localstack: false, insecure_endpoint: false,
+  use_localstack: false, insecure_endpoint: false, require_tls: false,
 };
 const CONFIGURED = { ...UNCONFIGURED, configured: true, access_key_id_tail: "…WXYZ", secret_access_key_tail: "…9876" };
 
@@ -82,5 +82,26 @@ describe("StateStoreSection", () => {
     expect(screen.queryByLabelText("Access key ID")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save key pair" })).toBeNull();
     expect(screen.getByText(/Only a superadmin/)).toBeInTheDocument();
+  });
+
+  it("toggles Require TLS via PUT without sending the key pair", async () => {
+    vi.mocked(api.put).mockResolvedValue({ data: { ...CONFIGURED, require_tls: true } } as any);
+    render(<StateStoreSection />);
+    const toggle = await screen.findByRole("checkbox", { name: /Require TLS/ });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith("/v1/integrations/state-store", { require_tls: true }),
+    );
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: /Require TLS/ })).toBeChecked());
+  });
+
+  it("shows Require TLS read-only for non-superadmins", async () => {
+    currentUser.value = { ...currentUser.value, is_superadmin: false };
+    vi.mocked(api.get).mockResolvedValue({ data: { ...CONFIGURED, require_tls: true } } as any);
+    render(<StateStoreSection />);
+    const toggle = await screen.findByRole("checkbox", { name: /Require TLS/ });
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
   });
 });

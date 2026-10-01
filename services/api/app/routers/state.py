@@ -117,6 +117,13 @@ async def _fallback_s3_store(db: AsyncSession) -> S3StateService:
             "the access key ID and the secret access key (Settings → State "
             "store), or clear both."
         )
+    if is_insecure_endpoint(_S3_ENDPOINT_URL) and await state_store_config.load_require_tls(db):
+        raise state_store_config.InsecureStateEndpointError(
+            "The fallback S3 state-store endpoint uses plaintext http:// to a "
+            "non-local host and TLS is required (Settings → State store → "
+            "'Require TLS', config key state_store.s3.require_tls). Point "
+            "S3_ENDPOINT_URL at an https:// endpoint or turn the setting off."
+        )
     _warn_if_insecure_endpoint(_S3_ENDPOINT_URL)
     return S3StateService(
         bucket=_FALLBACK_BUCKET,
@@ -226,6 +233,10 @@ async def _store_or_503(ws: Workspace, db: AsyncSession) -> tuple[StateStore, st
     """
     try:
         return await _service_for(ws, db)
+    except state_store_config.InsecureStateEndpointError as exc:
+        # The message is operator guidance (no secrets, no URL), safe to return.
+        logger.error("State store refused for workspace %s: %s", ws.id, exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     except Exception:
         logger.exception("State store unavailable for workspace %s", ws.id)
         raise HTTPException(
@@ -258,8 +269,8 @@ async def get_state(
     if ws is None:
         raise HTTPException(status_code=404, detail="State not found")
 
+    svc, key = await _store_or_503(ws, db)
     try:
-        svc, key = await _service_for(ws, db)
         # StateStore is a *sync* contract (see services/state_store.py) backed by
         # boto3 / azure-blob / gcs clients. Called inline it parks the event loop
         # for the whole round trip — a cross-account GetObject plus a full-body

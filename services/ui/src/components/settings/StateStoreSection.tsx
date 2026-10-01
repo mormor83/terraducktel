@@ -23,6 +23,7 @@ export type StateStoreStatus = {
   endpoint_url: string | null;
   use_localstack: boolean;
   insecure_endpoint: boolean;
+  require_tls: boolean;
 };
 
 const URL = "/v1/integrations/state-store";
@@ -84,6 +85,18 @@ export default function StateStoreSection() {
     }
   };
 
+  const setRequireTls = async (value: boolean) => {
+    setSaving(true);
+    setError(null);
+    try {
+      setState((await api.put<StateStoreStatus>(URL, { require_tls: value })).data);
+    } catch (e) {
+      setError(extractError(e, "Save failed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const canSave = !!accessKeyId.trim() && !!secretAccessKey.trim() && !saving;
 
   return (
@@ -129,6 +142,22 @@ export default function StateStoreSection() {
                 travels unencrypted. Switch S3_ENDPOINT_URL to https://.
               </p>
             )}
+            <label className="flex max-w-3xl items-start gap-2 text-[13px] text-brand-text">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={!!state.require_tls}
+                disabled={!isSuperadmin || saving}
+                onChange={(e) => void setRequireTls(e.target.checked)}
+              />
+              <span>
+                Require TLS
+                <span className="block text-brand-muted">
+                  Refuse (503) to read or write state while the endpoint is unencrypted and not on a
+                  local host, instead of only logging a warning.
+                </span>
+              </span>
+            </label>
             {state.partial && (
               <p className="max-w-3xl text-[13px] text-[var(--td-err-ink)]">
                 Only one half of the key pair is stored — state requests for non-AWS workspaces fail until

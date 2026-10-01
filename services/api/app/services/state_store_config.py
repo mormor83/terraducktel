@@ -22,10 +22,18 @@ from app.services.config_service import ConfigService
 
 ACCESS_KEY_ID_KEY = "state_store.s3.access_key_id"
 SECRET_ACCESS_KEY_KEY = "state_store.s3.secret_access_key"
+# Not a secret: when "true", a plaintext http:// fallback endpoint on a
+# non-local host is refused (503) instead of only warned about. Default off.
+REQUIRE_TLS_KEY = "state_store.s3.require_tls"
 
 
 class PartialS3CredentialsError(RuntimeError):
     """Exactly one half of the fallback-bucket key pair is configured."""
+
+
+class InsecureStateEndpointError(RuntimeError):
+    """require_tls is on and the fallback endpoint is plaintext http:// to a
+    non-local host."""
 
 
 @dataclass(frozen=True)
@@ -82,3 +90,17 @@ async def clear(db: AsyncSession) -> None:
     svc = _svc(db)
     await svc.delete(ACCESS_KEY_ID_KEY)
     await svc.delete(SECRET_ACCESS_KEY_KEY)
+
+
+async def load_require_tls(db: AsyncSession) -> bool:
+    return ((await _svc(db).get(REQUIRE_TLS_KEY)) or "").strip().lower() == "true"
+
+
+async def save_require_tls(
+    db: AsyncSession, value: bool, *, updated_by: Optional[str] = None
+) -> None:
+    await _svc(db).set(
+        REQUIRE_TLS_KEY, "true" if value else "false", is_secret=False,
+        description="Refuse a plaintext http:// fallback S3 state-store endpoint on a non-local host.",
+        updated_by=updated_by,
+    )
