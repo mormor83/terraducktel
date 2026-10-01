@@ -43,6 +43,11 @@ credential is bound to the API URL it was issued for: if a profile's URL is
 later changed, the old credential is not sent to the new URL — you are asked
 to sign in again (switching the URL back restores the old session).
 
+A profile that points at a **plain `http://`** URL on anything other than
+`localhost` / `127.0.0.0/8` / `[::1]` triggers a one-time warning, since your
+password and tokens would cross the network unencrypted. It is a warning,
+not a block — use `https://` unless it is a trusted private network.
+
 The active profile is **not** a setting anymore: use
 **Terraducktel: Switch profile** (the sidebar's title-bar `$(server)` button,
 or the profile status bar item) to pick which one is active. It's kept in
