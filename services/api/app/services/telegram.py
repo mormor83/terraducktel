@@ -40,6 +40,12 @@ _TRUNCATION_MARKER = "\n…(truncated)"
 # and underscores, starting with a letter.
 CHAT_ID_RE = re.compile(r"^(-?\d+|@[A-Za-z][A-Za-z0-9_]{4,31})$")
 
+# BotFather token shape: `<numeric bot id>:<secret>`. The token is
+# interpolated into the Bot API URL path, so anything outside this alphabet
+# (a stray newline, `/`, `?`, `#`) would raise httpx.InvalidURL or silently
+# rewrite the path. `\Z` rather than `$` so a trailing newline can't slip by.
+TOKEN_RE = re.compile(r"^\d+:[A-Za-z0-9_-]{30,}\Z")
+
 # Only the tags we actually emit. A malformed tag we never generate is not
 # worth guarding against here.
 _TAG_RE = re.compile(r"<(/?)(b|i|code|pre|a)(?:\s[^>]*)?>")

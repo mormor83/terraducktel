@@ -93,7 +93,7 @@ async def test_put_requires_a_token_on_first_save(auth_client, admin_token, good
 async def test_put_saves_token_and_chat_and_never_returns_the_token(
     auth_client, admin_token, good_telegram
 ):
-    secret = "777:AAHsecrettokenvalue"
+    secret = "777:AAH0123456789abcdefsecrettokenvalue"
     r = await auth_client.put(
         BASE, json={"token": secret, "chat_id": "-1001234567890"},
         headers=_h(admin_token),
@@ -126,7 +126,7 @@ async def test_put_rejects_a_malformed_chat_id_before_calling_telegram(
     monkeypatch.setattr(tg, "verify_token", _verify)
 
     r = await auth_client.put(
-        BASE, json={"token": "1:abcdefgh", "chat_id": "https://t.me/nope"},
+        BASE, json={"token": "1:abcdefghabcdefghabcdefghabcdefgh", "chat_id": "https://t.me/nope"},
         headers=_h(admin_token),
     )
     assert r.status_code == 422
@@ -137,7 +137,7 @@ async def test_put_rejects_a_token_telegram_refuses(auth_client, admin_token, mo
         raise tg.TelegramError(code=401, description="Unauthorized")
 
     monkeypatch.setattr(tg, "verify_token", _verify)
-    r = await auth_client.put(BASE, json={"token": "1:badtoken"}, headers=_h(admin_token))
+    r = await auth_client.put(BASE, json={"token": "1:badtokenbadtokenbadtokenbadtoken"}, headers=_h(admin_token))
     assert r.status_code == 400
     assert "401" in r.text or "Unauthorized" in r.text
 
@@ -149,7 +149,7 @@ async def test_put_returns_502_when_telegram_is_unreachable(
         raise httpx.ConnectError("no route to host")
 
     monkeypatch.setattr(tg, "verify_token", _verify)
-    r = await auth_client.put(BASE, json={"token": "1:abcdefgh"}, headers=_h(admin_token))
+    r = await auth_client.put(BASE, json={"token": "1:abcdefghabcdefghabcdefghabcdefgh"}, headers=_h(admin_token))
     assert r.status_code == 502
 
 
@@ -163,7 +163,7 @@ async def test_put_rejects_a_chat_the_bot_cannot_see(auth_client, admin_token, m
     monkeypatch.setattr(tg, "verify_token", _verify)
     monkeypatch.setattr(tg, "get_chat", _get_chat)
     r = await auth_client.put(
-        BASE, json={"token": "1:abcdefgh", "chat_id": "-1009"}, headers=_h(admin_token)
+        BASE, json={"token": "1:abcdefghabcdefghabcdefghabcdefgh", "chat_id": "-1009"}, headers=_h(admin_token)
     )
     assert r.status_code == 400
     assert "chat not found" in r.text
@@ -173,7 +173,7 @@ async def test_put_without_a_token_reuses_the_stored_one(
     auth_client, admin_token, good_telegram
 ):
     await auth_client.put(
-        BASE, json={"token": "777:firstsecret"}, headers=_h(admin_token)
+        BASE, json={"token": "777:AAAAAAAAAAAAAAAAAAAAfirstsecret"}, headers=_h(admin_token)
     )
     r = await auth_client.put(BASE, json={"chat_id": "-1002"}, headers=_h(admin_token))
     assert r.status_code == 200
@@ -207,7 +207,7 @@ async def test_config_is_scoped_to_the_business_unit(
         await s.commit()
 
     await auth_client.put(
-        BASE, json={"token": "777:defaultsecret", "chat_id": "-1001"},
+        BASE, json={"token": "777:AAAAAAAAAAAAAAAAAAAAdefaultsecret", "chat_id": "-1001"},
         headers=_h(admin_token, "default"),
     )
     r = await auth_client.get(BASE, headers=_h(admin_token, "other"))
@@ -225,7 +225,7 @@ async def test_test_endpoints_400_when_nothing_is_configured(auth_client, admin_
 
 async def test_test_reverifies_the_saved_token(auth_client, admin_token, good_telegram):
     await auth_client.put(
-        BASE, json={"token": "777:secret1234", "chat_id": "-1001"},
+        BASE, json={"token": "777:AAAAAAAAAAAAAAAAAAAAAAsecret1234", "chat_id": "-1001"},
         headers=_h(admin_token),
     )
     r = await auth_client.post(f"{BASE}/test", headers=_h(admin_token))
@@ -238,7 +238,7 @@ async def test_test_reports_a_revoked_token_without_raising(
     auth_client, admin_token, good_telegram, monkeypatch
 ):
     await auth_client.put(
-        BASE, json={"token": "777:secret1234", "chat_id": "-1001"},
+        BASE, json={"token": "777:AAAAAAAAAAAAAAAAAAAAAAsecret1234", "chat_id": "-1001"},
         headers=_h(admin_token),
     )
 
@@ -256,7 +256,7 @@ async def test_test_message_posts_to_the_configured_chat(
     auth_client, admin_token, good_telegram
 ):
     await auth_client.put(
-        BASE, json={"token": "777:secret1234", "chat_id": "-1001"},
+        BASE, json={"token": "777:AAAAAAAAAAAAAAAAAAAAAAsecret1234", "chat_id": "-1001"},
         headers=_h(admin_token),
     )
     r = await auth_client.post(f"{BASE}/test-message", headers=_h(admin_token))
@@ -272,7 +272,7 @@ async def test_test_message_reports_a_send_failure(
     auth_client, admin_token, good_telegram, monkeypatch
 ):
     await auth_client.put(
-        BASE, json={"token": "777:secret1234", "chat_id": "-1001"},
+        BASE, json={"token": "777:AAAAAAAAAAAAAAAAAAAAAAsecret1234", "chat_id": "-1001"},
         headers=_h(admin_token),
     )
 
@@ -290,7 +290,7 @@ async def test_delete_removes_every_key(
     auth_client, admin_token, good_telegram, _setup_db
 ):
     await auth_client.put(
-        BASE, json={"token": "777:secret1234", "chat_id": "-1001"},
+        BASE, json={"token": "777:AAAAAAAAAAAAAAAAAAAAAAsecret1234", "chat_id": "-1001"},
         headers=_h(admin_token),
     )
     await auth_client.put(
@@ -321,3 +321,47 @@ async def test_delete_removes_every_key(
     g = await auth_client.get(BASE, headers=_h(admin_token))
     assert g.json()["configured"] is False
     assert g.json()["chat_id"] is None
+
+
+# ─── Token shape ─────────────────────────────────────────────────────────────
+#
+# The token is interpolated into the Bot API URL path, so a malformed one must
+# be rejected before any request is built: a stray newline raises
+# httpx.InvalidURL (not a RequestError, so it 500s), and `/`, `?` or `#`
+# silently rewrite the path. Placeholder values only, none are real tokens.
+
+_WELL_FORMED_TOKEN = "777:" + "A" * 35
+
+
+@pytest.mark.parametrize(
+    "bad_token",
+    [
+        "777:" + "A" * 17 + "\n" + "A" * 17,   # stray newline mid-paste
+        "777:" + "A" * 30 + "/getMe",          # path rewrite
+        "777:" + "A" * 30 + "?x=1",            # query injection
+        "777:" + "A" * 30 + "#frag",           # fragment
+        "12:tooshort",                         # too short to be a bot token
+        "not-a-bot-token-at-all-" + "A" * 20,  # no numeric bot-id prefix
+    ],
+)
+async def test_put_rejects_a_malformed_token_before_calling_telegram(
+    auth_client, admin_token, monkeypatch, bad_token
+):
+    async def _boom(*a, **k):
+        raise AssertionError("must not reach Telegram for a malformed token")
+
+    monkeypatch.setattr(tg, "verify_token", _boom)
+    monkeypatch.setattr(tg, "get_chat", _boom)
+    r = await auth_client.put(BASE, json={"token": bad_token}, headers=_h(admin_token))
+    assert r.status_code == 422
+    assert bad_token not in r.text
+
+
+async def test_put_accepts_a_token_with_surrounding_whitespace(
+    auth_client, admin_token, good_telegram
+):
+    r = await auth_client.put(
+        BASE, json={"token": f"  {_WELL_FORMED_TOKEN}\n"}, headers=_h(admin_token)
+    )
+    assert r.status_code == 200
+    assert r.json()["configured"] is True

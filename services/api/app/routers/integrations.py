@@ -1372,8 +1372,18 @@ async def set_telegram_config(
     slug = _require_bu(bu)
     svc = _config_svc(db)
 
+    new_token = (body.token or "").strip()
+    # Never echo the rejected value: it is (a malformed copy of) a secret.
+    if new_token and not tg_svc.TOKEN_RE.match(new_token):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Bot token must look like 123456789:AA… (a numeric bot id, a "
+                "colon, then letters, digits, '_' or '-'), as issued by @BotFather"
+            ),
+        )
     existing_token = await svc.get_for_bu(slug, TELEGRAM_BOT_TOKEN_KEY)
-    token = (body.token or "").strip() or existing_token
+    token = new_token or existing_token
     if not token:
         raise HTTPException(
             status_code=422, detail="Bot token is required on first save"
