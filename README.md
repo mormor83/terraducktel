@@ -79,10 +79,14 @@ Any operator, including the run's own triggering user (4-eyes was tried and reti
 - **Per-account state isolation** — each AWS account has its own dedicated S3
   bucket; the state-file path mirrors the git folder layout 1:1.
 - **Encrypted credentials at rest** — AWS access/secret pairs and integration
-  tokens (GitHub PAT, Slack URL, SMTP password) are stored Fernet-encrypted
-  with an HKDF-derived key. Plaintext never leaves the request handler.
+  tokens (GitHub PAT, Slack bot token, Telegram bot token, SMTP password) are
+  stored Fernet-encrypted with an HKDF-derived key. Plaintext never leaves
+  the request handler.
 - **Drift detection** — a background worker periodically `terraform plan`s
   every workspace and surfaces drift in the UI.
+- **Run + drift notifications** — Slack and/or Telegram per Business Unit, plus
+  SMTP email. Both chat channels carry the same four events (auto-approved,
+  awaiting approval, run failed, drift detected) and fire independently.
 - **Git-tree workspace import** — point Terraducktel at a repo that follows the
   `account-<id>/<region>/<leaf-folder>/` convention and bulk-import every
   stack as a workspace, with auto-detected environment per leaf.
