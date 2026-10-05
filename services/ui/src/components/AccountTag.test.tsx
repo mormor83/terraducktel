@@ -33,6 +33,7 @@ describe("AccountTag", () => {
       ["aws", "AWS account"],
       ["azure", "Azure subscription"],
       ["gcp", "GCP project"],
+      ["proxmox", "Proxmox cluster"],
       ["k8s", "Kubernetes cluster"],
     ] as const) {
       const view = render(<AccountTag color="blue" name="acct" provider={provider} />);

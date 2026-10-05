@@ -244,6 +244,7 @@ async def _account_badge(session: AsyncSession, workspace_id: str) -> _AccountBa
     from app.models.azure_subscription import AzureSubscription
     from app.models.gcp_project import GcpProject
     from app.models.k8s_cluster import K8sCluster
+    from app.models.proxmox_cluster import ProxmoxCluster
     from app.models.workspace import Workspace
     from app.services import account_colors
     from sqlalchemy import select
@@ -263,6 +264,9 @@ async def _account_badge(session: AsyncSession, workspace_id: str) -> _AccountBa
     elif ws.gcp_project_id:
         row = await session.get(GcpProject, ws.gcp_project_id)
         fallback = ws.gcp_project_id
+    elif ws.proxmox_cluster_id:
+        row = await session.get(ProxmoxCluster, ws.proxmox_cluster_id)
+        fallback = ws.proxmox_cluster_id
     elif ws.aws_account_id:
         fallback = ws.aws_account_id
         row = (

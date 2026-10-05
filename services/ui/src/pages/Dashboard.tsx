@@ -27,6 +27,7 @@ import WorkspaceTree, {
   type AwsAccountLite,
   type AzureSubscriptionLite,
   type GcpProjectLite,
+  type ProxmoxClusterLite,
   type Run,
   type Workspace,
 } from "../components/WorkspaceTree";
@@ -206,6 +207,7 @@ export default function Dashboard() {
   const [awsAccounts, setAwsAccounts] = useState<AwsAccountLite[]>([]);
   const [azureSubscriptions, setAzureSubscriptions] = useState<AzureSubscriptionLite[]>([]);
   const [gcpProjects, setGcpProjects] = useState<GcpProjectLite[]>([]);
+  const [proxmoxClusters, setProxmoxClusters] = useState<ProxmoxClusterLite[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -243,7 +245,7 @@ export default function Dashboard() {
     if (opts.silent) setRefreshing(true);
     else setLoading(true);
     try {
-      const [w, r, a, az, gc] = await Promise.all([
+      const [w, r, a, az, gc, pmx] = await Promise.all([
         api.get("/v1/workspaces"),
         api.get("/v1/runs"),
         // Admin-gated; viewers may 403 — render account rows without display names then.
@@ -252,12 +254,15 @@ export default function Dashboard() {
         api.get("/v1/azure-subscriptions").catch(() => ({ data: [] })),
         // Same: used to label GCP project groups + the state-backend selector.
         api.get("/v1/gcp-projects").catch(() => ({ data: [] })),
+        // Same: used to label Proxmox cluster groups.
+        api.get("/v1/proxmox-clusters").catch(() => ({ data: [] })),
       ]);
       setWorkspaces(w.data);
       setRuns(r.data);
       setAwsAccounts(a.data);
       setAzureSubscriptions(az.data);
       setGcpProjects(gc.data);
+      setProxmoxClusters(pmx.data);
       setLastRefreshed(new Date());
       setErr(null);
     } catch (e: any) {
@@ -639,6 +644,7 @@ export default function Dashboard() {
             awsAccounts={awsAccounts}
             azureSubscriptions={azureSubscriptions}
             gcpProjects={gcpProjects}
+            proxmoxClusters={proxmoxClusters}
             onChanged={load}
           />
         </StackIndexContext.Provider>

@@ -2,13 +2,14 @@ import { useState } from "react";
 import AwsAccounts from "./AwsAccounts";
 import AzureSubscriptions from "./AzureSubscriptions";
 import GcpProjects from "./GcpProjects";
+import ProxmoxClusters from "./ProxmoxClusters";
 import Clusters from "./Clusters";
 
 /**
  * Cloud resources settings tab.
  *
  * Hosts a sub-tab per resource type: AWS accounts, Azure subscriptions, GCP
- * projects, and Kubernetes clusters (for Helm workspaces). One place for all
+ * projects, Proxmox clusters, and Kubernetes clusters (for Helm workspaces). One place for all
  * infra creds — future providers (Cloudflare, …) drop in here without
  * re-shaping Settings.
  */
@@ -16,6 +17,7 @@ const PROVIDERS = [
   { id: "aws", label: "AWS", render: () => <AwsAccounts /> },
   { id: "azure", label: "Azure", render: () => <AzureSubscriptions /> },
   { id: "gcp", label: "GCP", render: () => <GcpProjects /> },
+  { id: "proxmox", label: "Proxmox", render: () => <ProxmoxClusters /> },
   { id: "clusters", label: "Kubernetes", render: () => <Clusters /> },
 ] as const;
 

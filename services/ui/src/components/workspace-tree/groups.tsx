@@ -4,7 +4,7 @@
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Badge, Card } from "../ui";
-import { AzureIcon, CloudIcon, FolderIcon, GcpIcon } from "./icons";
+import { AzureIcon, CloudIcon, FolderIcon, GcpIcon, ProxmoxIcon } from "./icons";
 import {
   buildFolderTree,
   collectNodeWorkspaces,
@@ -18,6 +18,7 @@ import type {
   AzureSubscriptionLite,
   ExpandSignal,
   GcpProjectLite,
+  ProxmoxClusterLite,
   Run,
   Workspace,
 } from "./types";
@@ -31,6 +32,7 @@ function FolderTreeBody({
   awsAccounts,
   azureSubscriptions,
   gcpProjects,
+  proxmoxClusters,
 }: {
   node: FolderNode;
   depth: number;
@@ -40,6 +42,7 @@ function FolderTreeBody({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
 }) {
   const folderNames = [...node.folders.keys()].sort();
   const wsSorted = [...node.workspaces].sort((a, b) => a.leaf.localeCompare(b.leaf));
@@ -56,6 +59,7 @@ function FolderTreeBody({
           awsAccounts={awsAccounts}
           azureSubscriptions={azureSubscriptions}
           gcpProjects={gcpProjects}
+          proxmoxClusters={proxmoxClusters}
         />
       ))}
       {wsSorted.map(({ ws, leaf }) => (
@@ -69,6 +73,7 @@ function FolderTreeBody({
           awsAccounts={awsAccounts}
           azureSubscriptions={azureSubscriptions}
           gcpProjects={gcpProjects}
+          proxmoxClusters={proxmoxClusters}
         />
       ))}
     </div>
@@ -84,6 +89,7 @@ function FolderGroup({
   awsAccounts,
   azureSubscriptions,
   gcpProjects,
+  proxmoxClusters,
 }: {
   folder: FolderNode;
   depth: number;
@@ -93,6 +99,7 @@ function FolderGroup({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
 }) {
   // Folders start collapsed so the dashboard isn't a wall of nested rows on
   // load — operators expand the levels they care about. The chevron state is
@@ -130,6 +137,7 @@ function FolderGroup({
           awsAccounts={awsAccounts}
           azureSubscriptions={azureSubscriptions}
           gcpProjects={gcpProjects}
+          proxmoxClusters={proxmoxClusters}
         />
       )}
     </div>
@@ -148,6 +156,7 @@ function RegionGroup({
   awsAccounts,
   azureSubscriptions,
   gcpProjects,
+  proxmoxClusters,
 }: {
   region: string;
   workspaces: Workspace[];
@@ -158,6 +167,7 @@ function RegionGroup({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
 }) {
   const [open, setOpen] = useState(defaultOpen);
   useEffect(() => {
@@ -192,6 +202,7 @@ function RegionGroup({
           awsAccounts={awsAccounts}
           azureSubscriptions={azureSubscriptions}
           gcpProjects={gcpProjects}
+          proxmoxClusters={proxmoxClusters}
         />
       )}
     </div>
@@ -219,6 +230,7 @@ function CloudGroupCard({
   awsAccounts,
   azureSubscriptions,
   gcpProjects,
+  proxmoxClusters,
 }: {
   icon: ReactNode;
   label: ReactNode;
@@ -232,6 +244,7 @@ function CloudGroupCard({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
 }) {
   const [open, setOpen] = useState(defaultOpen);
   useEffect(() => {
@@ -281,6 +294,7 @@ function CloudGroupCard({
                 awsAccounts={awsAccounts}
                 azureSubscriptions={azureSubscriptions}
                 gcpProjects={gcpProjects}
+                proxmoxClusters={proxmoxClusters}
               />
             ))}
         </div>
@@ -306,6 +320,7 @@ export function AccountGroup({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
 }) {
   return (
     <CloudGroupCard
@@ -353,6 +368,7 @@ export function AzureSubscriptionGroup({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
 }) {
   const subId = sub?.subscription_id ?? guid ?? "";
   return (
@@ -401,6 +417,7 @@ export function GcpProjectGroup({
   awsAccounts: AwsAccountLite[];
   azureSubscriptions: AzureSubscriptionLite[];
   gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
 }) {
   const pid = proj?.project_id ?? projectId ?? "";
   return (
@@ -424,6 +441,54 @@ export function GcpProjectGroup({
         )
       }
       scopeLabel={proj ? `${proj.name} (${pid})` : `project ${pid}`}
+      {...rest}
+    />
+  );
+}
+
+// ─── Cluster group (Proxmox) ───────────────────────────────────────────────────
+
+export function ProxmoxClusterGroup({
+  cluster,
+  slug,
+  ...rest
+}: {
+  // The registered cluster, when this group is linked/matched to one.
+  cluster?: ProxmoxClusterLite;
+  // The slug parsed from the repo path when no registration matches.
+  slug?: string;
+  byRegion: Record<string, Workspace[]>;
+  latestByWs: Map<string, Run>;
+  defaultOpen: boolean;
+  onChanged: () => void;
+  expandSignal: ExpandSignal;
+  awsAccounts: AwsAccountLite[];
+  azureSubscriptions: AzureSubscriptionLite[];
+  gcpProjects: GcpProjectLite[];
+  proxmoxClusters: ProxmoxClusterLite[];
+}) {
+  const s = cluster?.slug ?? slug ?? "";
+  return (
+    <CloudGroupCard
+      icon={<ProxmoxIcon />}
+      label={
+        cluster ? (
+          <>
+            {cluster.name}{" "}
+            <span className="ml-1 font-mono text-xs font-normal text-slate-500">cluster-{s}</span>
+          </>
+        ) : (
+          <span className="font-mono">cluster-{s}</span>
+        )
+      }
+      badge={
+        cluster ? (
+          <Badge tone="success">configured</Badge>
+        ) : (
+          <Badge tone="warning">cluster not registered</Badge>
+        )
+      }
+      scopeLabel={cluster ? `${cluster.name} (cluster-${s})` : `cluster ${s}`}
       {...rest}
     />
   );
