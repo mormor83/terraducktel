@@ -2173,13 +2173,39 @@ all BUs by repo-URL substring.</p>
   for the run-lifecycle messages (auto-approved, awaiting approval, failed,
   drift detected) — these show the workspace's display name + leaf path,
   not just its environment tag, and include deep links back into the UI.</li>
+<li><strong>Telegram</strong> — a per-BU bot token + chat id (<code>telegram.bot_token</code>,
+  <code>telegram.chat_id</code>, <code>services/api/app/services/telegram.py</code>), carrying the
+  same four run / drift events as the Slack bot path. Messages use the Bot
+  API's HTML parse mode; there is no Block Kit equivalent, so the cloud
+  account's colour appears as a leading emoji rather than a stripe, and links
+  render as inline URL buttons (dropped when the public base URL is not
+  https, which Telegram rejects). Telegram and Slack are independent: a BU may
+  configure either, both, or neither, and each send is wrapped separately so
+  one channel's outage cannot suppress the other. There is no inbound
+  handling — buttons link into the UI, they do not approve runs. Telegram has
+  no counterpart to the legacy Slack <em>webhook</em> path above: the user-facing
+  <code>POST /drift/{workspace_id}/report</code> endpoint still only alerts via that
+  webhook + email; only the internal drift-detector-facing endpoint drives
+  the Slack-bot-and-Telegram pair.</li>
+<li><strong>Drift-alert routing</strong> — drift alerts fire only on a clean→drifted
+  transition, and each bot channel can send them somewhere other than its
+  main destination or switch them off (Settings → Slack / Telegram → <em>Drift
+  alerts</em>; <code>PUT /integrations/{slack,telegram}/drift</code>). Keys:
+  <code>slack.drift_channel_id</code> / <code>telegram.drift_chat_id</code> (unset = main
+  channel/chat) and <code>slack.drift_alerts_enabled</code> /
+  <code>telegram.drift_alerts_enabled</code> (unset = on). Run notifications always use
+  the main destination. The Telegram drift chat is checked with <code>getChat</code> on
+  save because, unlike a Slack channel, it can't be picked from a list.</li>
 <li><strong>SMTP</strong> — best-effort email via <code>smtplib</code>, configured through
   <code>smtp.host</code>/<code>smtp.port</code>/<code>smtp.from</code>/<code>smtp.to</code> (+ optional
   <code>smtp.username</code>/<code>smtp.password</code>) in the <code>config</code> table. Silently skipped
   if <code>smtp.host</code> isn't set.</li>
 </ul>
-<p>All notification sends are best-effort — a Slack or SMTP failure never
-fails the underlying run.</p>
+<p>All notification sends are best-effort — a Slack, Telegram, or SMTP failure
+never fails the underlying run. For <code>PATCH /runs/{id}</code> the Slack and
+Telegram sends run as a FastAPI background task after the response, concurrently,
+each channel on its own DB session, so a slow channel never delays the
+executor's status callback.</p>
 <h3 id="audit-log-hash-chain">Audit log + hash chain<a class="headerlink" href="#audit-log-hash-chain" title="Permanent link">&para;</a></h3>
 <p>Every privileged action (login, run trigger/approve/reject, workspace
 create/delete, integration config writes, account create/delete, API key
