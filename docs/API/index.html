@@ -539,6 +539,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#proxmox-ve-clusters-apiv1proxmox-clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proxmox VE Clusters — /api/v1/proxmox-clusters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#kubernetes-clusters-apiv1clusters" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1177,6 +1188,17 @@
     <span class="md-ellipsis">
       
         GCP Projects — /api/v1/gcp-projects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#proxmox-ve-clusters-apiv1proxmox-clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proxmox VE Clusters — /api/v1/proxmox-clusters
       
     </span>
   </a>
@@ -2251,7 +2273,91 @@ structurally (must be a <code>service_account</code> key) and its embedded <code
 must match — mismatch → <strong>422</strong>. <code>project_id</code> is unique per BU — duplicate → <strong>409</strong>.
 Set <code>state_bucket</code> to enable <strong>GCS</strong> as a Terraform state backend for workspaces
 flagged <code>state_backend=gcs</code>. Workspaces at <code>gcp/project-&lt;id&gt;/&lt;region&gt;/&lt;stack&gt;</code>
-auto-link to the matching project on import.</p>
+auto-link to the matching project on import. Proxmox workspaces similarly auto-link
+when at <code>proxmox/cluster-&lt;slug&gt;/&lt;node&gt;/&lt;stack&gt;</code>; discovery stamps <code>aws_account_id="global"</code>
+and <code>region="global"</code> like other non-AWS paths, and the UI reads the node from the path;
+<code>state_backend</code> stays <code>s3</code>.</p>
+<hr />
+<h2 id="proxmox-ve-clusters-apiv1proxmox-clusters">Proxmox VE Clusters — <code>/api/v1/proxmox-clusters</code><a class="headerlink" href="#proxmox-ve-clusters-apiv1proxmox-clusters" title="Permanent link">&para;</a></h2>
+<p>Encrypted-at-rest Proxmox VE API tokens, mirroring the other providers.
+Workspaces that target <code>bpg/proxmox</code> or <code>Telmate/proxmox</code> link one of these;
+the executor exports both providers' env-var vocabularies from the one token.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+<th>Min role</th>
+<th>BU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/proxmox-clusters</code></td>
+<td>List clusters (secret + SSH key never returned; masked tail shown).</td>
+<td>viewer</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/proxmox-clusters</code></td>
+<td>Add a cluster (API token + optional SSH private key stored encrypted).</td>
+<td>admin</td>
+<td>BU-scoped</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/proxmox-clusters/{cluster_pk}</code></td>
+<td>Update fields, rotate the token secret, set/clear SSH key, TLS flag, CA PEM. Changing <code>endpoint</code> requires <code>api_token_secret</code> in the same request (<strong>422</strong> otherwise) and is audited.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/proxmox-clusters/{cluster_pk}</code></td>
+<td>Delete; linked workspaces are unlinked (FK SET NULL).</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/proxmox-clusters/{cluster_pk}/test</code></td>
+<td>Test connection: GET the Proxmox <code>/api2/json/version</code> endpoint with the stored token; honours <code>tls_insecure</code> / <code>ca_cert_pem</code>. Returns <code>{ok, detail, version?}</code>.</td>
+<td>admin</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>POST /proxmox-clusters</strong> body: <code>{slug, name, description?, endpoint,
+api_token_id, api_token_secret, ssh_username?, ssh_private_key?,
+tls_insecure?, ca_cert_pem?, color?}</code>. <code>slug</code> matches
+<code>^[a-z][a-z0-9-]{1,38}[a-z0-9]$</code> and is unique per BU (<strong>409</strong> on duplicate).
+<code>endpoint</code> must be <code>https://</code> (trailing <code>/api2/json</code> is stripped).
+<code>api_token_id</code> is <code>user@realm!tokenid</code>; an <code>=</code> in it is rejected (<strong>422</strong>) so a
+pasted <code>id=secret</code> pair never lands in a plaintext column. <code>ssh_private_key</code>
+requires <code>ssh_username</code>. Responses carry <code>token_secret_masked_tail</code> and
+<code>has_ssh_key</code> in place of the secrets. Workspaces at
+<code>proxmox/cluster-&lt;slug&gt;/&lt;node&gt;/&lt;stack&gt;</code> auto-link to the matching cluster on
+import; <code>state_backend</code> stays <code>s3</code>.</p>
+<p><strong>PUT /proxmox-clusters/{cluster_pk}</strong>: all fields optional; an omitted or
+<code>null</code> <code>api_token_secret</code> keeps the stored one. <strong>Changing <code>endpoint</code> requires
+<code>api_token_secret</code> in the same body</strong> (<strong>422</strong> otherwise) — without that, an
+admin who never knew the secret could point the cluster at a host they control
+and have <code>/test</code> or the next run deliver the stored token there. The comparison
+is made after the same normalisation the schema applies (scheme/host
+lower-cased, trailing <code>/</code> and <code>/api2/json</code> stripped), so re-submitting the
+unchanged endpoint is a no-op and needs no secret. An accepted endpoint change
+writes a <code>proxmox_cluster.endpoint_change</code> audit row carrying <code>slug</code>,
+<code>business_unit_id</code>, <code>old_endpoint</code>, <code>new_endpoint</code> and the acting user —
+never the secret.</p>
+<p><strong>POST .../test</strong> decrypts the stored token in memory and probes the Proxmox
+version endpoint, and always returns <code>{ok, detail?, version?}</code> —
+never raises even on network/auth failures. The response includes the version
+string on success.</p>
+<p><strong>Secrets:</strong> Responses never include <code>api_token_secret</code> or <code>ssh_private_key</code> —
+only <code>token_secret_masked_tail</code> (e.g. <code>…5555</code>) and <code>has_ssh_key: true|false</code>.</p>
 <hr />
 <h2 id="kubernetes-clusters-apiv1clusters">Kubernetes Clusters — <code>/api/v1/clusters</code><a class="headerlink" href="#kubernetes-clusters-apiv1clusters" title="Permanent link">&para;</a></h2>
 <p>Encrypted-at-rest kubeconfigs for Helm-kind workspaces
@@ -2327,7 +2433,8 @@ state is stored. <code>azureblob</code> requires a linked <code>azure_subscripti
 <code>state_storage_account</code>/<code>state_container</code> are set; <code>gcs</code> requires a linked
 <code>gcp_project_id</code> whose <code>state_bucket</code> is set — create/update <strong>422</strong> otherwise.
 <code>gcp_project_id</code> links the workspace to a GCP project (google provider), the
-mirror of <code>azure_subscription_id</code>.</p>
+mirror of <code>azure_subscription_id</code>. <code>proxmox_cluster_id</code> links the workspace to
+a registered Proxmox cluster (same-BU required); state stays <code>s3</code> for these.</p>
 <p><code>tags</code> is a free-form key/value map (<code>{"team": "payments", "tier": "prod"}</code>).
 Keys are lowercased on write — <code>Team</code> and <code>team</code> are the same tag — while values
 keep their case. A workspace carries at most 32; keys are 1–64 chars matching
@@ -2382,7 +2489,7 @@ object, never <code>null</code>.</p>
 <tr>
 <td>PUT</td>
 <td><code>/workspaces/{id}</code></td>
-<td>Update workspace (branch override, drift settings, <code>state_aws_account_id</code>, <code>azure_subscription_id</code>, <code>gcp_project_id</code>, <code>state_backend</code>, …).</td>
+<td>Update workspace (branch override, drift settings, <code>state_aws_account_id</code>, <code>azure_subscription_id</code>, <code>gcp_project_id</code>, <code>proxmox_cluster_id</code>, <code>state_backend</code>, …).</td>
 <td>admin-tier key or interactive operator+</td>
 <td>BU-scoped</td>
 </tr>
@@ -3592,7 +3699,9 @@ backend config.</p>
 </table>
 <p>State lives in S3 (LocalStack in dev) at
 <code>{tf_working_dir}/terraform.tfstate</code> inside the bucket owned by the
-workspace's (or its <code>state_aws_account_id</code> override's) AWS account. Locking
+workspace's (or its <code>state_aws_account_id</code> override's) AWS account.
+<code>proxmox/…</code> workspaces are additionally prefixed <code>bu-{business_unit_id}/</code>
+so two BUs with the same cluster slug never share state. Locking
 is <code>pg_try_advisory_lock</code>-based, not DynamoDB.</p>
 <hr />
 <h2 id="operational-endpoints-unversioned-no-auth">Operational endpoints (unversioned, no auth)<a class="headerlink" href="#operational-endpoints-unversioned-no-auth" title="Permanent link">&para;</a></h2>
@@ -3645,7 +3754,8 @@ front of it.</p>
 <code>auto_delete_orphan</code>, <code>run.trigger</code>, <code>approve</code>, <code>auto_approve</code>,
 <code>auto_apply_skipped</code>, <code>reject</code>, <code>aws_account.create</code>, <code>aws_account.update</code>,
 <code>integration.github.set</code>, <code>integration.slack.set</code>, <code>api_key.create</code>,
-<code>api_key.regenerate</code>, <code>api_key.rotate</code>, <code>api_key.revoke</code>, …</p>
+<code>api_key.regenerate</code>, <code>api_key.rotate</code>, <code>api_key.revoke</code>,
+<code>proxmox_cluster.endpoint_change</code>, …</p>
 <p><code>workspace.tags_bulk_edit</code> writes <strong>one row per affected workspace</strong> rather than
 one per batch, so a workspace's own audit trail shows every tag change that ever
 touched it.</p>

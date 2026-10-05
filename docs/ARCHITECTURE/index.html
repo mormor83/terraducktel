@@ -1594,6 +1594,11 @@ forward-only (<code>services/api/alembic/versions/NNN_*.py</code>).</p>
 <td>Mirrors <code>AwsAccount</code> for GCP: <code>project_id</code>, <code>client_email</code> + Fernet-encrypted service-account key JSON. Optional <code>state_bucket</code>/<code>state_prefix</code> enable a <strong>GCS</strong> state backend. Unique per <code>(business_unit_id, project_id)</code>.</td>
 </tr>
 <tr>
+<td><code>ProxmoxCluster</code></td>
+<td><code>proxmox_clusters</code></td>
+<td>Proxmox VE as a provider: operator-chosen <code>slug</code> (natural key; Proxmox has no global cluster id), <code>endpoint</code>, <code>api_token_id</code> + Fernet-encrypted token secret, optional encrypted SSH private key + <code>ssh_username</code> (bpg file-upload resources), <code>tls_insecure</code> flag, optional <code>ca_cert_pem</code>. No state backend — linked workspaces stay on S3. Unique per <code>(business_unit_id, slug)</code>. Changing <code>endpoint</code> on update requires re-supplying the token secret and writes a <code>proxmox_cluster.endpoint_change</code> audit row, so a stored secret can never be redirected to a new host by someone who doesn't know it.</td>
+</tr>
+<tr>
 <td><code>K8sCluster</code></td>
 <td><code>k8s_clusters</code></td>
 <td>One row per Kubernetes cluster for Helm workspaces: <code>name</code>, optional <code>server_url</code>, <code>default_namespace</code>, encrypted <code>kubeconfig</code>, optional <code>aws_account_id</code> (for EKS clusters whose kubeconfig auths via <code>aws eks get-token</code>).</td>
@@ -1613,7 +1618,7 @@ forward-only (<code>services/api/alembic/versions/NNN_*.py</code>).</p>
 <tr>
 <td><code>Workspace</code></td>
 <td><code>workspaces</code></td>
-<td>One Terraform leaf module or one Helm chart. Canonical identity is <code>(business_unit_id, aws_account_id, region, environment, tf_working_dir)</code>. Carries <code>repo_url</code>/<code>repo_ref</code> (Git source), <code>kind</code> (<code>terraform</code> default or <code>helm</code>), <code>cluster_id</code> (helm target), <code>azure_subscription_id</code> / <code>gcp_project_id</code> (optional Azure/GCP targets), <code>state_backend</code> (<code>s3</code> default | <code>azureblob</code> | <code>gcs</code>), <code>drift_status</code>, <code>path_status</code> (<code>ok</code>/<code>orphaned</code>/<code>unknown</code> — tracks whether the leaf still exists at <code>repo_ref</code>), <code>webhook_enabled</code>, <code>tags</code> (free-form key/value JSON; keys lowercased on write). Tags are a JSON column rather than a join table — at this fleet size a dict scan matches what an index would give, and it keeps tags atomic with the row so there is no orphan cleanup on delete.</td>
+<td>One Terraform leaf module or one Helm chart. Canonical identity is <code>(business_unit_id, aws_account_id, region, environment, tf_working_dir)</code>. Carries <code>repo_url</code>/<code>repo_ref</code> (Git source), <code>kind</code> (<code>terraform</code> default or <code>helm</code>), <code>cluster_id</code> (helm target), <code>azure_subscription_id</code> / <code>gcp_project_id</code> / <code>proxmox_cluster_id</code> (optional Azure/GCP/Proxmox targets), <code>state_backend</code> (<code>s3</code> default | <code>azureblob</code> | <code>gcs</code>), <code>drift_status</code>, <code>path_status</code> (<code>ok</code>/<code>orphaned</code>/<code>unknown</code> — tracks whether the leaf still exists at <code>repo_ref</code>), <code>webhook_enabled</code>, <code>tags</code> (free-form key/value JSON; keys lowercased on write). Tags are a JSON column rather than a join table — at this fleet size a dict scan matches what an index would give, and it keeps tags atomic with the row so there is no orphan cleanup on delete.</td>
 </tr>
 <tr>
 <td><code>Run</code></td>
@@ -1944,21 +1949,23 @@ import time if the env var is unset, by design, so a misconfigured
 deployment fails loudly instead of silently using a predictable key.</p>
 <p><strong>Derivation:</strong> each domain (AWS credentials, Azure credentials, GCP
 credentials, Kubernetes kubeconfigs, generic <code>config</code> secrets,
-workspace/global variables) derives its <strong>own</strong> Fernet key from the same root
+workspace/global variables, Proxmox credentials) derives its <strong>own</strong> Fernet key from the same root
 key via HKDF-SHA256 with a <strong>distinct, hardcoded salt</strong> per domain (e.g.
 <code>b"terraducktel-aws-credentials-v1"</code>, <code>b"terraducktel-config-v1"</code>,
 <code>b"terraducktel-azure-credentials-v1"</code>, <code>b"terraducktel-gcp-credentials-v1"</code>,
+<code>b"terraducktel-proxmox-credentials-v1"</code>,
 <code>b"terraducktel-variables-v1"</code>). This means a ciphertext leaked from one
 domain can't be replayed or confused with another, and each domain can rotate
 its salt independently in a future migration without touching the root key.
 The pattern is identical everywhere it appears — <code>aws_account_service.py</code>,
-<code>azure_subscription_service.py</code>, <code>gcp_project_service.py</code>, <code>cluster_service.py</code>,
+<code>azure_subscription_service.py</code>, <code>gcp_project_service.py</code>, <code>proxmox_cluster_service.py</code>, <code>cluster_service.py</code>,
 <code>config_service.py</code>, <code>variable_service.py</code> — new encrypted domains should copy
 it rather than invent a new scheme.</p>
 <p><strong>What's encrypted:</strong>
 - AWS access key / secret access key (<code>aws_accounts</code>).
 - Azure service-principal secret (<code>azure_subscriptions</code>).
 - GCP service-account key JSON (<code>gcp_projects</code>).
+- Proxmox API token secret and optional SSH private key (<code>proxmox_clusters</code>).
 - Kubernetes kubeconfig (<code>k8s_clusters</code>).
 - Any <code>config</code> row with <code>is_secret=True</code> (GitHub PAT, Slack bot token,
   Infracost API key, webhook secrets, <code>JWT_SECRET</code> itself once persisted).
@@ -1998,7 +2005,10 @@ behind the API.</p>
   the workspace's git path exactly (<code>app/routers/state.py::_service_for</code>).
   Isolation between workspaces comes from the per-account dedicated bucket,
   not a key prefix, so two same-named leaves under different account
-  directories never collide. (<code>Workspace.state_path</code>/<code>state_key</code>, which build
+  directories never collide. Exception: <code>proxmox/…</code> paths are keyed
+  <code>bu-{business_unit_id}/{tf_working_dir}/terraform.tfstate</code>, because a
+  Proxmox slug is unique only per BU and those workspaces share the
+  fallback bucket. (<code>Workspace.state_path</code>/<code>state_key</code>, which build
   a <code>tfstate/{account}/{region}/{env}/...</code> key, are legacy and unused by the
   live state backend.)</li>
 <li><strong>Locking</strong>: <code>pg_try_advisory_lock</code> on a numeric key derived from the
@@ -2034,6 +2044,17 @@ env var:</p>
 <li>Load any per-workspace <code>terraducktel.yaml</code> override (Terraform version
    pin, Helm chart config for helm workspaces).</li>
 <li>Load merged variables (<code>global ← workspace ← run</code>), decrypted once.</li>
+</ol>
+<p>Provider credentials are injected per linked account: AWS keys, Azure
+   <code>ARM_*</code>, GCP <code>GOOGLE_APPLICATION_CREDENTIALS</code>, and for Proxmox a canonical
+   <code>TDT_PROXMOX_*</code> set that the entrypoint fans out to <strong>both</strong>
+   <code>bpg/proxmox</code> (<code>PROXMOX_VE_*</code>) and <code>Telmate/proxmox</code> (<code>PM_*</code>) so one stored
+   token serves either provider. A custom CA is merged with the system bundle
+   (Go replaces, not extends, its root pool) and handed to <code>terraform</code> alone
+   as <code>SSL_CERT_FILE</code> via a shell wrapper — never exported, so the API
+   callbacks keep trusting only the system bundle. A missing system bundle
+   fails the run.</p>
+<ol>
 <li><strong>Checkov</strong> scan against the source HCL — a hard gate, configurable via
    Settings → Checkov mode. Runs <em>before</em> <code>terraform init</code>.</li>
 <li><code>terraform init</code> against the HTTP state backend, then
