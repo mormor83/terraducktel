@@ -2799,7 +2799,13 @@ per key).</p>
 <tr>
 <td>GET</td>
 <td><code>/runs</code></td>
-<td>List runs, newest first (BU-scoped; API-key callers additionally narrowed to their workspace allowlist). Filters: <code>?workspace_id=</code>, <code>?status=</code> (comma-separated, e.g. <code>failed,cancelled</code>; an unknown value is a <strong>400</strong> listing the valid ones), <code>?limit=</code> (1–1000). No default cap — the UI fetches the full list and buckets it client-side.</td>
+<td>List runs, newest first (BU-scoped; API-key callers additionally narrowed to their workspace allowlist). Filters: <code>?workspace_id=</code>, <code>?status=</code> (comma-separated, e.g. <code>failed,cancelled</code>; an unknown value is a <strong>400</strong> listing the valid ones), <code>?limit=</code> (1–1000). No default cap; the Runs page uses <code>/runs/page</code> instead.</td>
+<td>viewer</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runs/page</code></td>
+<td>Paged list, newest first: <code>offset</code> (default 0), <code>limit</code> (default 25, max 200), plus <code>workspace_id</code>, <code>status</code>, <code>q</code> (case-insensitive search over run id/command/status/branch, workspace name/env/region/account/path, account name, triggering user's email). Returns <code>{items, total, offset, limit, status_counts}</code>; items omit <code>plan_output</code>, and <code>status_counts</code> ignores the <code>status</code> filter. Same scoping as <code>/runs</code>.</td>
 <td>viewer</td>
 </tr>
 <tr>
