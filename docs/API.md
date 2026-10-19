@@ -661,7 +661,8 @@ per key).
 | Method | Path | Description | Min role |
 |---|---|---|---|
 | POST | `/workspaces/{id}/runs` | Trigger a run (plan/apply/destroy). | operator (+ `plan` or `apply` API-key tier) |
-| GET | `/runs` | List runs, newest first (BU-scoped; API-key callers additionally narrowed to their workspace allowlist). Filters: `?workspace_id=`, `?status=` (comma-separated, e.g. `failed,cancelled`; an unknown value is a **400** listing the valid ones), `?limit=` (1–1000). No default cap — the UI fetches the full list and buckets it client-side. | viewer |
+| GET | `/runs` | List runs, newest first (BU-scoped; API-key callers additionally narrowed to their workspace allowlist). Filters: `?workspace_id=`, `?status=` (comma-separated, e.g. `failed,cancelled`; an unknown value is a **400** listing the valid ones), `?limit=` (1–1000). No default cap; the Runs page uses `/runs/page` instead. | viewer |
+| GET | `/runs/page` | Paged list, newest first: `offset` (default 0), `limit` (default 25, max 200), plus `workspace_id`, `status`, `q` (case-insensitive search over run id/command/status/branch, workspace name/env/region/account/path, account name, triggering user's email). Returns `{items, total, offset, limit, status_counts}`; items omit `plan_output`, and `status_counts` ignores the `status` filter. Same scoping as `/runs`. | viewer |
 | GET | `/runs/{run_id}` | Get a run. | viewer |
 | PATCH | `/runs/{run_id}` | Executor callbacks — status, plan output, plan_json, tfplan_b64, policy_status. Triggers notifications + auto-approve gate on `awaiting_approval`. | operator |
 | POST | `/runs/{run_id}/heartbeat` | Executor liveness ping (run_jobs.heartbeat_at). 204, or 404 if there's no picked job for this run. | operator |

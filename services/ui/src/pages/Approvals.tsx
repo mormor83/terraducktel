@@ -28,9 +28,8 @@ export default function Approvals() {
   const [planOutput, setPlanOutput] = useState<string>("");
 
   function load() {
-    api.get("/v1/runs").then((r) => {
-      const list = (r.data as Run[]).filter((x) => x.status === "awaiting_approval");
-      setPending(list);
+    api.get("/v1/runs", { params: { status: "awaiting_approval" } }).then((r) => {
+      setPending(r.data as Run[]);
     });
   }
 

@@ -1,7 +1,7 @@
 import uuid
 import enum
 import re
-from sqlalchemy import Boolean, String, Text, DateTime, ForeignKey, Enum as SAEnum, func
+from sqlalchemy import Boolean, Index, String, Text, DateTime, ForeignKey, Enum as SAEnum, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 
@@ -78,6 +78,7 @@ class Run(Base):
     status: Mapped[RunStatus] = mapped_column(
         SAEnum(RunStatus, values_callable=lambda enum: [e.value for e in enum]),
         default=RunStatus.PENDING,
+        index=True,
     )
     # Captured at trigger time from workspace.repo_ref. Older runs (pre-012
     # migration) carry NULL — the dashboard treats those as "unknown branch"
@@ -118,9 +119,14 @@ class Run(Base):
     # Environments). Purely a tag — promotion runs go through the exact same
     # pipeline and approval as any other run.
     promotion_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
     started_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Paged Runs list: per-workspace history newest-first (migration 048).
+    __table_args__ = (Index("ix_runs_workspace_id_created_at", "workspace_id", "created_at"),)
 
     def transition(self, new_status: RunStatus) -> None:
         """Apply an FSM transition. Raises ValueError for invalid transitions."""

@@ -90,3 +90,39 @@ class RunResponse(BaseModel):
     promotion_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class RunSummary(BaseModel):
+    """A run row for paged lists — RunResponse without `plan_output`.
+
+    The plan text can run to megabytes per run; list views fetch it on demand
+    from `GET /runs/{id}/plan` instead.
+    """
+
+    id: str
+    workspace_id: str
+    triggered_by: Optional[str] = None
+    command: str
+    status: str
+    branch: Optional[str] = None
+    error_output: Optional[str] = None
+    policy_status: str = "not_run"
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    promotion_id: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RunPage(BaseModel):
+    """One page of `GET /runs/page`."""
+
+    items: list[RunSummary]
+    # Matching runs across all pages (after every filter, including status).
+    total: int
+    offset: int
+    limit: int
+    # Per-status counts over the same filters EXCEPT `status`, so the UI's
+    # status pills keep showing what each choice would yield.
+    status_counts: dict[str, int]
