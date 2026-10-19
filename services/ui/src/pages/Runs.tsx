@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import {
@@ -11,6 +11,7 @@ import {
   Input,
   RunStatusBadge,
   SectionHeader,
+  Select,
   Skeleton,
   cx,
 } from "../components/ui";
@@ -60,7 +61,18 @@ type UserLite = {
 type DetailTab = "timeline" | "plan" | null;
 type GroupMode = "time" | "workspace";
 
+// GET /v1/runs/page — items omit plan_output (fetched on expand).
+type RunPage = {
+  items: Run[];
+  total: number;
+  offset: number;
+  limit: number;
+  status_counts: Record<string, number>;
+};
+
 const REFRESH_INTERVAL_MS = 8_000;
+const PAGE_SIZES = [25, 50, 100] as const;
+const SEARCH_DEBOUNCE_MS = 300;
 
 function relTime(iso?: string | null): string {
   if (!iso) return "—";
@@ -96,6 +108,11 @@ const ENV_TONE: Record<string, "success" | "warning" | "info" | "neutral" | "amb
 
 export default function Runs() {
   const [runs, setRuns] = useState<Run[]>([]);
+  // Server-side paging: `runs` is just the current page.
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
+  const [total, setTotal] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [workspaces, setWorkspaces] = useState<Record<string, Workspace>>({});
   const [users, setUsers] = useState<Record<string, UserLite>>({});
   const [openRunId, setOpenRunId] = useState<string | null>(null);
@@ -114,6 +131,8 @@ export default function Runs() {
   const [statusFilter, setStatusFilter] = useState<string>(
     () => new URLSearchParams(window.location.search).get("status") || "all",
   );
+  // The search box filters server-side; debounce so typing isn't a request per key.
+  const [query, setQuery] = useState("");
   const [grouping, setGrouping] = useState<GroupMode>("time");
   const [busyRerun, setBusyRerun] = useState<string | null>(null);
   // Run whose full combined-logs modal is open (null = closed). Independent of
@@ -123,14 +142,30 @@ export default function Runs() {
   const nav = useNavigate();
   const { badgeFor } = useAccountColors();
 
+  // Drops responses that land after a newer request (page flip mid-poll).
+  const loadSeq = useRef(0);
+
   async function load() {
+    const seq = ++loadSeq.current;
+    const params: Record<string, string | number> = { offset: page * pageSize, limit: pageSize };
+    if (statusFilter !== "all") params.status = statusFilter;
+    if (query) params.q = query;
     try {
       const [r, w, u] = await Promise.all([
-        api.get("/v1/runs"),
+        api.get<RunPage>("/v1/runs/page", { params }),
         api.get("/v1/workspaces"),
         api.get("/v1/users").catch(() => ({ data: [] })), // viewer 403 → empty
       ]);
-      setRuns(r.data);
+      if (seq !== loadSeq.current) return;
+      // A run finishing/being filtered out can shrink the result under us —
+      // step back to the last page that still has rows.
+      if (r.data.items.length === 0 && page > 0 && r.data.total > 0) {
+        setPage(Math.max(0, Math.ceil(r.data.total / pageSize) - 1));
+        return;
+      }
+      setRuns(r.data.items);
+      setTotal(r.data.total);
+      setStatusCounts(r.data.status_counts);
       const wsMap: Record<string, Workspace> = {};
       for (const x of w.data) wsMap[x.id] = x;
       setWorkspaces(wsMap);
@@ -138,14 +173,30 @@ export default function Runs() {
       for (const x of u.data) uMap[x.id] = x;
       setUsers(uMap);
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }
 
+  // The poller calls whichever load() closes over the current page/filters.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
-    load();
+    const t = window.setTimeout(() => {
+      setQuery(filter.trim());
+      setPage(0);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [filter]);
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, statusFilter, query]);
+
+  useEffect(() => {
     const t = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void loadRef.current();
     }, REFRESH_INTERVAL_MS);
     return () => window.clearInterval(t);
   }, []);
@@ -243,38 +294,12 @@ export default function Runs() {
 
   const rerunnable = new Set(["failed", "cancelled"]);
 
-  const filtered = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    return runs
-      .filter((r) => statusFilter === "all" || r.status === statusFilter)
-      .filter((r) => {
-        if (!q) return true;
-        const ws = workspaces[r.workspace_id];
-        const u = r.triggered_by ? users[r.triggered_by] : undefined;
-        const haystack = [
-          r.id,
-          r.command,
-          r.status,
-          ws?.name ?? "",
-          ws?.aws_account_id ?? "",
-          badgeFor(ws)?.name ?? "",
-          ws?.region ?? "",
-          ws?.environment ?? "",
-          u?.email ?? "",
-        ]
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(q);
-      })
-      .slice()
-      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
-  }, [runs, workspaces, users, filter, statusFilter, badgeFor]);
-
-  const statusCounts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const r of runs) c[r.status] = (c[r.status] ?? 0) + 1;
-    return c;
-  }, [runs]);
+  // Status + search filtering and newest-first ordering happen server-side.
+  const filtered = runs;
+  const allCount = Object.values(statusCounts).reduce((a, b) => a + b, 0);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const firstShown = total === 0 ? 0 : page * pageSize + 1;
+  const lastShown = Math.min(total, page * pageSize + runs.length);
 
   // ─── grouping ──────────────────────────────────────────────────────────
 
@@ -323,7 +348,7 @@ export default function Runs() {
         title="Runs"
         subtitle="History of plans and applies. Click a run to open its step timeline."
         action={
-          <Button variant="secondary" size="sm" onClick={load}>
+          <Button variant="secondary" size="sm" onClick={() => void load()}>
             Refresh
           </Button>
         }
@@ -352,12 +377,15 @@ export default function Runs() {
         />
         <div className="flex gap-1">
           {(["all", "running", "planning", "planned", "awaiting_approval", "applying", "applied", "failed", "cancelled"] as const).map((s) => {
-            const c = s === "all" ? runs.length : statusCounts[s] ?? 0;
-            if (s !== "all" && c === 0) return null;
+            const c = s === "all" ? allCount : statusCounts[s] ?? 0;
+            if (s !== "all" && c === 0 && statusFilter !== s) return null;
             return (
               <button
                 key={s}
-                onClick={() => setStatusFilter(s)}
+                onClick={() => {
+                  setStatusFilter(s);
+                  setPage(0);
+                }}
                 className={cx(
                   "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                   statusFilter === s
@@ -397,7 +425,7 @@ export default function Runs() {
             </Card>
           ))}
         </div>
-      ) : runs.length === 0 ? (
+      ) : allCount === 0 && !query ? (
         <EmptyState title="No runs yet" description="Trigger a plan from the Dashboard to see runs here." />
       ) : filtered.length === 0 ? (
         <Card><CardBody className="text-sm text-slate-500">No runs match the current filter.</CardBody></Card>
@@ -632,6 +660,61 @@ export default function Runs() {
             </section>
           ))}
         </div>
+      )}
+      {!loading && total > 0 && (
+        <nav
+          aria-label="Runs pagination"
+          className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400"
+        >
+          <span data-testid="runs-range">
+            {firstShown}–{lastShown} of {total}
+          </span>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5">
+              <span>Per page</span>
+              <Select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(0);
+                }}
+                className="w-auto py-1 text-xs"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <Button size="sm" variant="secondary" onClick={() => setPage(0)} disabled={page === 0} title="First page">
+              «
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setPage((p) => p - 1)} disabled={page === 0}>
+              ‹ Prev
+            </Button>
+            <span className="font-mono">
+              {page + 1} / {pageCount}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page + 1 >= pageCount}
+            >
+              Next ›
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setPage(pageCount - 1)}
+              disabled={page + 1 >= pageCount}
+              title="Last page"
+            >
+              »
+            </Button>
+          </div>
+        </nav>
       )}
       {logsRunId && (
         <RunLogsModal

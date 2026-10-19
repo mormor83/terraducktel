@@ -6,9 +6,10 @@ import smtplib
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 # IMPORTANT: import the module, not the symbol. Capturing `AsyncSessionLocal` at
 # import time bypasses test-fixture monkeypatching of `app.db.AsyncSessionLocal`
@@ -22,7 +23,7 @@ from app.auth.jwt import create_access_token
 from app.models.run import Run, RunStatus
 from app.models.workspace import Workspace
 from app.models.user import User
-from app.schemas.run import RunCreate, RunResponse, RunUpdate
+from app.schemas.run import RunCreate, RunPage, RunResponse, RunSummary, RunUpdate
 from app.schemas.run_step import RunStepResponse, RunStepUpdate
 from app.services.notification_service import send_plan_approval_notification
 from app.services import run_step_service as steps_svc
@@ -143,6 +144,56 @@ async def trigger_run(
 
 _RUN_STATUS_VALUES = {s.value for s in RunStatus}
 
+# Columns a list never returns but `select(Run)` would otherwise drag out of
+# Postgres for every row — plan_json / tfplan_b64 run to megabytes per run.
+_LIST_DEFERRED = (
+    defer(Run.plan_json),
+    defer(Run.tfplan_b64),
+    defer(Run.variables_encrypted),
+)
+
+
+def _parse_status_filter(status_filter: str | None) -> list[str]:
+    """Split `failed,cancelled` into values; unknown values → 400."""
+    if status_filter is None:
+        return []
+    wanted = [v.strip() for v in status_filter.split(",") if v.strip()]
+    bad = [v for v in wanted if v not in _RUN_STATUS_VALUES]
+    if bad:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown run status: {', '.join(sorted(bad))}. "
+                f"Valid: {', '.join(sorted(_RUN_STATUS_VALUES))}"
+            ),
+        )
+    return wanted
+
+
+def _escape_like(text: str) -> str:
+    """Escape LIKE wildcards so `q` matches literally (escape char: `!`).
+
+    Not backslash: how Postgres reads `ESCAPE '\\'` depends on
+    standard_conforming_strings.
+    """
+    return text.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+
+
+def _scope_runs(stmt, request: Request, bu: BUScope, workspace_id: str | None):
+    """Apply BU scoping, the API-key allowlist and an optional workspace_id."""
+    if bu.bu_id is not None:
+        stmt = stmt.join(Workspace, Workspace.id == Run.workspace_id).where(
+            Workspace.business_unit_id == bu.bu_id
+        )
+    allow = api_key_service.allowlist(request)
+    if allow:
+        stmt = stmt.where(Run.workspace_id.in_(allow))
+    if workspace_id is not None:
+        # An out-of-scope workspace_id simply yields no rows — the BU / allowlist
+        # predicates above still apply, so this can't be used to peek across BUs.
+        stmt = stmt.where(Run.workspace_id == workspace_id)
+    return stmt
+
 
 @router.get("/api/v1/runs", response_model=list[RunResponse])
 async def list_runs(
@@ -164,8 +215,7 @@ async def list_runs(
         le=1000,
         description=(
             "Cap the number of runs returned (newest first). Omit for all "
-            "matching runs — the UI's Runs page buckets the full list "
-            "client-side, so there is deliberately no default cap."
+            "matching runs. The UI's Runs page uses `GET /runs/page` instead."
         ),
     ),
     current_user: User = Depends(require_role(Role.viewer)),
@@ -182,39 +232,115 @@ async def list_runs(
     can ask "the last 10 failed runs for this workspace" in one request instead
     of pulling every run in the BU and filtering locally.
     """
-    stmt = select(Run).order_by(Run.created_at.desc())
-    if bu.bu_id is not None:
-        stmt = stmt.join(Workspace, Workspace.id == Run.workspace_id).where(
-            Workspace.business_unit_id == bu.bu_id
-        )
-    allow = api_key_service.allowlist(request)
-    if allow:
-        stmt = stmt.where(Run.workspace_id.in_(allow))
+    stmt = select(Run).options(*_LIST_DEFERRED).order_by(Run.created_at.desc())
+    stmt = _scope_runs(stmt, request, bu, workspace_id)
 
-    if workspace_id is not None:
-        # An out-of-scope workspace_id simply yields no rows — the BU / allowlist
-        # predicates above still apply, so this can't be used to peek across BUs.
-        stmt = stmt.where(Run.workspace_id == workspace_id)
-
-    if status_filter is not None:
-        wanted = [v.strip() for v in status_filter.split(",") if v.strip()]
-        bad = [v for v in wanted if v not in _RUN_STATUS_VALUES]
-        if bad:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Unknown run status: {', '.join(sorted(bad))}. "
-                    f"Valid: {', '.join(sorted(_RUN_STATUS_VALUES))}"
-                ),
-            )
-        if wanted:
-            stmt = stmt.where(Run.status.in_(wanted))
+    wanted = _parse_status_filter(status_filter)
+    if wanted:
+        stmt = stmt.where(Run.status.in_(wanted))
 
     if limit is not None:
         stmt = stmt.limit(limit)
 
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.get("/api/v1/runs/page", response_model=RunPage)
+async def list_runs_page(
+    request: Request,
+    workspace_id: str | None = Query(
+        None, description="Only runs for this workspace id."
+    ),
+    status_filter: str | None = Query(
+        None,
+        alias="status",
+        description="Comma-separated run statuses to include. Unknown → 400.",
+    ),
+    q: str | None = Query(
+        None,
+        max_length=200,
+        description=(
+            "Case-insensitive substring over run id, command, status, branch, "
+            "workspace name / environment / region / account id / path, the "
+            "account's name and the triggering user's email."
+        ),
+    ),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=200),
+    current_user: User = Depends(require_role(Role.viewer)),
+    bu: BUScope = Depends(current_bu),
+    db: AsyncSession = Depends(get_db),
+):
+    """One page of runs (newest first) plus the total and per-status counts.
+
+    Same scoping as `GET /runs`. Items omit `plan_output` — fetch it from
+    `GET /runs/{id}/plan` when the row is expanded.
+    """
+    wanted = _parse_status_filter(status_filter)
+
+    base = _scope_runs(select(Run.id), request, bu, workspace_id)
+    needle = (q or "").strip()
+    if needle:
+        from app.models.aws_account import AwsAccount
+
+        if bu.bu_id is None:
+            # _scope_runs only joins Workspace when narrowing to a BU.
+            base = base.outerjoin(Workspace, Workspace.id == Run.workspace_id)
+        like = f"%{_escape_like(needle)}%"
+        account_names = select(AwsAccount.name).where(
+            AwsAccount.account_id == Workspace.aws_account_id,
+            AwsAccount.name.ilike(like, escape="!"),
+        )
+        user_emails = select(User.email).where(
+            User.id == Run.triggered_by, User.email.ilike(like, escape="!")
+        )
+        base = base.where(
+            or_(
+                Run.id.ilike(like, escape="!"),
+                Run.command.ilike(like, escape="!"),
+                cast(Run.status, String).ilike(like, escape="!"),
+                Run.branch.ilike(like, escape="!"),
+                Run.triggered_by.ilike(like, escape="!"),
+                Workspace.name.ilike(like, escape="!"),
+                Workspace.environment.ilike(like, escape="!"),
+                Workspace.region.ilike(like, escape="!"),
+                Workspace.aws_account_id.ilike(like, escape="!"),
+                Workspace.tf_working_dir.ilike(like, escape="!"),
+                account_names.exists(),
+                user_emails.exists(),
+            )
+        )
+
+    # Status pills: counts ignore the status filter itself.
+    counts_rows = await db.execute(
+        base.with_only_columns(Run.status, func.count()).group_by(Run.status)
+    )
+    status_counts = {
+        (st.value if isinstance(st, RunStatus) else str(st)): n
+        for st, n in counts_rows.all()
+    }
+
+    if wanted:
+        base = base.where(Run.status.in_(wanted))
+        total = sum(status_counts.get(v, 0) for v in set(wanted))
+    else:
+        total = sum(status_counts.values())
+
+    page_ids = base.order_by(Run.created_at.desc(), Run.id.desc()).offset(offset).limit(limit)
+    rows = await db.execute(
+        select(Run)
+        .options(*_LIST_DEFERRED, defer(Run.plan_output))
+        .where(Run.id.in_(page_ids.scalar_subquery()))
+        .order_by(Run.created_at.desc(), Run.id.desc())
+    )
+    return RunPage(
+        items=[RunSummary.model_validate(r) for r in rows.scalars().all()],
+        total=total,
+        offset=offset,
+        limit=limit,
+        status_counts=status_counts,
+    )
 
 
 @router.get("/api/v1/runs/{run_id}", response_model=RunResponse)
