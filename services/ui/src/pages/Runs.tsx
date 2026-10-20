@@ -461,7 +461,11 @@ export default function Runs() {
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                 {ws ? (
-                                  <Link to="/" className="hover:underline" title={ws.tf_working_dir || ws.name}>
+                                  <Link
+                                    to={`/?q=${encodeURIComponent(ws.tf_working_dir || ws.name)}`}
+                                    className="hover:underline"
+                                    title={`Show ${ws.tf_working_dir || ws.name} on the dashboard`}
+                                  >
                                     {(() => {
                                       // Disambiguate same-named leaves by showing the immediate
                                       // parent folder from tf_working_dir: e.g.
