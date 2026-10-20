@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useCurrentUser, hasMinRole } from "../hooks/useAuth";
 
@@ -202,6 +202,8 @@ export function computeFleetHealth(runs: Run[], workspaces: Workspace[]) {
 }
 
 export default function Dashboard() {
+  // `?q=` deep-links the workspace filter (the Runs page links leaves here).
+  const [searchParams, setSearchParams] = useSearchParams();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [awsAccounts, setAwsAccounts] = useState<AwsAccountLite[]>([]);
@@ -646,6 +648,18 @@ export default function Dashboard() {
             gcpProjects={gcpProjects}
             proxmoxClusters={proxmoxClusters}
             onChanged={load}
+            initialFilter={searchParams.get("q") ?? ""}
+            onFilterChange={(q) =>
+              setSearchParams(
+                (prev) => {
+                  const next = new URLSearchParams(prev);
+                  if (q) next.set("q", q);
+                  else next.delete("q");
+                  return next;
+                },
+                { replace: true },
+              )
+            }
           />
         </StackIndexContext.Provider>
       )}

@@ -48,6 +48,8 @@ export default function WorkspaceTree({
   gcpProjects,
   proxmoxClusters,
   onChanged,
+  initialFilter = "",
+  onFilterChange,
 }: {
   workspaces: Workspace[];
   runs: Run[];
@@ -56,14 +58,26 @@ export default function WorkspaceTree({
   gcpProjects: GcpProjectLite[];
   proxmoxClusters: ProxmoxClusterLite[];
   onChanged: () => void;
+  /** Seed for the filter box, e.g. from a `?q=` deep link. Read on mount only. */
+  initialFilter?: string;
+  /** Called on every filter edit so the caller can mirror it into the URL. */
+  onFilterChange?: (filter: string) => void;
 }) {
-  const [filter, setFilter] = useState("");
+  const [filter, setFilterState] = useState(initialFilter);
+  const setFilter = (q: string) => {
+    setFilterState(q);
+    onFilterChange?.(q);
+  };
   // Tag filter, set by clicking a chip on any row. Separate from the text box:
   // the text box is fuzzy ("payments" also matches a workspace called
   // payments-api), a tag filter is exact, and mixing the two into one input
   // makes "why is this row here?" unanswerable.
   const [activeTag, setActiveTag] = useState<ActiveTag>(null);
-  const [expandSignal, setExpandSignal] = useState<ExpandSignal>(null);
+  // A deep-linked filter targets a specific leaf, so open the tree down to it
+  // instead of leaving the user to click through account → region → folder.
+  const [expandSignal, setExpandSignal] = useState<ExpandSignal>(
+    initialFilter ? { version: 1, expand: true } : null,
+  );
 
   const accountNameById = useMemo(() => {
     const m = new Map<string, string>();
